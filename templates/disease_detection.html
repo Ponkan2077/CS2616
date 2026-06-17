@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Disease Detection{% endblock %}
+{% block page_title %}CNN Disease Detection{% endblock %}
+
+{% block content %}
+<!-- Workflow strip -->
+<div class="card mb-4 p-3">
+  <div class="d-flex flex-wrap gap-1 align-items-center justify-content-center" style="font-size:12px;">
+    <div class="workflow-step active" id="step-0">
+      <i class="bi bi-upload"></i> Upload Image
+    </div>
+    <span class="workflow-arrow">›</span>
+    <div class="workflow-step" id="step-1">
+      <i class="bi bi-image"></i> Preview
+    </div>
+    <span class="workflow-arrow">›</span>
+    <div class="workflow-step" id="step-2">
+      <i class="bi bi-cpu"></i> Analyzing
+    </div>
+    <span class="workflow-arrow">›</span>
+    <div class="workflow-step" id="step-3">
+      <i class="bi bi-clipboard2-check"></i> Result
+    </div>
+    <span class="workflow-arrow">›</span>
+    <div class="workflow-step" id="step-4">
+      <i class="bi bi-floppy-fill"></i> Save
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Left: Upload + Preview -->
+  <div class="col-12 col-lg-5">
+    <div class="card p-4">
+      <div class="section-title"><i class="bi bi-cloud-upload-fill"></i> Upload Trunk Image</div>
+
+      <div class="drop-zone mb-3" id="drop-zone">
+        <div id="upload-placeholder">
+          <div class="drop-zone-icon"><i class="bi bi-cloud-arrow-up-fill"></i></div>
+          <div class="fw-semibold mb-1">Drag &amp; drop image here</div>
+          <div class="text-muted" style="font-size:13px;">Supports JPG, PNG, WEBP</div>
+        </div>
+        <img id="preview-img" src="" alt="Preview">
+      </div>
+
+      <div class="d-flex gap-2">
+        <label class="btn-outline-rg flex-grow-1 justify-content-center" style="cursor:pointer;">
+          <i class="bi bi-folder2-open"></i> Browse File
+          <input type="file" id="file-input" accept="image/*" class="d-none">
+        </label>
+        <button id="analyze-btn" class="btn-primary-rg flex-grow-1 justify-content-center" disabled>
+          <i class="bi bi-cpu"></i> Analyze Image
+        </button>
+      </div>
+
+      <!-- Threshold info -->
+      <div class="mt-4 p-3 rounded-3" style="background:var(--surface);border:1px solid var(--border);">
+        <div class="fw-bold mb-2" style="font-size:12px;">Confidence Threshold</div>
+        <div class="d-flex gap-2 flex-wrap">
+          <span class="threshold-badge threshold-confirmed">
+            <i class="bi bi-check-circle-fill"></i> ≥ 80% — Confirmed Detection
+          </span>
+          <span class="threshold-badge threshold-review">
+            <i class="bi bi-exclamation-circle-fill"></i> &lt; 80% — Manual Review
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: Result -->
+  <div class="col-12 col-lg-7">
+    <div class="card p-4" id="result-box" style="display:none;">
+      <div class="section-title"><i class="bi bi-clipboard2-pulse-fill"></i> Detection Result</div>
+
+      <div class="row g-3 mb-4">
+        <div class="col-12">
+          <div class="p-3 rounded-3" style="background:var(--surface);border:1px solid var(--border);">
+            <div class="text-muted" style="font-size:11px;font-weight:600;letter-spacing:.8px;">DETECTED DISEASE CLASS</div>
+            <div id="result-disease" class="fw-bold mt-1" style="font-size:26px;">—</div>
+            <div class="mt-2" id="threshold-badge"></div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="p-3 rounded-3 h-100" style="background:var(--surface);border:1px solid var(--border);">
+            <div class="text-muted" style="font-size:11px;font-weight:600;letter-spacing:.8px;">CONFIDENCE SCORE</div>
+            <div id="result-conf" class="fw-bold mt-1" style="font-size:22px;">—</div>
+            <div class="conf-bar mt-2">
+              <div id="result-fill" class="conf-fill" style="width:0%;background:var(--primary);transition:width .6s ease;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6">
+          <div class="p-3 rounded-3 h-100" style="background:var(--surface);border:1px solid var(--border);">
+            <div class="text-muted" style="font-size:11px;font-weight:600;letter-spacing:.8px;">CNN MODEL</div>
+            <div class="fw-bold mt-1" style="font-size:13px;">MobileNetV3</div>
+            <div class="text-muted" style="font-size:11px;">Transfer Learning · 4 Classes</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <div class="fw-semibold mb-2" style="font-size:13px;"><i class="bi bi-prescription2 text-success me-2"></i>Recommended Action</div>
+        <div id="result-action" class="p-3 rounded-3" style="font-size:13.5px;background:#f0f8f2;border:1px solid #c3e6cb;color:#1a5c30;"></div>
+      </div>
+
+      <div class="d-flex gap-2">
+        <button id="save-result-btn" class="btn-primary-rg flex-grow-1 justify-content-center">
+          <i class="bi bi-floppy-fill"></i> Save Result
+        </button>
+        <a href="{% url 'tree_inventory' %}" class="btn-outline-rg flex-grow-1 justify-content-center" style="text-decoration:none;">
+          <i class="bi bi-table"></i> View Inventory
+        </a>
+      </div>
+    </div>
+
+    <!-- Disease class reference (shown when no result) -->
+    <div id="class-reference" class="card p-4">
+      <div class="section-title"><i class="bi bi-journal-text"></i> Disease Class Reference</div>
+      <div class="row g-2">
+        <div class="col-12 col-sm-6">
+          <div class="p-3 rounded-3 h-100" style="border-left:4px solid var(--healthy);background:#f8fff8;">
+            <div class="fw-bold text-healthy mb-1">Healthy</div>
+            <div class="text-muted" style="font-size:12px;">Normal bark appearance. No lesions, discoloration, or fungal growth. Regular monitoring only.</div>
+          </div>
+        </div>
+        <div class="col-12 col-sm-6">
+          <div class="p-3 rounded-3 h-100" style="border-left:4px solid var(--pink);background:#fff8f8;">
+            <div class="fw-bold text-pink mb-1">Pink Disease</div>
+            <div class="text-muted" style="font-size:12px;">Caused by <em>Erythricium salmonicolor</em>. Pink to salmon corticioid fungal crust on bark. Treat with fungicide.</div>
+          </div>
+        </div>
+        <div class="col-12 col-sm-6">
+          <div class="p-3 rounded-3 h-100" style="border-left:4px solid var(--white-root);background:#fdf8f4;">
+            <div class="fw-bold text-white-root mb-1">White Root Rot</div>
+            <div class="text-muted" style="font-size:12px;">Caused by <em>Rigidoporus lignosus</em>. White mycelial fans at root collar. Soil treatment required.</div>
+          </div>
+        </div>
+        <div class="col-12 col-sm-6">
+          <div class="p-3 rounded-3 h-100" style="border-left:4px solid var(--stem);background:#fff5f5;">
+            <div class="fw-bold text-stem mb-1">Stem Bleeding</div>
+            <div class="text-muted" style="font-size:12px;">Caused by <em>Phytophthora palmivora</em>. Dark exudate on trunk. Avoid tapping and apply Metalaxyl.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Show/hide class reference when result appears
+const resultBox = document.getElementById('result-box');
+const classRef  = document.getElementById('class-reference');
+const observer = new MutationObserver(() => {
+  if (resultBox.style.display !== 'none') {
+    classRef.style.display = 'none';
+  } else {
+    classRef.style.display = '';
+  }
+});
+observer.observe(resultBox, { attributes: true, attributeFilter: ['style'] });
+</script>
+{% endblock %}

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Tree Inventory{% endblock %}
+{% block page_title %}Tree Inventory{% endblock %}
+
+{% block content %}
+<!-- Stats -->
+<div class="row g-2 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
+      <div style="font-size:11px;color:var(--text-muted);font-weight:600;">TOTAL</div>
+      <div class="fw-bold" style="font-size:22px;">{{ total }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
+      <div style="font-size:11px;color:var(--healthy);font-weight:600;">HEALTHY</div>
+      <div class="fw-bold text-healthy" style="font-size:22px;">{{ counts.Healthy }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
+      <div style="font-size:11px;color:var(--pink);font-weight:600;">PINK DISEASE</div>
+      <div class="fw-bold text-pink" style="font-size:22px;">{{ counts.Pink Disease }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
+      <div style="font-size:11px;color:var(--white-root);font-weight:600;">WHITE ROOT</div>
+      <div class="fw-bold text-white-root" style="font-size:22px;">{{ counts.White Root Rot }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Table card -->
+<div class="card">
+  <!-- Toolbar -->
+  <div class="p-3 border-bottom d-flex flex-wrap gap-2 align-items-center justify-content-between">
+    <div class="d-flex gap-2 flex-wrap" style="flex:1;">
+      <div style="position:relative;min-width:200px;flex:1;">
+        <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px;"></i>
+        <input type="text" id="tree-search" class="form-control-rg" placeholder="Search by Tree ID…" style="padding-left:34px;">
+      </div>
+      <select id="disease-filter" class="select-rg" style="width:auto;min-width:160px;">
+        <option value="">All Diseases</option>
+        <option value="Healthy">Healthy</option>
+        <option value="Pink Disease">Pink Disease</option>
+        <option value="White Root Rot">White Root Rot</option>
+        <option value="Stem Bleeding">Stem Bleeding</option>
+      </select>
+    </div>
+    <button id="add-tree-btn" class="btn-primary-rg">
+      <i class="bi bi-plus-lg"></i> Add Tree
+    </button>
+  </div>
+
+  <!-- Table -->
+  <div class="table-responsive-rg" style="overflow-x:auto;">
+    <table class="table-rg" style="min-width:640px;">
+      <thead>
+        <tr>
+          <th>Tree ID</th>
+          <th>GPS Coordinates</th>
+          <th>Disease Status</th>
+          <th>Confidence</th>
+          <th>Date Scanned</th>
+          <th>Block</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in trees %}
+        <tr class="tree-row" data-treeid="{{ t.tree_id }}" data-disease="{{ t.disease }}">
+          <td class="fw-bold" style="color:var(--primary);">{{ t.tree_id }}</td>
+          <td style="font-size:12px;color:var(--text-muted);">{{ t.lat }}, {{ t.lng }}</td>
+          <td>
+            {% if t.disease == 'Healthy' %}
+              <span class="badge-disease badge-healthy">{{ t.disease }}</span>
+            {% elif t.disease == 'Pink Disease' %}
+              <span class="badge-disease badge-pink">{{ t.disease }}</span>
+            {% elif t.disease == 'White Root Rot' %}
+              <span class="badge-disease badge-white-root">{{ t.disease }}</span>
+            {% else %}
+              <span class="badge-disease badge-stem">{{ t.disease }}</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="fw-semibold" style="font-size:12px;">{{ t.confidence }}%</div>
+            <div class="conf-bar" style="width:70px;">
+              <div class="conf-fill" style="width:{{ t.confidence }}%;background:{{ t.color }};"></div>
+            </div>
+          </td>
+          <td style="font-size:12px;">{{ t.date_scanned }}</td>
+          <td style="font-size:12px;">Block {{ t.block }}</td>
+          <td>
+            <a href="{% url 'tree_details' t.tree_id %}" class="btn-primary-rg btn-sm-rg" style="text-decoration:none;">
+              <i class="bi bi-eye"></i> Details
+            </a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="p-3 border-top d-flex justify-content-between align-items-center" style="font-size:12px;color:var(--text-muted);">
+    <span>Showing {{ trees|length }} records</span>
+    <span>Last updated: June 9, 2025</span>
+  </div>
+</div>
+{% endblock %}
