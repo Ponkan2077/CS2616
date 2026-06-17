@@ -154,22 +154,22 @@ MONTHLY_DETECTIONS = [
     {"month": "Jun", "healthy": 43, "pink": 4, "white_root": 3, "stem": 2},
 ]
 
-
 def _get_stats():
     total = len(TREES)
-    counts = {"healthy": 0, "pink": 0, "white_root": 0, "stem": 0}
+    # Use underscored keys
+    counts = {"Healthy": 0, "Pink_Disease": 0, "White_Root_Rot": 0, "Stem_Bleeding": 0}
     disease_key_map = {
-        "Healthy": "healthy",
-        "Pink Disease": "pink",
-        "White Root Rot": "white_root",
-        "Stem Bleeding": "stem",
+        "Healthy": "Healthy",
+        "Pink Disease": "Pink_Disease",
+        "White Root Rot": "White_Root_Rot",
+        "Stem Bleeding": "Stem_Bleeding",
     }
     for t in TREES:
         counts[disease_key_map[t["disease"]]] += 1
     pcts = {k: round(v / total * 100, 1) for k, v in counts.items()}
-    diseased = counts["pink"] + counts["white_root"] + counts["stem"]
+    # Sum them up using the new keys
+    diseased = counts["Pink_Disease"] + counts["White_Root_Rot"] + counts["Stem_Bleeding"]
     return total, counts, pcts, diseased
-
 
 def dashboard(request):
     total, counts, pcts, diseased = _get_stats()

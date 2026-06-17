@@ -2,8 +2,18 @@
 {% block title %}Interactive Farm Map{% endblock %}
 {% block page_title %}Interactive Farm Map{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  #map-container {
+    height: 500px !important; /* Explicitly set height so container doesn't collapse to 0 */
+    width: 100%;
+    background-color: #f8f9fa;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<!-- Stats strip -->
 <div class="row g-2 mb-3">
   <div class="col-6 col-md-3">
     <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
@@ -21,21 +31,19 @@
     <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
       <div style="font-size:11px;color:var(--pink);font-weight:600;">DISEASED</div>
       <div class="fw-bold text-pink">
-        {% with d=counts.Pink Disease|add:counts.White Root Rot %}{{ d }}{% endwith %}
+        {{ diseased }}
       </div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
       <div style="font-size:11px;color:var(--stem);font-weight:600;">STEM BLEEDING</div>
-      <div class="fw-bold text-stem">{{ counts.Stem Bleeding }}</div>
+      <div class="fw-bold text-stem">{{ counts.Stem_Bleeding }}</div>
     </div>
   </div>
 </div>
 
-<!-- Controls + Map card -->
 <div class="card">
-  <!-- Toolbar -->
   <div class="p-3 border-bottom d-flex flex-wrap gap-2 align-items-center">
     <div style="flex:1;min-width:180px;">
       <div style="position:relative;">
@@ -55,10 +63,8 @@
     </button>
   </div>
 
-  <!-- Map -->
   <div id="map-container"></div>
 
-  <!-- Legend -->
   <div class="p-3 border-top">
     <div class="d-flex flex-wrap gap-3 align-items-center">
       <strong style="font-size:12px;">Legend:</strong>
@@ -80,74 +86,83 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const TREES = {{ trees_json|safe }};
+// Delay map engine initialization until layout DOM structure finishes rendering
+document.addEventListener("DOMContentLoaded", function() {
+  const TREES = {{ trees_json|safe }};
 
-// Init map
-const map = L.map('map-container').setView([6.9220, 122.0795], 16);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap contributors',
-  maxZoom: 19,
-}).addTo(map);
+  // Init map
+  const map = L.map('map-container').setView([6.9220, 122.0795], 16);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 19,
+  }).addTo(map);
 
-// Create markers
-const markers = [];
-TREES.forEach(tree => {
-  const circle = L.circleMarker([tree.lat, tree.lng], {
-    radius: 10,
-    color: '#fff',
-    weight: 2,
-    fillColor: tree.color,
-    fillOpacity: 0.9,
+  // Redraw layout properties immediately
+  setTimeout(() => {
+    map.invalidateSize();
+  }, 100);
+
+  // Create markers
+  const markers = [];
+  TREES.forEach(tree => {
+    const circle = L.circleMarker([tree.lat, tree.lng], {
+      radius: 10,
+      color: '#fff',
+      weight: 2,
+      fillColor: tree.color,
+      fillOpacity: 0.9,
+    });
+
+    const popup = `
+      <div class="map-popup-header" style="font-weight:bold; font-size:14px;">${tree.tree_id}</div>
+      <div class="map-popup-row" style="font-size:12px;">Disease: <span>${tree.disease}</span></div>
+      <div class="map-popup-row" style="font-size:12px;">Confidence: <span>${tree.confidence}%</span></div>
+      <div class="map-popup-row" style="font-size:12px;">GPS: <span>${tree.lat.toFixed(4)}, ${tree.lng.toFixed(4)}</span></div>
+      <div class="map-popup-row" style="font-size:12px;">Scanned: <span>${tree.date_scanned}</span></div>
+      <div class="map-popup-row" style="font-size:12px;">Block: <span>${tree.block}</span></div>
+      <div class="map-popup-row" style="margin-top:6px; font-size:12px;">Action: <span style="font-size:11px;">${tree.recommended_action.slice(0,80)}…</span></div>
+      <a href="/inventory/${tree.tree_id}/" style="display:inline-block; margin-top:8px; padding:4px 10px; background:#0d6efd; color:#fff; text-decoration:none; border-radius:4px; font-size:11px;">View Details</a>
+    `;
+    circle.bindPopup(popup, { maxWidth: 280 });
+    circle.addTo(map);
+    markers.push({ el: circle, tree });
   });
 
-  const popup = `
-    <div class="map-popup-header">${tree.tree_id}</div>
-    <div class="map-popup-row">Disease: <span>${tree.disease}</span></div>
-    <div class="map-popup-row">Confidence: <span>${tree.confidence}%</span></div>
-    <div class="map-popup-row">GPS: <span>${tree.lat.toFixed(4)}, ${tree.lng.toFixed(4)}</span></div>
-    <div class="map-popup-row">Scanned: <span>${tree.date_scanned}</span></div>
-    <div class="map-popup-row">Block: <span>${tree.block}</span></div>
-    <div class="map-popup-row" style="margin-top:6px;">Action: <span style="font-size:11px;">${tree.recommended_action.slice(0,80)}…</span></div>
-    <a href="/inventory/${tree.tree_id}/" class="popup-btn">View Details</a>
-  `;
-  circle.bindPopup(popup, { maxWidth: 280 });
-  circle.addTo(map);
-  markers.push({ el: circle, tree });
-});
+  // Search
+  const searchInput = document.getElementById('map-search');
+  const filterSelect = document.getElementById('map-filter');
+  const resetBtn = document.getElementById('map-reset');
 
-// Search
-const searchInput = document.getElementById('map-search');
-const filterSelect = document.getElementById('map-filter');
-const resetBtn = document.getElementById('map-reset');
+  function applyFilters() {
+    const q = searchInput.value.toLowerCase();
+    const d = filterSelect.value;
+    markers.forEach(({ el, tree }) => {
+      const matchQ = !q || tree.tree_id.toLowerCase().includes(q);
+      const matchD = !d || tree.disease === d;
+      if (matchQ && matchD) {
+        if (!map.hasLayer(el)) el.addTo(map);
+      } else {
+        if (map.hasLayer(el)) map.removeLayer(el);
+      }
+    });
+    // Pan to first match
+    const match = markers.find(({ tree }) => {
+      return (!q || tree.tree_id.toLowerCase().includes(q)) &&
+             (!d  || tree.disease === d);
+    });
+    if (match) map.panTo([match.tree.lat, match.tree.lng]);
+  }
 
-function applyFilters() {
-  const q = searchInput.value.toLowerCase();
-  const d = filterSelect.value;
-  markers.forEach(({ el, tree }) => {
-    const matchQ = !q || tree.tree_id.toLowerCase().includes(q);
-    const matchD = !d || tree.disease === d;
-    if (matchQ && matchD) {
-      if (!map.hasLayer(el)) el.addTo(map);
-    } else {
-      if (map.hasLayer(el)) map.removeLayer(el);
-    }
+  searchInput.addEventListener('input', applyFilters);
+  filterSelect.addEventListener('change', applyFilters);
+  resetBtn.addEventListener('click', () => {
+    searchInput.value = '';
+    filterSelect.value = '';
+    markers.forEach(({ el }) => { if (!map.hasLayer(el)) el.addTo(map); });
+    map.setView([6.9220, 122.0795], 16);
   });
-  // Pan to first match
-  const match = markers.find(({ tree }) => {
-    return (!q || tree.tree_id.toLowerCase().includes(q)) &&
-           (!d  || tree.disease === d);
-  });
-  if (match) map.panTo([match.tree.lat, match.tree.lng]);
-}
-
-searchInput.addEventListener('input', applyFilters);
-filterSelect.addEventListener('change', applyFilters);
-resetBtn.addEventListener('click', () => {
-  searchInput.value = '';
-  filterSelect.value = '';
-  markers.forEach(({ el }) => { if (!map.hasLayer(el)) el.addTo(map); });
-  map.setView([6.9220, 122.0795], 16);
 });
 </script>
 {% endblock %}
