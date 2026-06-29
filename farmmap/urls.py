@@ -2,13 +2,6 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
-    # Farm selection (POST via sidebar form)
-    path('select-farm/', views.select_farm, name='select_farm'),
-
-    # Farm management
-    path('farms/', views.farm_list, name='farm_list'),
-    path('farms/<str:farm_id>/', views.farm_detail, name='farm_detail'),
-
     # Core pages
     path('', views.dashboard, name='dashboard'),
     path('map/', views.farm_map, name='farm_map'),
@@ -16,4 +9,11 @@ urlpatterns = [
     path('inventory/', views.tree_inventory, name='tree_inventory'),
     path('inventory/<str:tree_id>/', views.tree_details, name='tree_details'),
     path('reports/', views.reports, name='reports'),
+
+    # Farm management
+    path('farms/', views.farm_list, name='farm_list'),
+    path('farms/<str:farm_id>/', views.farm_detail, name='farm_detail'),
+
+    # Farm selection
+    path('select-farm/', views.select_farm, name='select_farm'),
 ]
