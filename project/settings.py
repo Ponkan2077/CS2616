@@ -9,12 +9,15 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']  # PythonAnywhere: add your .pythonanywhere.com domain here
 
 INSTALLED_APPS = [
+    'django.contrib.contenttypes',
     'django.contrib.staticfiles',
+    'django.contrib.sessions',
     'farmmap',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -37,13 +40,16 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'project.wsgi.application'
 
-# Development SQLITE
+# SQLite database — stores farms, trees, scan history
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+# Sessions stored in the database (requires migrate)
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Asia/Manila'
