@@ -1,148 +1,16 @@
-from django.shortcuts import render
-
-# ─────────────────────────────────────────────
-# MOCK DATA — replace with DB queries later
-# ─────────────────────────────────────────────
-
-TREES = [
-    {
-        "tree_id": "RT-001", "lat": 6.9214, "lng": 122.0790,
-        "disease": "Healthy", "disease_key": "healthy",
-        "confidence": 97.3, "date_scanned": "2025-06-01",
-        "color": "#28a745", "block": "A",
-        "recommended_action": "No action needed. Continue regular monitoring every 30 days.",
-        "notes": "Tree is in excellent condition. Strong bark, no visible lesions.",
-        "history": [
-            {"date": "2025-06-01", "disease": "Healthy", "confidence": 97.3, "inspector": "J. Reyes"},
-            {"date": "2025-03-15", "disease": "Healthy", "confidence": 95.1, "inspector": "J. Reyes"},
-            {"date": "2024-12-10", "disease": "Healthy", "confidence": 96.8, "inspector": "M. Santos"},
-        ],
-        "images": ["tree_sample.jpg"],
-    },
-    {
-        "tree_id": "RT-021", "lat": 6.9228, "lng": 122.0805,
-        "disease": "Pink Disease", "disease_key": "pink",
-        "confidence": 91.6, "date_scanned": "2025-06-05",
-        "color": "#dc3545", "block": "A",
-        "recommended_action": "Apply fungicide (Mancozeb 80% WP) immediately. Remove infected bark and treat with copper-based paste. Re-inspect in 14 days.",
-        "notes": "Pink corticioid fungus visible on lower trunk. Bark discoloration noted.",
-        "history": [
-            {"date": "2025-06-05", "disease": "Pink Disease", "confidence": 91.6, "inspector": "J. Reyes"},
-            {"date": "2025-03-20", "disease": "Healthy", "confidence": 88.4, "inspector": "J. Reyes"},
-            {"date": "2024-12-15", "disease": "Healthy", "confidence": 93.2, "inspector": "M. Santos"},
-        ],
-        "images": ["tree_sample.jpg"],
-    },
-    {
-        "tree_id": "RT-045", "lat": 6.9201, "lng": 122.0778,
-        "disease": "White Root Rot", "disease_key": "white_root",
-        "confidence": 85.9, "date_scanned": "2025-06-03",
-        "color": "#8b5a2b", "block": "B",
-        "recommended_action": "Uproot and destroy infected roots. Treat soil with Trichoderma-based biocontrol. Quarantine surrounding trees within 5m radius.",
-        "notes": "White mycelial fans found under bark near soil line. Severe root infection suspected.",
-        "history": [
-            {"date": "2025-06-03", "disease": "White Root Rot", "confidence": 85.9, "inspector": "M. Santos"},
-            {"date": "2025-02-10", "disease": "White Root Rot", "confidence": 72.4, "inspector": "M. Santos"},
-            {"date": "2024-11-05", "disease": "Healthy", "confidence": 90.1, "inspector": "J. Reyes"},
-        ],
-        "images": ["tree_sample.jpg"],
-    },
-    {
-        "tree_id": "RT-078", "lat": 6.9240, "lng": 122.0820,
-        "disease": "Stem Bleeding", "disease_key": "stem_bleeding",
-        "confidence": 88.2, "date_scanned": "2025-06-07",
-        "color": "#8b0000", "block": "B",
-        "recommended_action": "Scrape off infected bark. Apply Metalaxyl paste to wound. Avoid tapping for 60 days. Monitor latex flow.",
-        "notes": "Dark reddish exudate observed on main trunk. Phytophthora palmivora suspected.",
-        "history": [
-            {"date": "2025-06-07", "disease": "Stem Bleeding", "confidence": 88.2, "inspector": "J. Reyes"},
-            {"date": "2025-04-01", "disease": "Stem Bleeding", "confidence": 76.5, "inspector": "M. Santos"},
-            {"date": "2025-01-20", "disease": "Healthy", "confidence": 92.7, "inspector": "J. Reyes"},
-        ],
-        "images": ["tree_sample.jpg"],
-    },
-    {
-        "tree_id": "RT-099", "lat": 6.9195, "lng": 122.0760,
-        "disease": "Healthy", "disease_key": "healthy",
-        "confidence": 99.1, "date_scanned": "2025-06-01",
-        "color": "#28a745", "block": "C",
-        "recommended_action": "No action needed. Continue regular monitoring every 30 days.",
-        "notes": "Prime tapping tree. High latex yield observed.",
-        "history": [
-            {"date": "2025-06-01", "disease": "Healthy", "confidence": 99.1, "inspector": "J. Reyes"},
-            {"date": "2025-03-10", "disease": "Healthy", "confidence": 98.3, "inspector": "M. Santos"},
-        ],
-        "images": ["tree_sample.jpg"],
-    },
-    {
-        "tree_id": "RT-105", "lat": 6.9255, "lng": 122.0835,
-        "disease": "White Root Rot", "disease_key": "white_root",
-        "confidence": 82.4, "date_scanned": "2025-06-06",
-        "color": "#8b5a2b", "block": "C",
-        "recommended_action": "Uproot and destroy infected roots. Treat soil with Trichoderma-based biocontrol. Quarantine surrounding trees within 5m radius.",
-        "notes": "Early-stage infection. White mycelia strands visible near base.",
-        "history": [
-            {"date": "2025-06-06", "disease": "White Root Rot", "confidence": 82.4, "inspector": "M. Santos"},
-            {"date": "2025-03-22", "disease": "Healthy", "confidence": 91.0, "inspector": "J. Reyes"},
-        ],
-        "images": ["tree_sample.jpg"],
-    },
-    {
-        "tree_id": "RT-112", "lat": 6.9180, "lng": 122.0745,
-        "disease": "Healthy", "disease_key": "healthy",
-        "confidence": 94.7, "date_scanned": "2025-06-02",
-        "color": "#28a745", "block": "D",
-        "recommended_action": "No action needed. Continue regular monitoring every 30 days.",
-        "notes": "Young mature tree. Growth rate normal.",
-        "history": [
-            {"date": "2025-06-02", "disease": "Healthy", "confidence": 94.7, "inspector": "J. Reyes"},
-        ],
-        "images": ["tree_sample.jpg"],
-    },
-    {
-        "tree_id": "RT-134", "lat": 6.9268, "lng": 122.0852,
-        "disease": "Pink Disease", "disease_key": "pink",
-        "confidence": 87.3, "date_scanned": "2025-06-08",
-        "color": "#dc3545", "block": "D",
-        "recommended_action": "Apply fungicide (Mancozeb 80% WP) immediately. Remove infected bark and treat with copper-based paste. Re-inspect in 14 days.",
-        "notes": "Mild pink corticioid infection on upper trunk branches.",
-        "history": [
-            {"date": "2025-06-08", "disease": "Pink Disease", "confidence": 87.3, "inspector": "M. Santos"},
-            {"date": "2025-04-15", "disease": "Healthy", "confidence": 89.5, "inspector": "J. Reyes"},
-        ],
-        "images": ["tree_sample.jpg"],
-    },
-    {
-        "tree_id": "RT-150", "lat": 6.9210, "lng": 122.0800,
-        "disease": "Healthy", "disease_key": "healthy",
-        "confidence": 96.0, "date_scanned": "2025-06-01",
-        "color": "#28a745", "block": "A",
-        "recommended_action": "No action needed. Continue regular monitoring every 30 days.",
-        "notes": "Excellent bark condition. High tapping potential.",
-        "history": [
-            {"date": "2025-06-01", "disease": "Healthy", "confidence": 96.0, "inspector": "J. Reyes"},
-        ],
-        "images": ["tree_sample.jpg"],
-    },
-    {
-        "tree_id": "RT-167", "lat": 6.9235, "lng": 122.0770,
-        "disease": "Stem Bleeding", "disease_key": "stem_bleeding",
-        "confidence": 80.5, "date_scanned": "2025-06-09",
-        "color": "#8b0000", "block": "B",
-        "recommended_action": "Scrape off infected bark. Apply Metalaxyl paste to wound. Avoid tapping for 60 days. Monitor latex flow.",
-        "notes": "Borderline confidence — manual review recommended. Brown streaks on bark.",
-        "history": [
-            {"date": "2025-06-09", "disease": "Stem Bleeding", "confidence": 80.5, "inspector": "M. Santos"},
-        ],
-        "images": ["tree_sample.jpg"],
-    },
-]
+import json
+from django.shortcuts import render, get_object_or_404, redirect
+from .models import Farm, RubberTree, ScanHistory
 
 NOTIFICATIONS = [
-    {"icon": "bi-exclamation-triangle-fill", "color": "text-danger", "msg": "Pink Disease detected at Tree RT-021", "time": "2 hrs ago"},
-    {"icon": "bi-exclamation-triangle-fill", "color": "text-warning", "msg": "White Root Rot detected at Tree RT-105", "time": "5 hrs ago"},
-    {"icon": "bi-exclamation-triangle-fill", "color": "text-danger", "msg": "Stem Bleeding detected at Tree RT-078", "time": "1 day ago"},
-    {"icon": "bi-info-circle-fill", "color": "text-success", "msg": "Scan completed — Block A (50 trees)", "time": "2 days ago"},
+    {"icon": "bi-exclamation-triangle-fill", "color": "text-danger",
+     "msg": "Pink Disease detected at Tree RT-021", "time": "2 hrs ago"},
+    {"icon": "bi-exclamation-triangle-fill", "color": "text-warning",
+     "msg": "White Root Rot detected at Tree RT-105", "time": "5 hrs ago"},
+    {"icon": "bi-exclamation-triangle-fill", "color": "text-danger",
+     "msg": "Stem Bleeding detected at Tree RT-078", "time": "1 day ago"},
+    {"icon": "bi-info-circle-fill", "color": "text-success",
+     "msg": "Scan completed — Block A (50 trees)", "time": "2 days ago"},
 ]
 
 MONTHLY_DETECTIONS = [
@@ -154,9 +22,29 @@ MONTHLY_DETECTIONS = [
     {"month": "Jun", "healthy": 43, "pink": 4, "white_root": 3, "stem": 2},
 ]
 
-def _get_stats():
-    total = len(TREES)
-    # Use underscored keys
+
+# Retrieves the currently selected Farm from the session, or returns None.
+def _get_farm_or_none(request):
+    farm_id = request.session.get("selected_farm_id")
+    if farm_id:
+        return Farm.objects.filter(pk=farm_id).first()
+    return None
+
+
+# Returns a queryset of trees filtered by farm, or all trees if no farm is given.
+def _get_trees(farm=None):
+    qs = RubberTree.objects.select_related("farm")
+    if farm:
+        qs = qs.filter(farm=farm)
+    return qs
+
+
+# Aggregates disease counts and percentages for the selected farm, or all farms if none is selected.
+def _get_stats(farm=None):
+    if farm:
+        return farm.get_stats()
+    trees = RubberTree.objects.all()
+    total = trees.count()
     counts = {"Healthy": 0, "Pink_Disease": 0, "White_Root_Rot": 0, "Stem_Bleeding": 0}
     disease_key_map = {
         "Healthy": "Healthy",
@@ -164,71 +52,155 @@ def _get_stats():
         "White Root Rot": "White_Root_Rot",
         "Stem Bleeding": "Stem_Bleeding",
     }
-    for t in TREES:
-        counts[disease_key_map[t["disease"]]] += 1
-    pcts = {k: round(v / total * 100, 1) for k, v in counts.items()}
-    # Sum them up using the new keys
+    for t in trees:
+        counts[disease_key_map[t.disease]] += 1
+    pcts = {k: round(v / total * 100, 1) if total else 0 for k, v in counts.items()}
     diseased = counts["Pink_Disease"] + counts["White_Root_Rot"] + counts["Stem_Bleeding"]
     return total, counts, pcts, diseased
 
+
+# Builds the base template context shared across all views.
+def _base_context(request, farm=None):
+    all_farms = Farm.objects.all().order_by("farm_id")
+    return {
+        "notifications": NOTIFICATIONS,
+        "all_farms": all_farms,
+        "selected_farm": farm,
+    }
+
+
+# Saves the selected farm to the session and redirects back to the current page.
+def select_farm(request):
+    farm_pk = request.POST.get("farm_pk", "")
+    if farm_pk:
+        request.session["selected_farm_id"] = int(farm_pk)
+    else:
+        request.session.pop("selected_farm_id", None)
+    next_url = request.POST.get("next", "/")
+    return redirect(next_url)
+
+
+# Displays a list of all registered farms.
+def farm_list(request):
+    farms = Farm.objects.all().order_by("farm_id")
+    ctx = _base_context(request)
+    ctx.update({"page": "farm_list", "farms": farms})
+    return render(request, "farm_list.html", ctx)
+
+
+# Displays the details, stats, and tree list for a single farm.
+def farm_detail(request, farm_id):
+    farm = get_object_or_404(Farm, farm_id=farm_id)
+    total, counts, pcts, diseased = farm.get_stats()
+    trees = farm.trees.all().order_by("tree_id")
+    ctx = _base_context(request)
+    ctx.update({
+        "page": "farm_list",
+        "farm": farm,
+        "trees": trees,
+        "total": total, "counts": counts, "pcts": pcts, "diseased": diseased,
+    })
+    return render(request, "farm_detail.html", ctx)
+
+
+# Renders the main dashboard with disease stats and recently scanned trees.
 def dashboard(request):
-    total, counts, pcts, diseased = _get_stats()
-    recent = sorted(TREES, key=lambda t: t["date_scanned"], reverse=True)[:6]
-    context = {
+    farm = _get_farm_or_none(request)
+    total, counts, pcts, diseased = _get_stats(farm)
+    trees = list(_get_trees(farm).order_by("-date_scanned")[:6])
+    recent = [t.to_dict() for t in trees]
+    ctx = _base_context(request, farm)
+    ctx.update({
         "page": "dashboard",
-        "total": total, 
-        "counts": counts, 
-        "pcts": pcts, 
-        "diseased": diseased, # This variable already holds the sum
-        "recent": recent, 
-        "notifications": NOTIFICATIONS,
-        "monthly": MONTHLY_DETECTIONS, 
-        "latest_scan": "June 9, 2025",
-    }
-    return render(request, "dashboard.html", context)
+        "total": total, "counts": counts, "pcts": pcts, "diseased": diseased,
+        "recent": recent,
+        "monthly": MONTHLY_DETECTIONS,
+        "latest_scan": recent[0]["date_scanned"] if recent else "—",
+    })
+    return render(request, "dashboard.html", ctx)
 
 
+# Renders the interactive Leaflet map with tree markers and farm center layers.
 def farm_map(request):
-    import json
-    total, counts, pcts, diseased = _get_stats()
-    context = {
+    farm = _get_farm_or_none(request)
+    total, counts, pcts, diseased = _get_stats(farm)
+    trees_qs = _get_trees(farm)
+    trees_json = json.dumps([t.to_dict() for t in trees_qs])
+    farms_json = json.dumps([
+        {
+            "farm_id": f.farm_id,
+            "name": f.name,
+            "owner": f.owner_name,
+            "lat": f.center_lat,
+            "lng": f.center_lng,
+        }
+        for f in Farm.objects.all()
+    ])
+    ctx = _base_context(request, farm)
+    ctx.update({
         "page": "farm_map",
-        "trees_json": json.dumps(TREES),
-        "notifications": NOTIFICATIONS,
+        "trees_json": trees_json,
+        "farms_json": farms_json,
         "total": total, "counts": counts, "diseased": diseased,
-    }
-    return render(request, "farm_map.html", context)
+    })
+    return render(request, "farm_map.html", ctx)
 
 
+# Renders the disease detection upload page.
 def disease_detection(request):
-    context = {"page": "disease_detection", "notifications": NOTIFICATIONS}
-    return render(request, "disease_detection.html", context)
+    farm = _get_farm_or_none(request)
+    ctx = _base_context(request, farm)
+    ctx.update({"page": "disease_detection"})
+    return render(request, "disease_detection.html", ctx)
 
 
+# Renders the full tree inventory table, filtered by the selected farm if set.
 def tree_inventory(request):
-    total, counts, pcts, diseased = _get_stats()
-    context = {
+    farm = _get_farm_or_none(request)
+    total, counts, pcts, diseased = _get_stats(farm)
+    trees = _get_trees(farm).order_by("tree_id")
+    ctx = _base_context(request, farm)
+    ctx.update({
         "page": "tree_inventory",
-        "trees": TREES, "notifications": NOTIFICATIONS,
+        "trees": trees,
         "total": total, "counts": counts, "diseased": diseased,
-    }
-    return render(request, "tree_inventory.html", context)
+    })
+    return render(request, "tree_inventory.html", ctx)
 
 
+# Renders the detail page for a single tree, including its scan history.
 def tree_details(request, tree_id):
-    tree = next((t for t in TREES if t["tree_id"] == tree_id), None)
-    if tree is None:
-        from django.http import Http404
-        raise Http404("Tree not found")
-    context = {"page": "tree_inventory", "tree": tree, "notifications": NOTIFICATIONS}
-    return render(request, "tree_details.html", context)
+    tree = get_object_or_404(RubberTree.objects.select_related("farm"), tree_id=tree_id)
+    history = tree.history.all()
+    farm = _get_farm_or_none(request)
+    ctx = _base_context(request, farm)
+    ctx.update({
+        "page": "tree_inventory",
+        "tree": tree,
+        "history": history,
+    })
+    return render(request, "tree_details.html", ctx)
 
 
+# Renders the reports page with disease stats and a per-farm breakdown table.
 def reports(request):
-    total, counts, pcts, diseased = _get_stats()
-    context = {
+    farm = _get_farm_or_none(request)
+    total, counts, pcts, diseased = _get_stats(farm)
+    farm_summaries = []
+    for f in Farm.objects.all().order_by("farm_id"):
+        ft, fc, fp, fd = f.get_stats()
+        farm_summaries.append({
+            "farm": f,
+            "total": ft,
+            "counts": fc,
+            "pcts": fp,
+            "diseased": fd,
+        })
+    ctx = _base_context(request, farm)
+    ctx.update({
         "page": "reports",
         "total": total, "counts": counts, "pcts": pcts, "diseased": diseased,
-        "notifications": NOTIFICATIONS, "monthly": MONTHLY_DETECTIONS,
-    }
-    return render(request, "reports.html", context)
+        "monthly": MONTHLY_DETECTIONS,
+        "farm_summaries": farm_summaries,
+    })
+    return render(request, "reports.html", ctx)
