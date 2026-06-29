@@ -47,6 +47,14 @@
         <option value="White Root Rot">White Root Rot</option>
         <option value="Stem Bleeding">Stem Bleeding</option>
       </select>
+      {% if not selected_farm %}
+      <select id="farm-filter" class="select-rg" style="width:auto;min-width:160px;">
+        <option value="">All Farms</option>
+        {% for farm in all_farms %}
+        <option value="{{ farm.farm_id }}">{{ farm.farm_id }} — {{ farm.name }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
     </div>
     <button id="add-tree-btn" class="btn-primary-rg">
       <i class="bi bi-plus-lg"></i> Add Tree
@@ -55,10 +63,11 @@
 
   <!-- Table -->
   <div class="table-responsive-rg" style="overflow-x:auto;">
-    <table class="table-rg" style="min-width:640px;">
+    <table class="table-rg" style="min-width:720px;">
       <thead>
         <tr>
           <th>Tree ID</th>
+          <th>Farm</th>
           <th>GPS Coordinates</th>
           <th>Disease Status</th>
           <th>Confidence</th>
@@ -69,8 +78,13 @@
       </thead>
       <tbody>
         {% for t in trees %}
-        <tr class="tree-row" data-treeid="{{ t.tree_id }}" data-disease="{{ t.disease }}">
+        <tr class="tree-row" data-treeid="{{ t.tree_id }}" data-disease="{{ t.disease }}" data-farm="{{ t.farm.farm_id }}">
           <td class="fw-bold" style="color:var(--primary);">{{ t.tree_id }}</td>
+          <td>
+            <a href="{% url 'farm_detail' t.farm.farm_id %}" style="color:var(--primary);text-decoration:none;font-size:12px;">
+              <span class="badge bg-primary bg-opacity-10 text-primary">{{ t.farm.farm_id }}</span>
+            </a>
+          </td>
           <td style="font-size:12px;color:var(--text-muted);">{{ t.lat }}, {{ t.lng }}</td>
           <td>
             {% if t.disease == 'Healthy' %}
@@ -103,8 +117,38 @@
   </div>
 
   <div class="p-3 border-top d-flex justify-content-between align-items-center" style="font-size:12px;color:var(--text-muted);">
-    <span>Showing {{ trees|length }} records</span>
-    <span>Last updated: June 9, 2025</span>
+    <span id="record-count">Showing {{ trees|length }} records</span>
+    <span>{% if selected_farm %}Filtered: {{ selected_farm.name }}{% else %}All Farms{% endif %}</span>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const searchInput = document.getElementById('tree-search');
+const diseaseFilter = document.getElementById('disease-filter');
+const farmFilter = document.getElementById('farm-filter');
+const rows = document.querySelectorAll('.tree-row');
+
+function filterRows() {
+  const q = searchInput.value.toLowerCase();
+  const disease = diseaseFilter ? diseaseFilter.value : '';
+  const farm = farmFilter ? farmFilter.value : '';
+  let visible = 0;
+  rows.forEach(r => {
+    const matchId = r.dataset.treeid.toLowerCase().includes(q);
+    const matchDisease = !disease || r.dataset.disease === disease;
+    const matchFarm = !farm || r.dataset.farm === farm;
+    const show = matchId && matchDisease && matchFarm;
+    r.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  const counter = document.getElementById('record-count');
+  if (counter) counter.textContent = `Showing ${visible} records`;
+}
+
+if (searchInput) searchInput.addEventListener('input', filterRows);
+if (diseaseFilter) diseaseFilter.addEventListener('change', filterRows);
+if (farmFilter) farmFilter.addEventListener('change', filterRows);
+</script>
 {% endblock %}
