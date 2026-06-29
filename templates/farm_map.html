@@ -6,7 +6,7 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   #map-container {
-    height: 500px !important; /* Explicitly set height so container doesn't collapse to 0 */
+    height: 500px !important;
     width: 100%;
     background-color: #f8f9fa;
   }
@@ -30,9 +30,7 @@
   <div class="col-6 col-md-3">
     <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
       <div style="font-size:11px;color:var(--pink);font-weight:600;">DISEASED</div>
-      <div class="fw-bold text-pink">
-        {{ diseased }}
-      </div>
+      <div class="fw-bold text-pink">{{ diseased }}</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
@@ -58,6 +56,14 @@
       <option value="White Root Rot">White Root Rot</option>
       <option value="Stem Bleeding">Stem Bleeding</option>
     </select>
+    {% if not selected_farm %}
+    <select id="farm-layer-filter" class="select-rg" style="width:auto;min-width:160px;">
+      <option value="">All Farms</option>
+      {% for farm in all_farms %}
+      <option value="{{ farm.farm_id }}">{{ farm.farm_id }} — {{ farm.name }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
     <button id="map-reset" class="btn-outline-rg btn-sm-rg">
       <i class="bi bi-arrow-counterclockwise"></i> Reset
     </button>
@@ -80,6 +86,11 @@
       <div style="font-size:12px;display:flex;align-items:center;gap:5px;">
         <span style="width:14px;height:14px;border-radius:50%;background:var(--stem);display:inline-block;"></span>Stem Bleeding
       </div>
+      {% if not selected_farm %}
+      <div style="font-size:12px;display:flex;align-items:center;gap:5px;">
+        <span style="width:14px;height:14px;border-radius:4px;background:#0d6efd55;border:2px solid #0d6efd;display:inline-block;"></span>Farm Boundary
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -88,23 +99,41 @@
 {% block extra_scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-// Delay map engine initialization until layout DOM structure finishes rendering
 document.addEventListener("DOMContentLoaded", function() {
   const TREES = {{ trees_json|safe }};
+  const FARMS = {{ farms_json|safe }};
 
-  // Init map
-  const map = L.map('map-container').setView([6.9220, 122.0795], 16);
+  // Default center: first tree or fallback
+  const defaultLat = TREES.length ? TREES[0].lat : 6.9220;
+  const defaultLng = TREES.length ? TREES[0].lng : 122.0795;
+
+  const map = L.map('map-container').setView([defaultLat, defaultLng], 16);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors',
     maxZoom: 19,
   }).addTo(map);
 
-  // Redraw layout properties immediately
-  setTimeout(() => {
-    map.invalidateSize();
-  }, 100);
+  setTimeout(() => map.invalidateSize(), 100);
 
-  // Create markers
+  // Farm center markers (only when showing all farms)
+  {% if not selected_farm %}
+  const farmColors = ['#0d6efd', '#6f42c1', '#fd7e14', '#20c997', '#e83e8c'];
+  FARMS.forEach((farm, i) => {
+    const color = farmColors[i % farmColors.length];
+    L.circleMarker([farm.lat, farm.lng], {
+      radius: 18,
+      color: color,
+      weight: 2,
+      fillColor: color,
+      fillOpacity: 0.15,
+      dashArray: '6,4',
+    })
+    .bindPopup(`<b>${farm.farm_id}</b><br>${farm.name}<br><i>${farm.owner}</i>`)
+    .addTo(map);
+  });
+  {% endif %}
+
+  // Tree markers
   const markers = [];
   TREES.forEach(tree => {
     const circle = L.circleMarker([tree.lat, tree.lng], {
@@ -116,52 +145,64 @@ document.addEventListener("DOMContentLoaded", function() {
     });
 
     const popup = `
-      <div class="map-popup-header" style="font-weight:bold; font-size:14px;">${tree.tree_id}</div>
-      <div class="map-popup-row" style="font-size:12px;">Disease: <span>${tree.disease}</span></div>
-      <div class="map-popup-row" style="font-size:12px;">Confidence: <span>${tree.confidence}%</span></div>
-      <div class="map-popup-row" style="font-size:12px;">GPS: <span>${tree.lat.toFixed(4)}, ${tree.lng.toFixed(4)}</span></div>
-      <div class="map-popup-row" style="font-size:12px;">Scanned: <span>${tree.date_scanned}</span></div>
-      <div class="map-popup-row" style="font-size:12px;">Block: <span>${tree.block}</span></div>
-      <div class="map-popup-row" style="margin-top:6px; font-size:12px;">Action: <span style="font-size:11px;">${tree.recommended_action.slice(0,80)}…</span></div>
-      <a href="/inventory/${tree.tree_id}/" style="display:inline-block; margin-top:8px; padding:4px 10px; background:#0d6efd; color:#fff; text-decoration:none; border-radius:4px; font-size:11px;">View Details</a>
+      <div style="font-weight:bold;font-size:14px;">${tree.tree_id}</div>
+      <div style="font-size:11px;color:#666;margin-bottom:4px;">
+        <i class="bi bi-geo-alt-fill"></i> ${tree.farm_id} — ${tree.farm_name}
+      </div>
+      <div style="font-size:12px;">Disease: <b>${tree.disease}</b></div>
+      <div style="font-size:12px;">Confidence: <b>${tree.confidence}%</b></div>
+      <div style="font-size:12px;">GPS: ${tree.lat.toFixed(4)}, ${tree.lng.toFixed(4)}</div>
+      <div style="font-size:12px;">Scanned: ${tree.date_scanned}</div>
+      <div style="font-size:12px;">Block: ${tree.block}</div>
+      <div style="font-size:11px;margin-top:4px;">${tree.recommended_action.slice(0,80)}…</div>
+      <a href="/inventory/${tree.tree_id}/" style="display:inline-block;margin-top:8px;padding:4px 10px;background:#0d6efd;color:#fff;text-decoration:none;border-radius:4px;font-size:11px;">View Details</a>
     `;
     circle.bindPopup(popup, { maxWidth: 280 });
     circle.addTo(map);
     markers.push({ el: circle, tree });
   });
 
-  // Search
+  // Filters
   const searchInput = document.getElementById('map-search');
   const filterSelect = document.getElementById('map-filter');
+  const farmLayerFilter = document.getElementById('farm-layer-filter');
   const resetBtn = document.getElementById('map-reset');
 
   function applyFilters() {
-    const q = searchInput.value.toLowerCase();
-    const d = filterSelect.value;
+    const q = searchInput ? searchInput.value.toLowerCase() : '';
+    const d = filterSelect ? filterSelect.value : '';
+    const f = farmLayerFilter ? farmLayerFilter.value : '';
+
     markers.forEach(({ el, tree }) => {
       const matchQ = !q || tree.tree_id.toLowerCase().includes(q);
       const matchD = !d || tree.disease === d;
-      if (matchQ && matchD) {
+      const matchF = !f || tree.farm_id === f;
+      if (matchQ && matchD && matchF) {
         if (!map.hasLayer(el)) el.addTo(map);
       } else {
         if (map.hasLayer(el)) map.removeLayer(el);
       }
     });
-    // Pan to first match
+
     const match = markers.find(({ tree }) => {
-      return (!q || tree.tree_id.toLowerCase().includes(q)) &&
-             (!d  || tree.disease === d);
+      const matchQ = !q || tree.tree_id.toLowerCase().includes(q);
+      const matchD = !d || tree.disease === d;
+      const matchF = !f || tree.farm_id === f;
+      return matchQ && matchD && matchF;
     });
     if (match) map.panTo([match.tree.lat, match.tree.lng]);
   }
 
-  searchInput.addEventListener('input', applyFilters);
-  filterSelect.addEventListener('change', applyFilters);
-  resetBtn.addEventListener('click', () => {
-    searchInput.value = '';
-    filterSelect.value = '';
+  if (searchInput) searchInput.addEventListener('input', applyFilters);
+  if (filterSelect) filterSelect.addEventListener('change', applyFilters);
+  if (farmLayerFilter) farmLayerFilter.addEventListener('change', applyFilters);
+
+  if (resetBtn) resetBtn.addEventListener('click', () => {
+    if (searchInput) searchInput.value = '';
+    if (filterSelect) filterSelect.value = '';
+    if (farmLayerFilter) farmLayerFilter.value = '';
     markers.forEach(({ el }) => { if (!map.hasLayer(el)) el.addTo(map); });
-    map.setView([6.9220, 122.0795], 16);
+    map.setView([defaultLat, defaultLng], 16);
   });
 });
 </script>
