@@ -31,6 +31,28 @@
     <div class="brand-sub">Hevea brasiliensis Disease Detection System</div>
   </div>
 
+  <!-- Farm Selector -->
+  <div class="px-3 pb-2 pt-1">
+    <form method="POST" action="{% url 'select_farm' %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.path }}">
+      <label class="nav-section-label mb-1" style="display:block;">Active Farm</label>
+      <select name="farm_pk" class="select-rg w-100" onchange="this.form.submit()" style="font-size:12px;">
+        <option value="">— All Farms —</option>
+        {% for farm in all_farms %}
+        <option value="{{ farm.pk }}" {% if selected_farm.pk == farm.pk %}selected{% endif %}>
+          {{ farm.farm_id }} · {{ farm.name }}
+        </option>
+        {% endfor %}
+      </select>
+    </form>
+    {% if selected_farm %}
+    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+      <i class="bi bi-person-fill"></i> {{ selected_farm.owner_name }}
+    </div>
+    {% endif %}
+  </div>
+
   <div class="sidebar-nav">
     <div class="nav-section-label">Main</div>
 
@@ -62,6 +84,14 @@
         <i class="bi bi-bar-chart-fill"></i> Reports &amp; Analytics
       </a>
     </div>
+
+    <div class="nav-section-label">Farms</div>
+
+    <div class="nav-item">
+      <a href="{% url 'farm_list' %}" class="nav-link {% if page == 'farm_list' %}active{% endif %}">
+        <i class="bi bi-geo-alt-fill"></i> Manage Farms
+      </a>
+    </div>
   </div>
 
   <div class="sidebar-footer">
@@ -80,6 +110,13 @@
         <i class="bi bi-list"></i>
       </button>
       <span class="page-title">{% block page_title %}RubberGuard{% endblock %}</span>
+      {% if selected_farm %}
+      <span class="badge bg-success ms-2" style="font-size:11px;font-weight:500;">
+        <i class="bi bi-geo-alt-fill"></i> {{ selected_farm.farm_id }}
+      </span>
+      {% else %}
+      <span class="badge bg-secondary ms-2" style="font-size:11px;font-weight:500;">All Farms</span>
+      {% endif %}
     </div>
     <div class="topbar-right">
       <!-- Notifications -->
