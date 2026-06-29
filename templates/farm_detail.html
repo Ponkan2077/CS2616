@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}{{ farm.name }}{% endblock %}
+{% block page_title %}{{ farm.name }}{% endblock %}
+
+{% block content %}
+<!-- Farm Header -->
+<div class="card mb-4">
+  <div class="p-4">
+    <div class="d-flex flex-wrap gap-3 align-items-start justify-content-between">
+      <div>
+        <span class="badge bg-primary mb-2">{{ farm.farm_id }}</span>
+        <h5 class="mb-1 fw-bold">{{ farm.name }}</h5>
+        <div class="text-muted small"><i class="bi bi-person-fill"></i> Owner: {{ farm.owner_name }}</div>
+        <div class="text-muted small"><i class="bi bi-pin-map-fill"></i> {{ farm.location|default:"—" }}</div>
+      </div>
+      <a href="{% url 'farm_list' %}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Back to Farms
+      </a>
+    </div>
+  </div>
+</div>
+
+<!-- Stats row -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3">
+    <div class="p-3 bg-white rounded-3 border text-center shadow-sm">
+      <div class="text-muted small fw-semibold mb-1">TOTAL TREES</div>
+      <div class="fw-bold" style="font-size:28px;">{{ total }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="p-3 bg-white rounded-3 border text-center shadow-sm">
+      <div class="text-muted small fw-semibold mb-1">HEALTHY</div>
+      <div class="fw-bold text-success" style="font-size:28px;">{{ counts.Healthy }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="p-3 bg-white rounded-3 border text-center shadow-sm">
+      <div class="text-muted small fw-semibold mb-1">DISEASED</div>
+      <div class="fw-bold text-danger" style="font-size:28px;">{{ diseased }}</div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="p-3 bg-white rounded-3 border text-center shadow-sm">
+      <div class="text-muted small fw-semibold mb-1">HEALTH RATE</div>
+      <div class="fw-bold text-success" style="font-size:28px;">{{ pcts.Healthy }}%</div>
+    </div>
+  </div>
+</div>
+
+<!-- KPI Cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3">
+    <div class="kpi-card kpi-healthy">
+      <div class="kpi-label">Healthy</div>
+      <div class="kpi-value text-healthy">{{ counts.Healthy }}</div>
+      <div class="kpi-pct">{{ pcts.Healthy }}% of total</div>
+      <i class="bi bi-check-circle-fill kpi-icon text-healthy"></i>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="kpi-card kpi-pink">
+      <div class="kpi-label">Pink Disease</div>
+      <div class="kpi-value text-pink">{{ counts.Pink_Disease }}</div>
+      <div class="kpi-pct">{{ pcts.Pink_Disease }}% of total</div>
+      <i class="bi bi-virus kpi-icon text-pink"></i>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="kpi-card kpi-white">
+      <div class="kpi-label">White Root Rot</div>
+      <div class="kpi-value text-white-root">{{ counts.White_Root_Rot }}</div>
+      <div class="kpi-pct">{{ pcts.White_Root_Rot }}% of total</div>
+      <i class="bi bi-bug-fill kpi-icon text-white-root"></i>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="kpi-card kpi-stem">
+      <div class="kpi-label">Stem Bleeding</div>
+      <div class="kpi-value text-stem">{{ counts.Stem_Bleeding }}</div>
+      <div class="kpi-pct">{{ pcts.Stem_Bleeding }}% of total</div>
+      <i class="bi bi-droplet-fill kpi-icon text-stem"></i>
+    </div>
+  </div>
+</div>
+
+<!-- Tree table for this farm -->
+<div class="card">
+  <div class="card-header-rg d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-table"></i> Trees in {{ farm.name }}</span>
+    <span class="badge bg-secondary">{{ total }} trees</span>
+  </div>
+  <div class="table-responsive-rg" style="overflow-x:auto;">
+    <table class="table-rg" style="min-width:680px;">
+      <thead>
+        <tr>
+          <th>Tree ID</th>
+          <th>Block</th>
+          <th>Disease</th>
+          <th>Confidence</th>
+          <th>Last Scanned</th>
+          <th>Notes</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tree in trees %}
+        <tr>
+          <td class="fw-semibold">{{ tree.tree_id }}</td>
+          <td>{{ tree.block|default:"—" }}</td>
+          <td>
+            <span class="badge" style="background:{{ tree.color }};">{{ tree.disease }}</span>
+          </td>
+          <td>{{ tree.confidence }}%</td>
+          <td>{{ tree.date_scanned }}</td>
+          <td class="text-muted small">{{ tree.notes|truncatechars:50 }}</td>
+          <td>
+            <a href="{% url 'tree_details' tree.tree_id %}" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-eye"></i>
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="text-center text-muted py-4">No trees registered for this farm.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
