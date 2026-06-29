@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Manage Farms{% endblock %}
+{% block page_title %}Manage Farms{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div class="text-muted small">{{ farms|length }} farm(s) registered</div>
+</div>
+
+<!-- Farm summary table -->
+<div class="card mb-4">
+  <div class="card-header-rg">
+    <i class="bi bi-geo-alt-fill"></i> Registered Farms
+  </div>
+  <div class="table-responsive-rg" style="overflow-x:auto;">
+    <table class="table-rg" style="min-width:700px;">
+      <thead>
+        <tr>
+          <th>Farm ID</th>
+          <th>Farm Name</th>
+          <th>Owner</th>
+          <th>Location</th>
+          <th>Total Trees</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for farm in farms %}
+        <tr>
+          <td><span class="badge bg-primary">{{ farm.farm_id }}</span></td>
+          <td class="fw-semibold">{{ farm.name }}</td>
+          <td>{{ farm.owner_name }}</td>
+          <td class="text-muted small">{{ farm.location|default:"—" }}</td>
+          <td class="fw-bold">{{ farm.trees.count }}</td>
+          <td>
+            <a href="{% url 'farm_detail' farm.farm_id %}" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-eye"></i> View
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6" class="text-center text-muted py-4">No farms registered yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Farm cards -->
+<div class="row g-3">
+  {% for farm in farms %}
+  <div class="col-12 col-md-6 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header-rg">
+        <i class="bi bi-geo-alt-fill"></i> {{ farm.farm_id }} — {{ farm.name }}
+      </div>
+      <div class="p-3">
+        <div class="text-muted small mb-1">
+          <i class="bi bi-person-fill"></i> {{ farm.owner_name }}
+        </div>
+        <div class="text-muted small mb-3">
+          <i class="bi bi-pin-map-fill"></i> {{ farm.location|default:"No location set" }}
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-6">
+            <div class="p-2 bg-light rounded text-center">
+              <div style="font-size:10px;color:var(--text-muted);font-weight:600;">TOTAL TREES</div>
+              <div class="fw-bold fs-5">{{ farm.trees.count }}</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="p-2 bg-light rounded text-center">
+              <div style="font-size:10px;color:var(--text-muted);font-weight:600;">CENTER COORDS</div>
+              <div class="small text-muted">{{ farm.center_lat|floatformat:4 }}, {{ farm.center_lng|floatformat:4 }}</div>
+            </div>
+          </div>
+        </div>
+        <a href="{% url 'farm_detail' farm.farm_id %}" class="btn-primary-rg w-100 text-center d-block">
+          <i class="bi bi-arrow-right-circle"></i> View Farm Details
+        </a>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="col-12">
+    <div class="card p-4 text-center text-muted">
+      <i class="bi bi-geo-alt fs-2 mb-2"></i>
+      <div>No farms registered yet.</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
