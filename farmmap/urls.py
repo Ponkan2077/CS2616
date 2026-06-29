@@ -2,6 +2,14 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # Farm selection (POST via sidebar form)
+    path('select-farm/', views.select_farm, name='select_farm'),
+
+    # Farm management
+    path('farms/', views.farm_list, name='farm_list'),
+    path('farms/<str:farm_id>/', views.farm_detail, name='farm_detail'),
+
+    # Core pages
     path('', views.dashboard, name='dashboard'),
     path('map/', views.farm_map, name='farm_map'),
     path('detection/', views.disease_detection, name='disease_detection'),
