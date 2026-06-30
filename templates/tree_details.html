@@ -3,11 +3,10 @@
 {% block page_title %}Tree Details — {{ tree.tree_id }}{% endblock %}
 
 {% block content %}
-<!-- Breadcrumb -->
 <nav aria-label="breadcrumb" class="mb-3">
   <ol class="breadcrumb" style="font-size:12px;">
-    <li class="breadcrumb-item"><a href="{% url 'tree_inventory' %}" style="color:#2563eb;">Inventory</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'farm_detail' tree.farm.farm_id %}" style="color:#2563eb;">{{ tree.farm.name }}</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'tree_inventory' %}" style="color:var(--primary);">Inventory</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'farm_detail' tree.farm.farm_id %}" style="color:var(--primary);">{{ tree.farm.name }}</a></li>
     <li class="breadcrumb-item active">{{ tree.tree_id }}</li>
   </ol>
 </nav>
@@ -17,11 +16,9 @@
   <div class="col-12 col-lg-5">
 
     <!-- Tree Info -->
-    <div class="card bg-white border rounded-3 shadow-sm mb-3">
-      <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
-        <i class="bi bi-tree-fill"></i> Tree Information
-      </div>
-      <div class="p-3">
+    <div class="card-rg mb-3">
+      <div class="card-header-rg"><i class="bi bi-tree-fill"></i> Tree Information</div>
+      <div class="card-body-rg">
         <div class="d-flex align-items-center gap-3 mb-3">
           <div style="width:52px;height:52px;border-radius:12px;border:2px solid {{ tree.color }};
                display:flex;align-items:center;justify-content:center;flex-shrink:0;">
@@ -29,58 +26,54 @@
           </div>
           <div>
             <div class="fw-bold" style="font-size:20px;">{{ tree.tree_id }}</div>
-            <span style="padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;
-              background:{% if tree.disease == 'Healthy' %}#dcfce7;color:#166534{% elif tree.disease == 'Pink Disease' %}#fee2e2;color:#991b1b{% elif tree.disease == 'White Root Rot' %}#fef3c7;color:#92400e{% else %}#fce7f3;color:#9d174d{% endif %};">
+            <span class="badge-disease
+              {% if tree.disease == 'Healthy' %}badge-healthy
+              {% elif tree.disease == 'Pink Disease' %}badge-pink
+              {% elif tree.disease == 'White Root Rot' %}badge-white-root
+              {% else %}badge-stem{% endif %}">
               {{ tree.disease }}
             </span>
           </div>
         </div>
 
-        <table style="width:100%;font-size:13px;border-collapse:collapse;">
-          {% for label, value in detail_rows %}
-          {% endfor %}
-        </table>
+        <div class="detail-grid">
+          <span class="detail-label">Farm</span>
+          <span><a href="{% url 'farm_detail' tree.farm.farm_id %}" style="color:var(--primary);text-decoration:none;">{{ tree.farm.farm_id }} — {{ tree.farm.name }}</a></span>
 
-        <div style="display:grid;grid-template-columns:auto 1fr;gap:8px 12px;font-size:13px;">
-          <span style="color:#6b7280;font-size:12px;">Farm</span>
-          <span><a href="{% url 'farm_detail' tree.farm.farm_id %}" style="color:#2563eb;text-decoration:none;">{{ tree.farm.farm_id }} — {{ tree.farm.name }}</a></span>
-
-          <span style="color:#6b7280;font-size:12px;">Owner</span>
+          <span class="detail-label">Owner</span>
           <span>{{ tree.farm.owner_name }}</span>
 
-          <span style="color:#6b7280;font-size:12px;">GPS</span>
+          <span class="detail-label">GPS</span>
           <span style="font-size:12px;">{{ tree.lat }}, {{ tree.lng }}</span>
 
-          <span style="color:#6b7280;font-size:12px;">Confidence</span>
+          <span class="detail-label">Confidence</span>
           <span>
             <span class="fw-semibold">{{ tree.confidence }}%</span>
-            <div style="height:4px;border-radius:2px;background:#e5e7eb;width:100px;margin-top:3px;">
-              <div style="height:100%;border-radius:2px;background:{{ tree.color }};width:{{ tree.confidence }}%;"></div>
+            <div class="conf-bar" style="width:100px;margin-top:3px;">
+              <div class="conf-fill" style="width:{{ tree.confidence }}%;background:{{ tree.color }};"></div>
             </div>
           </span>
 
-          <span style="color:#6b7280;font-size:12px;">Date Scanned</span>
+          <span class="detail-label">Date Scanned</span>
           <span>{{ tree.date_scanned }}</span>
 
-          <span style="color:#6b7280;font-size:12px;">Block</span>
+          <span class="detail-label">Block</span>
           <span>Block {{ tree.block }}</span>
 
-          <span style="color:#6b7280;font-size:12px;">Notes</span>
-          <span style="font-size:12px;color:#374151;">{{ tree.notes }}</span>
+          <span class="detail-label">Notes</span>
+          <span style="font-size:12px;color:var(--text-main);">{{ tree.notes }}</span>
         </div>
       </div>
     </div>
 
     <!-- Treatment -->
-    <div class="card bg-white border rounded-3 shadow-sm">
-      <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
-        <i class="bi bi-prescription2"></i> Recommended Treatment
-      </div>
-      <div class="p-3">
+    <div class="card-rg">
+      <div class="card-header-rg"><i class="bi bi-prescription2"></i> Recommended Treatment</div>
+      <div class="card-body-rg">
         <div class="p-3 rounded-3" style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;font-size:13px;">
           <i class="bi bi-lightbulb-fill me-2"></i>{{ tree.recommended_action }}
         </div>
-        <div class="mt-2" style="font-size:11px;color:#9ca3af;">
+        <div class="mt-2" style="font-size:11px;color:var(--text-faint);">
           <i class="bi bi-info-circle me-1"></i>Consult DA Field Office IX for field verification.
         </div>
       </div>
@@ -92,12 +85,10 @@
   <div class="col-12 col-lg-7">
 
     <!-- Mini Map -->
-    <div class="card bg-white border rounded-3 shadow-sm mb-3">
-      <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
-        <i class="bi bi-map-fill"></i> Location on Farm Map
-      </div>
+    <div class="card-rg mb-3">
+      <div class="card-header-rg"><i class="bi bi-map-fill"></i> Location on Farm Map</div>
       <div class="p-2">
-        <div id="mini-map" style="height:220px;border-radius:8px;overflow:hidden;"></div>
+        <div id="mini-map" class="map-mini"></div>
       </div>
       <div class="px-3 pb-3">
         <a href="{% url 'farm_map' %}" class="btn btn-sm btn-outline-primary" style="font-size:12px;">
@@ -107,11 +98,9 @@
     </div>
 
     <!-- Scan History Chart -->
-    <div class="card bg-white border rounded-3 shadow-sm mb-3">
-      <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
-        <i class="bi bi-graph-up"></i> Confidence Over Time
-      </div>
-      <div class="p-3">
+    <div class="card-rg mb-3">
+      <div class="card-header-rg"><i class="bi bi-graph-up"></i> Confidence Over Time</div>
+      <div class="card-body-rg">
         {% if history %}
         <canvas id="historyChart" height="130"></canvas>
         {% else %}
@@ -121,37 +110,36 @@
     </div>
 
     <!-- Disease History Table -->
-    <div class="card bg-white border rounded-3 shadow-sm mb-3">
-      <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
-        <i class="bi bi-clock-history"></i> Disease History
-      </div>
-      <div style="overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <div class="card-rg mb-3">
+      <div class="card-header-rg"><i class="bi bi-clock-history"></i> Disease History</div>
+      <div class="table-responsive-rg">
+        <table class="table-rg">
           <thead>
-            <tr style="background:#f9fafb;border-bottom:1px solid #e5e7eb;">
-              <th style="padding:8px 12px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">DATE</th>
-              <th style="padding:8px 12px;font-size:11px;color:#6b7280;font-weight:600;">RESULT</th>
-              <th style="padding:8px 12px;font-size:11px;color:#6b7280;font-weight:600;">CONF.</th>
-              <th style="padding:8px 12px;font-size:11px;color:#6b7280;font-weight:600;">INSPECTOR</th>
+            <tr>
+              <th>DATE</th>
+              <th>RESULT</th>
+              <th>CONF.</th>
+              <th>INSPECTOR</th>
             </tr>
           </thead>
           <tbody>
             {% for h in history %}
-            <tr style="border-top:1px solid #f1f5f9;">
-              <td style="padding:8px 12px;font-size:12px;">{{ h.date }}</td>
-              <td style="padding:8px 12px;">
-                <span style="padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;
-                  background:{% if h.disease == 'Healthy' %}#dcfce7;color:#166534{% elif h.disease == 'Pink Disease' %}#fee2e2;color:#991b1b{% elif h.disease == 'White Root Rot' %}#fef3c7;color:#92400e{% else %}#fce7f3;color:#9d174d{% endif %};">
+            <tr>
+              <td style="font-size:12px;">{{ h.date }}</td>
+              <td>
+                <span class="badge-disease
+                  {% if h.disease == 'Healthy' %}badge-healthy
+                  {% elif h.disease == 'Pink Disease' %}badge-pink
+                  {% elif h.disease == 'White Root Rot' %}badge-white-root
+                  {% else %}badge-stem{% endif %}">
                   {{ h.disease }}
                 </span>
               </td>
-              <td style="padding:8px 12px;font-size:12px;font-weight:600;">{{ h.confidence }}%</td>
-              <td style="padding:8px 12px;font-size:12px;color:#6b7280;">{{ h.inspector }}</td>
+              <td class="fw-semibold" style="font-size:12px;">{{ h.confidence }}%</td>
+              <td class="text-muted" style="font-size:12px;">{{ h.inspector }}</td>
             </tr>
             {% empty %}
-            <tr>
-              <td colspan="4" class="text-center text-muted py-3" style="font-size:13px;">No scan history available.</td>
-            </tr>
+            <tr><td colspan="4" class="text-center text-muted py-3">No scan history available.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -159,22 +147,20 @@
     </div>
 
     <!-- Inspection summary -->
-    <div class="card bg-white border rounded-3 shadow-sm">
-      <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
-        <i class="bi bi-clipboard2-check-fill"></i> Inspection Summary
-      </div>
-      <div class="p-3 d-flex flex-wrap gap-3">
-        <div class="text-center flex-fill p-3 rounded-3" style="background:#f9fafb;border:1px solid #e5e7eb;">
-          <div class="fw-bold" style="font-size:24px;">{{ history|length }}</div>
-          <div style="font-size:11px;color:#9ca3af;">Total Inspections</div>
+    <div class="card-rg">
+      <div class="card-header-rg"><i class="bi bi-clipboard2-check-fill"></i> Inspection Summary</div>
+      <div class="card-body-rg d-flex flex-wrap gap-3">
+        <div class="stat-box flex-fill">
+          <div class="stat-value">{{ history|length }}</div>
+          <div class="stat-label" style="margin-top:4px;">Total Inspections</div>
         </div>
-        <div class="text-center flex-fill p-3 rounded-3" style="background:#f9fafb;border:1px solid #e5e7eb;">
-          <div class="fw-bold" style="font-size:15px;">{{ tree.date_scanned }}</div>
-          <div style="font-size:11px;color:#9ca3af;">Latest Scan</div>
+        <div class="stat-box flex-fill">
+          <div class="stat-value" style="font-size:15px;">{{ tree.date_scanned }}</div>
+          <div class="stat-label" style="margin-top:4px;">Latest Scan</div>
         </div>
-        <div class="text-center flex-fill p-3 rounded-3" style="background:#f9fafb;border:1px solid #e5e7eb;">
-          <div class="fw-bold" style="font-size:24px;">{{ tree.confidence }}%</div>
-          <div style="font-size:11px;color:#9ca3af;">Current Confidence</div>
+        <div class="stat-box flex-fill">
+          <div class="stat-value">{{ tree.confidence }}%</div>
+          <div class="stat-label" style="margin-top:4px;">Current Confidence</div>
         </div>
       </div>
     </div>
@@ -185,40 +171,21 @@
 
 {% block extra_scripts %}
 <script>
-const miniMap = L.map('mini-map', { zoomControl: true, scrollWheelZoom: false })
-  .setView([{{ tree.lat }}, {{ tree.lng }}], 17);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '© OpenStreetMap',
-}).addTo(miniMap);
-L.circleMarker([{{ tree.lat }}, {{ tree.lng }}], {
-  radius: 10, color: '#fff', weight: 2,
-  fillColor: '{{ tree.color }}', fillOpacity: 0.9,
-}).bindPopup('<b>{{ tree.tree_id }}</b><br>{{ tree.disease }}').addTo(miniMap).openPopup();
-
-{% if history %}
-const histDates = [{% for h in history %}'{{ h.date }}',{% endfor %}].reverse();
-const histConf  = [{% for h in history %}{{ h.confidence }},{% endfor %}].reverse();
-new Chart(document.getElementById('historyChart'), {
-  type: 'line',
-  data: {
-    labels: histDates,
-    datasets: [{
-      label: 'Confidence %',
-      data: histConf,
-      borderColor: '{{ tree.color }}',
-      backgroundColor: '{{ tree.color }}22',
-      tension: .4, fill: true, pointRadius: 5,
-    }]
-  },
-  options: {
-    responsive: true,
-    plugins: { legend: { display: false } },
-    scales: {
-      y: { min: 0, max: 100, ticks: { font: { size: 11 } } },
-      x: { grid: { display: false }, ticks: { font: { size: 11 } } }
-    }
-  }
-});
-{% endif %}
+  const TREE_DETAIL_DATA = {
+    tree: {
+      lat: {{ tree.lat }},
+      lng: {{ tree.lng }},
+      tree_id: '{{ tree.tree_id }}',
+      disease: '{{ tree.disease }}',
+      color: '{{ tree.color }}'
+    },
+    history: [
+      {% for h in history %}
+      { date: '{{ h.date }}', confidence: {{ h.confidence }} },
+      {% endfor %}
+    ]
+  };
 </script>
+{% load static %}
+<script src="{% static 'js/tree_details.js' %}"></script>
 {% endblock %}
