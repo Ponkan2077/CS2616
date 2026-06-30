@@ -2,56 +2,43 @@
 {% block title %}Interactive Farm Map{% endblock %}
 {% block page_title %}Interactive Farm Map{% endblock %}
 
-{% block extra_head %}
-<style>
-  #map-container {
-    height: 55vw;
-    min-height: 280px;
-    max-height: 520px;
-    width: 100%;
-    border-radius: 0 0 12px 12px;
-  }
-</style>
-{% endblock %}
-
 {% block content %}
 <!-- Stats -->
 <div class="row g-2 mb-3">
   <div class="col-6 col-md-3">
-    <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:10px;color:#6b7280;font-weight:600;">TOTAL</div>
-      <div class="fw-bold" style="font-size:20px;">{{ total }}</div>
+    <div class="stat-box">
+      <div class="stat-label">TOTAL</div>
+      <div class="stat-value" style="font-size:20px;">{{ total }}</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
-    <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:10px;color:#28a745;font-weight:600;">HEALTHY</div>
-      <div class="fw-bold text-success" style="font-size:20px;">{{ counts.Healthy }}</div>
+    <div class="stat-box">
+      <div class="stat-label" style="color:var(--healthy);">HEALTHY</div>
+      <div class="stat-value text-healthy" style="font-size:20px;">{{ counts.Healthy }}</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
-    <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:10px;color:#dc3545;font-weight:600;">DISEASED</div>
-      <div class="fw-bold text-danger" style="font-size:20px;">{{ diseased }}</div>
+    <div class="stat-box">
+      <div class="stat-label" style="color:var(--pink);">DISEASED</div>
+      <div class="stat-value text-pink" style="font-size:20px;">{{ diseased }}</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
-    <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:10px;color:#8b0000;font-weight:600;">STEM BLEEDING</div>
-      <div class="fw-bold" style="font-size:20px;color:#8b0000;">{{ counts.Stem_Bleeding }}</div>
+    <div class="stat-box">
+      <div class="stat-label" style="color:var(--stem);">STEM BLEEDING</div>
+      <div class="stat-value text-stem" style="font-size:20px;">{{ counts.Stem_Bleeding }}</div>
     </div>
   </div>
 </div>
 
-<div class="bg-white border rounded-3 shadow-sm">
+<div class="card-rg">
   <!-- Toolbar -->
-  <div class="p-3 border-bottom d-flex flex-wrap gap-2 align-items-center">
-    <div style="position:relative;flex:1;min-width:140px;">
-      <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:13px;"></i>
-      <input type="text" id="map-search" placeholder="Search Tree ID…"
-        style="width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:7px 10px 7px 32px;font-size:13px;outline:none;">
+  <div class="card-body-rg d-flex flex-wrap gap-2 align-items-center" style="padding-bottom:14px;border-bottom:1px solid var(--border);">
+    <div class="search-wrap">
+      <i class="bi bi-search"></i>
+      <input type="text" id="map-search" class="form-control-rg" placeholder="Search Tree ID…">
     </div>
-    <select id="map-filter" style="border:1px solid #e5e7eb;border-radius:8px;padding:7px 10px;font-size:13px;background:#fff;outline:none;">
+    <select id="map-filter" class="select-filter-rg">
       <option value="">All Diseases</option>
       <option value="Healthy">Healthy</option>
       <option value="Pink Disease">Pink Disease</option>
@@ -59,7 +46,7 @@
       <option value="Stem Bleeding">Stem Bleeding</option>
     </select>
     {% if not selected_farm %}
-    <select id="farm-layer-filter" style="border:1px solid #e5e7eb;border-radius:8px;padding:7px 10px;font-size:13px;background:#fff;outline:none;">
+    <select id="farm-layer-filter" class="select-filter-rg">
       <option value="">All Farms</option>
       {% for farm in all_farms %}
       <option value="{{ farm.farm_id }}">{{ farm.farm_id }}</option>
@@ -72,26 +59,18 @@
   </div>
 
   <!-- Map -->
-  <div id="map-container"></div>
+  <div id="map-container" class="map-container-rg"></div>
 
   <!-- Legend -->
   <div class="p-3 border-top d-flex flex-wrap gap-3 align-items-center" style="font-size:12px;">
     <strong>Legend:</strong>
-    <span style="display:flex;align-items:center;gap:5px;">
-      <span style="width:12px;height:12px;border-radius:50%;background:#28a745;display:inline-block;"></span>Healthy
-    </span>
-    <span style="display:flex;align-items:center;gap:5px;">
-      <span style="width:12px;height:12px;border-radius:50%;background:#dc3545;display:inline-block;"></span>Pink Disease
-    </span>
-    <span style="display:flex;align-items:center;gap:5px;">
-      <span style="width:12px;height:12px;border-radius:50%;background:#8b5a2b;display:inline-block;"></span>White Root Rot
-    </span>
-    <span style="display:flex;align-items:center;gap:5px;">
-      <span style="width:12px;height:12px;border-radius:50%;background:#8b0000;display:inline-block;"></span>Stem Bleeding
-    </span>
+    <span><span class="legend-dot" style="background:var(--healthy);"></span>Healthy</span>
+    <span><span class="legend-dot" style="background:var(--pink);"></span>Pink Disease</span>
+    <span><span class="legend-dot" style="background:var(--white-root);"></span>White Root Rot</span>
+    <span><span class="legend-dot" style="background:var(--stem);"></span>Stem Bleeding</span>
     {% if not selected_farm %}
-    <span style="display:flex;align-items:center;gap:5px;">
-      <span style="width:12px;height:12px;border-radius:3px;background:#0d6efd44;border:2px solid #0d6efd;display:inline-block;"></span>Farm Center
+    <span>
+      <span class="legend-dot-farm"></span>Farm Center
     </span>
     {% endif %}
   </div>
@@ -100,76 +79,12 @@
 
 {% block extra_scripts %}
 <script>
-document.addEventListener("DOMContentLoaded", function() {
-  const TREES = {{ trees_json|safe }};
-  const FARMS = {{ farms_json|safe }};
-
-  const defaultLat = TREES.length ? TREES[0].lat : 6.9220;
-  const defaultLng = TREES.length ? TREES[0].lng : 122.0795;
-
-  const map = L.map('map-container').setView([defaultLat, defaultLng], 16);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors', maxZoom: 19,
-  }).addTo(map);
-
-  setTimeout(() => map.invalidateSize(), 150);
-
-  {% if not selected_farm %}
-  const farmColors = ['#0d6efd', '#6f42c1', '#fd7e14', '#20c997', '#e83e8c'];
-  FARMS.forEach((farm, i) => {
-    const color = farmColors[i % farmColors.length];
-    L.circleMarker([farm.lat, farm.lng], {
-      radius: 18, color, weight: 2, fillColor: color, fillOpacity: 0.12, dashArray: '6,4',
-    }).bindPopup(`<b>${farm.farm_id}</b><br>${farm.name}<br><i>${farm.owner}</i>`).addTo(map);
-  });
-  {% endif %}
-
-  const markers = [];
-  TREES.forEach(tree => {
-    const circle = L.circleMarker([tree.lat, tree.lng], {
-      radius: 10, color: '#fff', weight: 2, fillColor: tree.color, fillOpacity: 0.9,
-    });
-    circle.bindPopup(`
-      <div style="font-weight:700;font-size:14px;">${tree.tree_id}</div>
-      <div style="font-size:11px;color:#666;margin-bottom:4px;">${tree.farm_id} — ${tree.farm_name}</div>
-      <div style="font-size:12px;">Disease: <b>${tree.disease}</b></div>
-      <div style="font-size:12px;">Confidence: <b>${tree.confidence}%</b></div>
-      <div style="font-size:12px;">Scanned: ${tree.date_scanned}</div>
-      <div style="font-size:12px;">Block: ${tree.block}</div>
-      <a href="/inventory/${tree.tree_id}/" style="display:inline-block;margin-top:8px;padding:4px 10px;
-        background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;font-size:11px;">View Details</a>
-    `, { maxWidth: 260 });
-    circle.addTo(map);
-    markers.push({ el: circle, tree });
-  });
-
-  const searchInput = document.getElementById('map-search');
-  const filterSelect = document.getElementById('map-filter');
-  const farmLayerFilter = document.getElementById('farm-layer-filter');
-  const resetBtn = document.getElementById('map-reset');
-
-  function applyFilters() {
-    const q = searchInput ? searchInput.value.toLowerCase() : '';
-    const d = filterSelect ? filterSelect.value : '';
-    const f = farmLayerFilter ? farmLayerFilter.value : '';
-    markers.forEach(({ el, tree }) => {
-      const show = (!q || tree.tree_id.toLowerCase().includes(q))
-                && (!d || tree.disease === d)
-                && (!f || tree.farm_id === f);
-      show ? (!map.hasLayer(el) && el.addTo(map)) : (map.hasLayer(el) && map.removeLayer(el));
-    });
-  }
-
-  if (searchInput) searchInput.addEventListener('input', applyFilters);
-  if (filterSelect) filterSelect.addEventListener('change', applyFilters);
-  if (farmLayerFilter) farmLayerFilter.addEventListener('change', applyFilters);
-  if (resetBtn) resetBtn.addEventListener('click', () => {
-    if (searchInput) searchInput.value = '';
-    if (filterSelect) filterSelect.value = '';
-    if (farmLayerFilter) farmLayerFilter.value = '';
-    markers.forEach(({ el }) => { if (!map.hasLayer(el)) el.addTo(map); });
-    map.setView([defaultLat, defaultLng], 16);
-  });
-});
+  const FARM_MAP_DATA = {
+    trees: {{ trees_json|safe }},
+    farms: {{ farms_json|safe }},
+    showFarmLayers: {% if not selected_farm %}true{% else %}false{% endif %}
+  };
 </script>
+{% load static %}
+<script src="{% static 'js/farm_map.js' %}"></script>
 {% endblock %}
