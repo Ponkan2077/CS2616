@@ -4,121 +4,110 @@
 
 {% block content %}
 <!-- Stats -->
-<div class="row g-2 mb-4">
+<div class="row g-2 mb-3">
   <div class="col-6 col-md-3">
     <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:11px;color:var(--text-muted);font-weight:600;">TOTAL</div>
+      <div style="font-size:10px;color:#6b7280;font-weight:600;">TOTAL</div>
       <div class="fw-bold" style="font-size:22px;">{{ total }}</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:11px;color:var(--healthy);font-weight:600;">HEALTHY</div>
-      <div class="fw-bold text-healthy" style="font-size:22px;">{{ counts.Healthy }}</div>
+      <div style="font-size:10px;color:#28a745;font-weight:600;">HEALTHY</div>
+      <div class="fw-bold text-success" style="font-size:22px;">{{ counts.Healthy }}</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:11px;color:var(--pink);font-weight:600;">PINK DISEASE</div>
-      <div class="fw-bold text-pink" style="font-size:22px;">{{ counts.Pink_Disease }}</div>
+      <div style="font-size:10px;color:#dc3545;font-weight:600;">PINK DISEASE</div>
+      <div class="fw-bold" style="font-size:22px;color:#dc3545;">{{ counts.Pink_Disease }}</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:11px;color:var(--white-root);font-weight:600;">WHITE ROOT</div>
-      <div class="fw-bold text-white-root" style="font-size:22px;">{{ counts.White_Root_Rot }}</div>
+      <div style="font-size:10px;color:#8b5a2b;font-weight:600;">WHITE ROOT</div>
+      <div class="fw-bold" style="font-size:22px;color:#8b5a2b;">{{ counts.White_Root_Rot }}</div>
     </div>
   </div>
 </div>
 
-<!-- Table card -->
-<div class="card">
-  <!-- Toolbar -->
-  <div class="p-3 border-bottom d-flex flex-wrap gap-2 align-items-center justify-content-between">
-    <div class="d-flex gap-2 flex-wrap" style="flex:1;">
-      <div style="position:relative;min-width:200px;flex:1;">
-        <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px;"></i>
-        <input type="text" id="tree-search" class="form-control-rg" placeholder="Search by Tree ID…" style="padding-left:34px;">
-      </div>
-      <select id="disease-filter" class="select-rg" style="width:auto;min-width:160px;">
-        <option value="">All Diseases</option>
-        <option value="Healthy">Healthy</option>
-        <option value="Pink Disease">Pink Disease</option>
-        <option value="White Root Rot">White Root Rot</option>
-        <option value="Stem Bleeding">Stem Bleeding</option>
-      </select>
-      {% if not selected_farm %}
-      <select id="farm-filter" class="select-rg" style="width:auto;min-width:160px;">
-        <option value="">All Farms</option>
-        {% for farm in all_farms %}
-        <option value="{{ farm.farm_id }}">{{ farm.farm_id }} — {{ farm.name }}</option>
-        {% endfor %}
-      </select>
-      {% endif %}
+<!-- Toolbar -->
+<div class="bg-white border rounded-3 shadow-sm mb-0" style="border-bottom-left-radius:0!important;border-bottom-right-radius:0!important;">
+  <div class="p-3 d-flex flex-wrap gap-2 align-items-center">
+    <div style="position:relative;flex:1;min-width:160px;">
+      <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:13px;"></i>
+      <input type="text" id="tree-search" placeholder="Search Tree ID…"
+        style="width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:7px 10px 7px 32px;font-size:13px;outline:none;">
     </div>
-    <button id="add-tree-btn" class="btn-primary-rg">
-      <i class="bi bi-plus-lg"></i> Add Tree
-    </button>
+    <select id="disease-filter" style="border:1px solid #e5e7eb;border-radius:8px;padding:7px 10px;font-size:13px;background:#fff;outline:none;">
+      <option value="">All Diseases</option>
+      <option value="Healthy">Healthy</option>
+      <option value="Pink Disease">Pink Disease</option>
+      <option value="White Root Rot">White Root Rot</option>
+      <option value="Stem Bleeding">Stem Bleeding</option>
+    </select>
+    {% if not selected_farm %}
+    <select id="farm-filter" style="border:1px solid #e5e7eb;border-radius:8px;padding:7px 10px;font-size:13px;background:#fff;outline:none;">
+      <option value="">All Farms</option>
+      {% for farm in all_farms %}
+      <option value="{{ farm.farm_id }}">{{ farm.farm_id }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <button class="btn btn-sm btn-primary ms-auto"><i class="bi bi-plus-lg"></i> Add Tree</button>
   </div>
+</div>
 
-  <!-- Table -->
-  <div class="table-responsive-rg" style="overflow-x:auto;">
-    <table class="table-rg" style="min-width:720px;">
-      <thead>
-        <tr>
-          <th>Tree ID</th>
-          <th>Farm</th>
-          <th>GPS Coordinates</th>
-          <th>Disease Status</th>
-          <th>Confidence</th>
-          <th>Date Scanned</th>
-          <th>Block</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for t in trees %}
-        <tr class="tree-row" data-treeid="{{ t.tree_id }}" data-disease="{{ t.disease }}" data-farm="{{ t.farm.farm_id }}">
-          <td class="fw-bold" style="color:var(--primary);">{{ t.tree_id }}</td>
-          <td>
-            <a href="{% url 'farm_detail' t.farm.farm_id %}" style="color:var(--primary);text-decoration:none;font-size:12px;">
-              <span class="badge bg-primary bg-opacity-10 text-primary">{{ t.farm.farm_id }}</span>
-            </a>
-          </td>
-          <td style="font-size:12px;color:var(--text-muted);">{{ t.lat }}, {{ t.lng }}</td>
-          <td>
-            {% if t.disease == 'Healthy' %}
-              <span class="badge-disease badge-healthy">{{ t.disease }}</span>
-            {% elif t.disease == 'Pink Disease' %}
-              <span class="badge-disease badge-pink">{{ t.disease }}</span>
-            {% elif t.disease == 'White Root Rot' %}
-              <span class="badge-disease badge-white-root">{{ t.disease }}</span>
-            {% else %}
-              <span class="badge-disease badge-stem">{{ t.disease }}</span>
-            {% endif %}
-          </td>
-          <td>
-            <div class="fw-semibold" style="font-size:12px;">{{ t.confidence }}%</div>
-            <div class="conf-bar" style="width:70px;">
-              <div class="conf-fill" style="width:{{ t.confidence }}%;background:{{ t.color }};"></div>
-            </div>
-          </td>
-          <td style="font-size:12px;">{{ t.date_scanned }}</td>
-          <td style="font-size:12px;">Block {{ t.block }}</td>
-          <td>
-            <a href="{% url 'tree_details' t.tree_id %}" class="btn-primary-rg btn-sm-rg" style="text-decoration:none;">
-              <i class="bi bi-eye"></i> Details
-            </a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <div class="p-3 border-top d-flex justify-content-between align-items-center" style="font-size:12px;color:var(--text-muted);">
+<!-- Table -->
+<div class="bg-white border border-top-0 rounded-bottom-3 shadow-sm" style="overflow-x:auto;">
+  <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:600px;">
+    <thead>
+      <tr style="background:#f9fafb;border-bottom:1px solid #e5e7eb;">
+        <th style="padding:10px 12px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">TREE ID</th>
+        <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;">FARM</th>
+        <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;">DISEASE</th>
+        <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;">CONF.</th>
+        <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;">DATE</th>
+        <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;">BLOCK</th>
+        <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in trees %}
+      <tr class="tree-row" data-treeid="{{ t.tree_id }}" data-disease="{{ t.disease }}" data-farm="{{ t.farm.farm_id }}"
+          style="border-top:1px solid #f1f5f9;">
+        <td style="padding:10px 12px;font-weight:700;color:#2563eb;">{{ t.tree_id }}</td>
+        <td style="padding:10px 12px;">
+          <a href="{% url 'farm_detail' t.farm.farm_id %}" style="text-decoration:none;">
+            <span style="background:#dbeafe;color:#1e40af;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;">{{ t.farm.farm_id }}</span>
+          </a>
+        </td>
+        <td style="padding:10px 12px;">
+          <span style="padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;
+            background:{% if t.disease == 'Healthy' %}#dcfce7;color:#166534{% elif t.disease == 'Pink Disease' %}#fee2e2;color:#991b1b{% elif t.disease == 'White Root Rot' %}#fef3c7;color:#92400e{% else %}#fce7f3;color:#9d174d{% endif %};">
+            {{ t.disease }}
+          </span>
+        </td>
+        <td style="padding:10px 12px;">
+          <div style="font-size:12px;font-weight:600;">{{ t.confidence }}%</div>
+          <div style="height:4px;border-radius:2px;background:#e5e7eb;width:60px;margin-top:3px;">
+            <div style="height:100%;border-radius:2px;background:{{ t.color }};width:{{ t.confidence }}%;"></div>
+          </div>
+        </td>
+        <td style="padding:10px 12px;font-size:12px;color:#6b7280;">{{ t.date_scanned }}</td>
+        <td style="padding:10px 12px;font-size:12px;">{{ t.block }}</td>
+        <td style="padding:10px 12px;">
+          <a href="{% url 'tree_details' t.tree_id %}" class="btn btn-sm btn-outline-primary" style="font-size:11px;">
+            <i class="bi bi-eye"></i>
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="px-3 py-2 border-top d-flex justify-content-between" style="font-size:12px;color:#9ca3af;">
     <span id="record-count">Showing {{ trees|length }} records</span>
-    <span>{% if selected_farm %}Filtered: {{ selected_farm.name }}{% else %}All Farms{% endif %}</span>
+    <span>{% if selected_farm %}{{ selected_farm.name }}{% else %}All Farms{% endif %}</span>
   </div>
 </div>
 {% endblock %}
@@ -131,17 +120,16 @@ const farmFilter = document.getElementById('farm-filter');
 const rows = document.querySelectorAll('.tree-row');
 
 function filterRows() {
-  const q = searchInput.value.toLowerCase();
+  const q = searchInput ? searchInput.value.toLowerCase() : '';
   const disease = diseaseFilter ? diseaseFilter.value : '';
   const farm = farmFilter ? farmFilter.value : '';
   let visible = 0;
   rows.forEach(r => {
-    const matchId = r.dataset.treeid.toLowerCase().includes(q);
-    const matchDisease = !disease || r.dataset.disease === disease;
-    const matchFarm = !farm || r.dataset.farm === farm;
-    const show = matchId && matchDisease && matchFarm;
-    r.style.display = show ? '' : 'none';
-    if (show) visible++;
+    const ok = (!q || r.dataset.treeid.toLowerCase().includes(q))
+             && (!disease || r.dataset.disease === disease)
+             && (!farm || r.dataset.farm === farm);
+    r.style.display = ok ? '' : 'none';
+    if (ok) visible++;
   });
   const counter = document.getElementById('record-count');
   if (counter) counter.textContent = `Showing ${visible} records`;
