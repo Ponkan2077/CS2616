@@ -1,45 +1,132 @@
 {% extends "base.html" %}
-{% block title %}Reports & Analytics
-<!-- Per-Farm Breakdown (only shown when viewing all farms) -->
+{% block title %}Reports & Analytics{% endblock %}
+{% block page_title %}Reports & Analytics{% endblock %}
+
+{% block content %}
+<!-- KPI Cards -->
+<div class="row g-2 g-md-3 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="p-3 bg-white rounded-3 border shadow-sm position-relative overflow-hidden">
+      <div style="font-size:11px;font-weight:600;color:#6b7280;">Healthy Trees</div>
+      <div class="fw-bold text-success" style="font-size:28px;">{{ counts.Healthy }}</div>
+      <div style="font-size:11px;color:#9ca3af;">{{ pcts.Healthy }}% of total</div>
+      <i class="bi bi-check-circle-fill position-absolute text-success" style="font-size:40px;right:-6px;bottom:-6px;opacity:.1;"></i>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="p-3 bg-white rounded-3 border shadow-sm position-relative overflow-hidden">
+      <div style="font-size:11px;font-weight:600;color:#6b7280;">Pink Disease</div>
+      <div class="fw-bold" style="font-size:28px;color:#dc3545;">{{ counts.Pink_Disease }}</div>
+      <div style="font-size:11px;color:#9ca3af;">{{ pcts.Pink_Disease }}% of total</div>
+      <i class="bi bi-virus position-absolute" style="font-size:40px;right:-6px;bottom:-6px;opacity:.08;color:#dc3545;"></i>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="p-3 bg-white rounded-3 border shadow-sm position-relative overflow-hidden">
+      <div style="font-size:11px;font-weight:600;color:#6b7280;">White Root Rot</div>
+      <div class="fw-bold" style="font-size:28px;color:#8b5a2b;">{{ counts.White_Root_Rot }}</div>
+      <div style="font-size:11px;color:#9ca3af;">{{ pcts.White_Root_Rot }}% of total</div>
+      <i class="bi bi-bug-fill position-absolute" style="font-size:40px;right:-6px;bottom:-6px;opacity:.08;color:#8b5a2b;"></i>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="p-3 bg-white rounded-3 border shadow-sm position-relative overflow-hidden">
+      <div style="font-size:11px;font-weight:600;color:#6b7280;">Stem Bleeding</div>
+      <div class="fw-bold" style="font-size:28px;color:#8b0000;">{{ counts.Stem_Bleeding }}</div>
+      <div style="font-size:11px;color:#9ca3af;">{{ pcts.Stem_Bleeding }}% of total</div>
+      <i class="bi bi-droplet-fill position-absolute" style="font-size:40px;right:-6px;bottom:-6px;opacity:.08;color:#8b0000;"></i>
+    </div>
+  </div>
+</div>
+
+<!-- Export Buttons -->
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  <button class="btn btn-sm btn-primary"><i class="bi bi-file-earmark-pdf-fill me-1"></i>Export PDF</button>
+  <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-filetype-csv me-1"></i>Export CSV</button>
+  <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-excel-fill me-1"></i>Export Excel</button>
+</div>
+
+<!-- Charts Row -->
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-5">
+    <div class="card bg-white border rounded-3 shadow-sm h-100">
+      <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
+        <i class="bi bi-pie-chart-fill"></i> Disease Distribution
+      </div>
+      <div class="p-3 d-flex flex-column align-items-center">
+        <div style="max-width:220px;width:100%;">
+          <canvas id="reportPie"></canvas>
+        </div>
+        <div class="mt-3 d-flex flex-wrap gap-2 justify-content-center" style="font-size:11px;">
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#28a745;margin-right:3px;"></span>Healthy {{ pcts.Healthy }}%</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#dc3545;margin-right:3px;"></span>Pink {{ pcts.Pink_Disease }}%</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#8b5a2b;margin-right:3px;"></span>White Root {{ pcts.White_Root_Rot }}%</span>
+          <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#8b0000;margin-right:3px;"></span>Stem {{ pcts.Stem_Bleeding }}%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-md-7">
+    <div class="card bg-white border rounded-3 shadow-sm h-100">
+      <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
+        <i class="bi bi-bar-chart-fill"></i> Disease Count by Type
+      </div>
+      <div class="p-3">
+        <canvas id="reportBar" height="180"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Monthly Trend -->
+<div class="card bg-white border rounded-3 shadow-sm mb-3">
+  <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
+    <i class="bi bi-graph-up"></i> Monthly Detection Trends
+  </div>
+  <div class="p-3">
+    <canvas id="reportTrend" height="100"></canvas>
+  </div>
+</div>
+
+<!-- Per-Farm Breakdown -->
 {% if not selected_farm and farm_summaries %}
-<div class="card mt-4">
-  <div class="card-header-rg">
+<div class="card bg-white border rounded-3 shadow-sm mb-3">
+  <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
     <i class="bi bi-geo-alt-fill"></i> Disease Breakdown by Farm
   </div>
-  <div class="table-responsive-rg" style="overflow-x:auto;">
-    <table class="table-rg" style="min-width:760px;">
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px;">
       <thead>
-        <tr>
-          <th>Farm</th>
-          <th>Owner</th>
-          <th>Total</th>
-          <th>Healthy</th>
-          <th>Pink Disease</th>
-          <th>White Root Rot</th>
-          <th>Stem Bleeding</th>
-          <th>Health Rate</th>
+        <tr style="background:#f9fafb;">
+          <th style="padding:8px 12px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">FARM</th>
+          <th style="padding:8px 12px;font-size:11px;color:#6b7280;font-weight:600;">OWNER</th>
+          <th style="padding:8px 12px;font-size:11px;color:#6b7280;font-weight:600;">TOTAL</th>
+          <th style="padding:8px 12px;font-size:11px;color:#28a745;font-weight:600;">HEALTHY</th>
+          <th style="padding:8px 12px;font-size:11px;color:#dc3545;font-weight:600;">PINK</th>
+          <th style="padding:8px 12px;font-size:11px;color:#8b5a2b;font-weight:600;">WHITE ROOT</th>
+          <th style="padding:8px 12px;font-size:11px;color:#8b0000;font-weight:600;">STEM</th>
+          <th style="padding:8px 12px;font-size:11px;color:#6b7280;font-weight:600;">HEALTH RATE</th>
         </tr>
       </thead>
       <tbody>
         {% for s in farm_summaries %}
-        <tr>
-          <td>
-            <a href="{% url 'farm_detail' s.farm.farm_id %}" style="color:var(--primary);text-decoration:none;font-weight:600;">
-              {{ s.farm.farm_id }}
-            </a>
-            <div class="text-muted" style="font-size:11px;">{{ s.farm.name }}</div>
+        <tr style="border-top:1px solid #f1f5f9;">
+          <td style="padding:8px 12px;">
+            <a href="{% url 'farm_detail' s.farm.farm_id %}" style="color:#2563eb;text-decoration:none;font-weight:600;">{{ s.farm.farm_id }}</a>
+            <div style="font-size:10px;color:#9ca3af;">{{ s.farm.name }}</div>
           </td>
-          <td class="text-muted small">{{ s.farm.owner_name }}</td>
-          <td class="fw-bold">{{ s.total }}</td>
-          <td class="text-healthy fw-semibold">{{ s.counts.Healthy }}</td>
-          <td class="text-pink fw-semibold">{{ s.counts.Pink_Disease }}</td>
-          <td class="text-white-root fw-semibold">{{ s.counts.White_Root_Rot }}</td>
-          <td class="text-stem fw-semibold">{{ s.counts.Stem_Bleeding }}</td>
-          <td>
-            <div class="conf-bar" style="width:80px;">
-              <div class="conf-fill" style="width:{{ s.pcts.Healthy }}%;background:var(--healthy);"></div>
+          <td style="padding:8px 12px;color:#6b7280;">{{ s.farm.owner_name }}</td>
+          <td style="padding:8px 12px;font-weight:700;">{{ s.total }}</td>
+          <td style="padding:8px 12px;font-weight:700;color:#28a745;">{{ s.counts.Healthy }}</td>
+          <td style="padding:8px 12px;font-weight:700;color:#dc3545;">{{ s.counts.Pink_Disease }}</td>
+          <td style="padding:8px 12px;font-weight:700;color:#8b5a2b;">{{ s.counts.White_Root_Rot }}</td>
+          <td style="padding:8px 12px;font-weight:700;color:#8b0000;">{{ s.counts.Stem_Bleeding }}</td>
+          <td style="padding:8px 12px;">
+            <div style="height:8px;border-radius:4px;background:#e5e7eb;overflow:hidden;width:80px;">
+              <div style="width:{{ s.pcts.Healthy }}%;height:100%;background:#28a745;border-radius:4px;"></div>
             </div>
-            <div style="font-size:11px;">{{ s.pcts.Healthy }}%</div>
+            <div style="font-size:11px;margin-top:2px;">{{ s.pcts.Healthy }}%</div>
           </td>
         </tr>
         {% endfor %}
@@ -49,289 +136,141 @@
 </div>
 {% endif %}
 
-{% endblock %}
-{% block page_title %}Reports & Analytics{% endblock %}
-
-{% block content %}
-
-<!-- KPI Summary Cards -->
-<div class="row g-3 mb-4">
-  <div class="col-6 col-lg-3">
-    <div class="kpi-card kpi-healthy">
-      <div class="kpi-label">Healthy Trees</div>
-      <div class="kpi-value text-healthy">{{ counts.Healthy }}</div>
-      <div class="kpi-pct">{{ pcts.Healthy }}% of total</div>
-      <i class="bi bi-check-circle-fill kpi-icon text-healthy"></i>
-    </div>
-  </div>
-  <div class="col-6 col-lg-3">
-    <div class="kpi-card kpi-pink">
-      <div class="kpi-label">Pink Disease</div>
-      <div class="kpi-value text-pink">{{ counts.Pink_Disease }}</div>
-      <div class="kpi-pct">{{ pcts.Pink_Disease }}% of total</div>
-      <i class="bi bi-virus kpi-icon text-pink"></i>
-    </div>
-  </div>
-  <div class="col-6 col-lg-3">
-    <div class="kpi-card kpi-white">
-      <div class="kpi-label">White Root Rot</div>
-      <div class="kpi-value text-white-root">{{ counts.White_Root_Rot }}</div>
-      <div class="kpi-pct">{{ pcts.White_Root_Rot }}% of total</div>
-      <i class="bi bi-bug-fill kpi-icon text-white-root"></i>
-    </div>
-  </div>
-  <div class="col-6 col-lg-3">
-    <div class="kpi-card kpi-stem">
-      <div class="kpi-label">Stem Bleeding</div>
-      <div class="kpi-value text-stem">{{ counts.Stem_Bleeding }}</div>
-      <div class="kpi-pct">{{ pcts.Stem_Bleeding }}% of total</div>
-      <i class="bi bi-droplet-fill kpi-icon text-stem"></i>
-    </div>
-  </div>
-</div>
-
-<!-- Export Buttons -->
-<div class="d-flex gap-2 mb-4 flex-wrap">
-  <button class="btn-primary-rg export-btn" data-fmt="pdf">
-    <i class="bi bi-file-earmark-pdf-fill"></i> Export PDF
-  </button>
-  <button class="btn-outline-rg export-btn" data-fmt="csv">
-    <i class="bi bi-filetype-csv"></i> Export CSV
-  </button>
-  <button class="btn-outline-rg export-btn" data-fmt="excel">
-    <i class="bi bi-file-earmark-excel-fill"></i> Export Excel
-  </button>
-</div>
-
-<!-- Charts Row 1 -->
-<div class="row g-4 mb-4">
-
-  <div class="col-12 col-md-6">
-    <div class="card h-100">
-      <div class="card-header-rg">
-        <i class="bi bi-pie-chart-fill"></i> Healthy vs. Diseased Trees
-      </div>
-      <div class="p-4">
-        <div class="chart-placeholder" style="height:180px;">
-          <i class="bi bi-pie-chart"></i>
-          <div>Pie Chart — integrate Chart.js</div>
-          <div class="text-muted" style="font-size:11px;">Backend integration required</div>
-        </div>
-        <div class="mt-3" style="height:14px;border-radius:8px;overflow:hidden;display:flex;">
-          <div style="width:{{ pcts.Healthy }}%;background:var(--healthy);"></div>
-          <div style="width:{{ pcts.Pink_Disease }}%;background:var(--pink);"></div>
-          <div style="width:{{ pcts.White_Root_Rot }}%;background:var(--white-root);"></div>
-          <div style="width:{{ pcts.Stem_Bleeding }}%;background:var(--stem);"></div>
-        </div>
-        <div class="d-flex gap-3 mt-3 flex-wrap justify-content-center">
-          <div class="text-center">
-            <div class="fw-bold text-healthy" style="font-size:22px;">{{ counts.Healthy }}</div>
-            <div style="font-size:11px;color:var(--text-muted);">Healthy</div>
-          </div>
-          <div class="text-center">
-            <div class="fw-bold text-danger" style="font-size:22px;">{{ diseased }}</div>
-            <div style="font-size:11px;color:var(--text-muted);">Diseased</div>
-          </div>
-        </div>
-        <div class="d-flex flex-wrap gap-2 mt-3" style="font-size:11px;">
-          <span><span class="legend-dot" style="background:var(--healthy);"></span>Healthy {{ pcts.Healthy }}%</span>
-          <span><span class="legend-dot" style="background:var(--pink);"></span>Pink {{ pcts.Pink_Disease }}%</span>
-          <span><span class="legend-dot" style="background:var(--white-root);"></span>White Root {{ pcts.White_Root_Rot }}%</span>
-          <span><span class="legend-dot" style="background:var(--stem);"></span>Stem {{ pcts.Stem_Bleeding }}%</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-12 col-md-6">
-    <div class="card h-100">
-      <div class="card-header-rg">
-        <i class="bi bi-bar-chart-fill"></i> Disease Distribution
-      </div>
-      <div class="p-4">
-        <div class="chart-placeholder" style="height:180px;">
-          <i class="bi bi-bar-chart"></i>
-          <div>Bar Chart — integrate Chart.js</div>
-          <div class="text-muted" style="font-size:11px;">Backend integration required</div>
-        </div>
-        <div class="mt-3 d-flex flex-column gap-2">
-          <div>
-            <div class="d-flex justify-content-between mb-1" style="font-size:12px;">
-              <span class="fw-semibold">Healthy</span>
-              <span class="text-healthy fw-bold">{{ counts.Healthy }}</span>
-            </div>
-            <div style="height:10px;border-radius:5px;background:var(--border);overflow:hidden;">
-              <div style="width:{{ pcts.Healthy }}%;height:100%;background:var(--healthy);border-radius:5px;"></div>
-            </div>
-          </div>
-          <div>
-            <div class="d-flex justify-content-between mb-1" style="font-size:12px;">
-              <span class="fw-semibold">Pink Disease</span>
-              <span class="text-pink fw-bold">{{ counts.Pink_Disease }}</span>
-            </div>
-            <div style="height:10px;border-radius:5px;background:var(--border);overflow:hidden;">
-              <div style="width:{{ pcts.Pink_Disease }}%;height:100%;background:var(--pink);border-radius:5px;"></div>
-            </div>
-          </div>
-          <div>
-            <div class="d-flex justify-content-between mb-1" style="font-size:12px;">
-              <span class="fw-semibold">White Root Rot</span>
-              <span class="text-white-root fw-bold">{{ counts.White_Root_Rot }}</span>
-            </div>
-            <div style="height:10px;border-radius:5px;background:var(--border);overflow:hidden;">
-              <div style="width:{{ pcts.White_Root_Rot }}%;height:100%;background:var(--white-root);border-radius:5px;"></div>
-            </div>
-          </div>
-          <div>
-            <div class="d-flex justify-content-between mb-1" style="font-size:12px;">
-              <span class="fw-semibold">Stem Bleeding</span>
-              <span class="text-stem fw-bold">{{ counts.Stem_Bleeding }}</span>
-            </div>
-            <div style="height:10px;border-radius:5px;background:var(--border);overflow:hidden;">
-              <div style="width:{{ pcts.Stem_Bleeding }}%;height:100%;background:var(--stem);border-radius:5px;"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Charts Row 2 -->
-<div class="row g-4 mb-4">
-
-  <div class="col-12 col-md-8">
-    <div class="card h-100">
-      <div class="card-header-rg">
-        <i class="bi bi-graph-up"></i> Monthly Detection Trends
-      </div>
-      <div class="p-4">
-        <div class="chart-placeholder mb-3" style="height:160px;">
-          <i class="bi bi-graph-up-arrow"></i>
-          <div>Line Chart — integrate Chart.js</div>
-          <div class="text-muted" style="font-size:11px;">Backend integration required</div>
-        </div>
-        <div class="table-responsive-rg">
-          <table class="table-rg" style="font-size:12px;">
-            <thead>
-              <tr>
-                <th>Month</th>
-                <th style="color:var(--healthy);">Healthy</th>
-                <th style="color:var(--pink);">Pink</th>
-                <th style="color:var(--white-root);">White Root</th>
-                <th style="color:var(--stem);">Stem</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for m in monthly %}
-              <tr>
-                <td class="fw-semibold">{{ m.month }}</td>
-                <td class="text-healthy fw-bold">{{ m.healthy }}</td>
-                <td class="text-pink fw-bold">{{ m.pink }}</td>
-                <td class="text-white-root fw-bold">{{ m.white_root }}</td>
-                <td class="text-stem fw-bold">{{ m.stem }}</td>
-                <td class="fw-bold">{{ m.healthy|add:m.pink|add:m.white_root|add:m.stem }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="col-12 col-md-4">
-    <div class="card h-100">
-      <div class="card-header-rg">
-        <i class="bi bi-geo-alt-fill"></i> Most Affected Areas
-      </div>
-      <div class="p-4">
-        <div class="chart-placeholder mb-3" style="height:160px;">
-          <i class="bi bi-map"></i>
-          <div>Heatmap — integrate Leaflet.js</div>
-          <div class="text-muted" style="font-size:11px;">PostGIS required</div>
-        </div>
-        <div class="d-flex flex-column gap-2 mt-2">
-          <div class="d-flex justify-content-between align-items-center p-2 rounded-2" style="background:var(--surface);font-size:12px;">
-            <span class="fw-semibold">Block A</span>
-            <span class="badge-disease badge-pink">1 Pink Disease</span>
-          </div>
-          <div class="d-flex justify-content-between align-items-center p-2 rounded-2" style="background:var(--surface);font-size:12px;">
-            <span class="fw-semibold">Block B</span>
-            <span class="badge-disease badge-stem">2 Diseased</span>
-          </div>
-          <div class="d-flex justify-content-between align-items-center p-2 rounded-2" style="background:var(--surface);font-size:12px;">
-            <span class="fw-semibold">Block C</span>
-            <span class="badge-disease badge-white-root">1 White Root Rot</span>
-          </div>
-          <div class="d-flex justify-content-between align-items-center p-2 rounded-2" style="background:var(--surface);font-size:12px;">
-            <span class="fw-semibold">Block D</span>
-            <span class="badge-disease badge-pink">1 Pink Disease</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- Analytics Summary Table -->
-<div class="card">
-  <div class="card-header-rg">
+<div class="card bg-white border rounded-3 shadow-sm">
+  <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
     <i class="bi bi-table"></i> Analytics Summary
   </div>
-  <div class="table-responsive-rg">
-    <table class="table-rg">
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:540px;">
       <thead>
-        <tr>
-          <th>Disease Class</th>
-          <th>Count</th>
-          <th>Percentage</th>
-          <th>Severity</th>
-          <th>Recommended Response</th>
+        <tr style="background:#f9fafb;">
+          <th style="padding:8px 12px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">DISEASE CLASS</th>
+          <th style="padding:8px 12px;font-size:11px;color:#6b7280;font-weight:600;">COUNT</th>
+          <th style="padding:8px 12px;font-size:11px;color:#6b7280;font-weight:600;">%</th>
+          <th style="padding:8px 12px;font-size:11px;color:#6b7280;font-weight:600;">SEVERITY</th>
+          <th style="padding:8px 12px;font-size:11px;color:#6b7280;font-weight:600;">RECOMMENDED RESPONSE</th>
         </tr>
       </thead>
       <tbody>
-        <tr>
-          <td><span class="badge-disease badge-healthy">Healthy</span></td>
-          <td class="fw-bold">{{ counts.Healthy }}</td>
-          <td>{{ pcts.Healthy }}%</td>
-          <td><span class="badge bg-success">None</span></td>
-          <td style="font-size:12px;">Routine monitoring every 30 days.</td>
+        <tr style="border-top:1px solid #f1f5f9;">
+          <td style="padding:8px 12px;"><span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">Healthy</span></td>
+          <td style="padding:8px 12px;font-weight:700;">{{ counts.Healthy }}</td>
+          <td style="padding:8px 12px;">{{ pcts.Healthy }}%</td>
+          <td style="padding:8px 12px;"><span class="badge bg-success">None</span></td>
+          <td style="padding:8px 12px;color:#6b7280;">Routine monitoring every 30 days.</td>
         </tr>
-        <tr>
-          <td><span class="badge-disease badge-pink">Pink Disease</span></td>
-          <td class="fw-bold">{{ counts.Pink_Disease }}</td>
-          <td>{{ pcts.Pink_Disease }}%</td>
-          <td><span class="badge bg-warning text-dark">Moderate</span></td>
-          <td style="font-size:12px;">Apply Mancozeb fungicide. Re-inspect in 14 days.</td>
+        <tr style="border-top:1px solid #f1f5f9;">
+          <td style="padding:8px 12px;"><span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">Pink Disease</span></td>
+          <td style="padding:8px 12px;font-weight:700;">{{ counts.Pink_Disease }}</td>
+          <td style="padding:8px 12px;">{{ pcts.Pink_Disease }}%</td>
+          <td style="padding:8px 12px;"><span class="badge bg-warning text-dark">Moderate</span></td>
+          <td style="padding:8px 12px;color:#6b7280;">Apply Mancozeb fungicide. Re-inspect in 14 days.</td>
         </tr>
-        <tr>
-          <td><span class="badge-disease badge-white-root">White Root Rot</span></td>
-          <td class="fw-bold">{{ counts.White_Root_Rot }}</td>
-          <td>{{ pcts.White_Root_Rot }}%</td>
-          <td><span class="badge bg-danger">High</span></td>
-          <td style="font-size:12px;">Quarantine zone. Soil biocontrol treatment required.</td>
+        <tr style="border-top:1px solid #f1f5f9;">
+          <td style="padding:8px 12px;"><span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">White Root Rot</span></td>
+          <td style="padding:8px 12px;font-weight:700;">{{ counts.White_Root_Rot }}</td>
+          <td style="padding:8px 12px;">{{ pcts.White_Root_Rot }}%</td>
+          <td style="padding:8px 12px;"><span class="badge bg-danger">High</span></td>
+          <td style="padding:8px 12px;color:#6b7280;">Quarantine zone. Soil biocontrol treatment required.</td>
         </tr>
-        <tr>
-          <td><span class="badge-disease badge-stem">Stem Bleeding</span></td>
-          <td class="fw-bold">{{ counts.Stem_Bleeding }}</td>
-          <td>{{ pcts.Stem_Bleeding }}%</td>
-          <td><span class="badge bg-danger">High</span></td>
-          <td style="font-size:12px;">Halt tapping. Apply Metalaxyl. Monitor latex flow.</td>
+        <tr style="border-top:1px solid #f1f5f9;">
+          <td style="padding:8px 12px;"><span style="background:#fce7f3;color:#9d174d;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">Stem Bleeding</span></td>
+          <td style="padding:8px 12px;font-weight:700;">{{ counts.Stem_Bleeding }}</td>
+          <td style="padding:8px 12px;">{{ pcts.Stem_Bleeding }}%</td>
+          <td style="padding:8px 12px;"><span class="badge bg-danger">High</span></td>
+          <td style="padding:8px 12px;color:#6b7280;">Halt tapping. Apply Metalaxyl. Monitor latex flow.</td>
+        </tr>
+        <tr style="border-top:1px solid #e5e7eb;background:#f9fafb;">
+          <td style="padding:8px 12px;font-weight:700;">Total</td>
+          <td style="padding:8px 12px;font-weight:700;">{{ total }}</td>
+          <td style="padding:8px 12px;font-weight:700;">100%</td>
+          <td style="padding:8px 12px;">—</td>
+          <td style="padding:8px 12px;color:#9ca3af;">Last scan: {{ latest_scan|default:"—" }}</td>
         </tr>
       </tbody>
-      <tfoot>
-        <tr style="background:var(--surface);">
-          <td class="fw-bold">Total</td>
-          <td class="fw-bold">{{ total }}</td>
-          <td class="fw-bold">100%</td>
-          <td>—</td>
-          <td style="font-size:12px;">Last scan: June 9, 2025</td>
-        </tr>
-      </tfoot>
     </table>
   </div>
 </div>
+{% endblock %}
 
+{% block extra_scripts %}
+<script>
+new Chart(document.getElementById('reportPie'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Healthy', 'Pink Disease', 'White Root Rot', 'Stem Bleeding'],
+    datasets: [{
+      data: [{{ counts.Healthy }}, {{ counts.Pink_Disease }}, {{ counts.White_Root_Rot }}, {{ counts.Stem_Bleeding }}],
+      backgroundColor: ['#28a745', '#dc3545', '#8b5a2b', '#8b0000'],
+      borderWidth: 2, borderColor: '#fff',
+    }]
+  },
+  options: {
+    responsive: true, cutout: '60%',
+    plugins: { legend: { display: false } }
+  }
+});
+
+new Chart(document.getElementById('reportBar'), {
+  type: 'bar',
+  data: {
+    labels: ['Healthy', 'Pink Disease', 'White Root Rot', 'Stem Bleeding'],
+    datasets: [{
+      data: [{{ counts.Healthy }}, {{ counts.Pink_Disease }}, {{ counts.White_Root_Rot }}, {{ counts.Stem_Bleeding }}],
+      backgroundColor: ['#28a745', '#dc3545', '#8b5a2b', '#8b0000'],
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+      y: { beginAtZero: true, ticks: { font: { size: 11 }, stepSize: 1 } }
+    }
+  }
+});
+
+new Chart(document.getElementById('reportTrend'), {
+  type: 'line',
+  data: {
+    labels: [{% for m in monthly %}'{{ m.month }}',{% endfor %}],
+    datasets: [
+      {
+        label: 'Healthy',
+        data: [{% for m in monthly %}{{ m.healthy }},{% endfor %}],
+        borderColor: '#28a745', backgroundColor: 'rgba(40,167,69,.1)',
+        tension: .4, fill: true, pointRadius: 4,
+      },
+      {
+        label: 'Pink Disease',
+        data: [{% for m in monthly %}{{ m.pink }},{% endfor %}],
+        borderColor: '#dc3545', backgroundColor: 'rgba(220,53,69,.08)',
+        tension: .4, fill: false, pointRadius: 4,
+      },
+      {
+        label: 'White Root Rot',
+        data: [{% for m in monthly %}{{ m.white_root }},{% endfor %}],
+        borderColor: '#8b5a2b', backgroundColor: 'rgba(139,90,43,.08)',
+        tension: .4, fill: false, pointRadius: 4,
+      },
+      {
+        label: 'Stem Bleeding',
+        data: [{% for m in monthly %}{{ m.stem }},{% endfor %}],
+        borderColor: '#8b0000', backgroundColor: 'rgba(139,0,0,.08)',
+        tension: .4, fill: false, pointRadius: 4,
+      },
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } } },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+      y: { beginAtZero: true, ticks: { font: { size: 11 } } }
+    }
+  }
+});
+</script>
 {% endblock %}
