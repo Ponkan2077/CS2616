@@ -52,6 +52,12 @@ class RubberTree(models.Model):
         "White Root Rot": "white_root",
         "Stem Bleeding": "stem_bleeding",
     }
+    SEVERITY_MAP = {
+        "Healthy": 0,
+        "Pink Disease": 1,
+        "White Root Rot": 2,
+        "Stem Bleeding": 3,
+    }
 
     farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name="trees")
     tree_id = models.CharField(max_length=20, unique=True)
@@ -78,6 +84,11 @@ class RubberTree(models.Model):
         # Returns a URL-safe key for the disease, used in templates and JS.
         return self.DISEASE_KEY_MAP.get(self.disease, "healthy")
 
+    @property
+    def severity(self):
+        # Returns a 0-3 severity score used for heatmap intensity (0=healthy, 3=most severe).
+        return self.SEVERITY_MAP.get(self.disease, 0)
+
     def to_dict(self):
         # Returns a JSON-serializable dict of the tree's data for map and JS usage.
         return {
@@ -94,6 +105,8 @@ class RubberTree(models.Model):
             "block": self.block,
             "recommended_action": self.recommended_action,
             "notes": self.notes,
+            "severity": self.severity,
+            "severity_weight": round((self.severity / 3) * (self.confidence / 100), 3) if self.severity else 0,
         }
 
 
@@ -110,4 +123,3 @@ class ScanHistory(models.Model):
     def __str__(self):
         # Returns a readable string showing the tree, scan date, and detected disease.
         return f"{self.tree.tree_id} on {self.date}: {self.disease}"
-
