@@ -9,7 +9,6 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
   {% load static %}
-  <link href="{% static 'css/style.css' %}" rel="stylesheet">
   <style>
     /* ── Mobile-first layout ── */
     :root {
@@ -17,7 +16,9 @@
       --topbar-h: 56px;
     }
 
-    body { font-family: 'Inter', sans-serif; background: #f4f6f9; margin: 0; overflow-x: hidden; }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { max-width: 100%; overflow-x: hidden; }
+    body { font-family: 'Inter', sans-serif; background: #f4f6f9; margin: 0; }
 
     /* Sidebar */
     #sidebar {
@@ -85,7 +86,7 @@
       justify-content: center; cursor: pointer; }
 
     /* Content */
-    #main-wrapper { min-height: 100vh; }
+    #main-wrapper { min-height: 100vh; width: 100%; max-width: 100vw; overflow-x: hidden; }
     #content { padding: 16px; }
     @media (min-width: 768px) { #content { padding: 24px; } }
 
