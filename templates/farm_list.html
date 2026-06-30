@@ -7,49 +7,49 @@
   <div class="text-muted small">{{ farms|length }} farm(s) registered</div>
 </div>
 
-<!-- Summary table (desktop-friendly, scrolls on mobile) -->
-<div class="bg-white border rounded-3 shadow-sm mb-3" style="overflow-x:auto;">
-  <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:560px;">
-    <thead>
-      <tr style="background:#f9fafb;border-bottom:1px solid #e5e7eb;">
-        <th style="padding:10px 12px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">FARM ID</th>
-        <th style="padding:10px 12px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">NAME</th>
-        <th style="padding:10px 12px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">OWNER</th>
-        <th style="padding:10px 12px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">LOCATION</th>
-        <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;">TREES</th>
-        <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;"></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for farm in farms %}
-      <tr style="border-top:1px solid #f1f5f9;">
-        <td style="padding:10px 12px;"><span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">{{ farm.farm_id }}</span></td>
-        <td style="padding:10px 12px;font-weight:600;">{{ farm.name }}</td>
-        <td style="padding:10px 12px;color:#6b7280;">{{ farm.owner_name }}</td>
-        <td style="padding:10px 12px;color:#6b7280;font-size:12px;">{{ farm.location|default:"—" }}</td>
-        <td style="padding:10px 12px;font-weight:700;text-align:center;">{{ farm.trees.count }}</td>
-        <td style="padding:10px 12px;">
-          <a href="{% url 'farm_detail' farm.farm_id %}" class="btn btn-sm btn-outline-primary" style="font-size:11px;">
-            <i class="bi bi-eye"></i> View
-          </a>
-        </td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="6" class="text-center text-muted py-4">No farms registered yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<!-- Summary table -->
+<div class="card-rg mb-3">
+  <div class="table-responsive-rg">
+    <table class="table-rg" style="min-width:560px;">
+      <thead>
+        <tr>
+          <th>FARM ID</th>
+          <th>NAME</th>
+          <th>OWNER</th>
+          <th>LOCATION</th>
+          <th>TREES</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for farm in farms %}
+        <tr>
+          <td><span class="badge-farm">{{ farm.farm_id }}</span></td>
+          <td class="fw-semibold">{{ farm.name }}</td>
+          <td class="text-muted">{{ farm.owner_name }}</td>
+          <td class="text-muted" style="font-size:12px;">{{ farm.location|default:"—" }}</td>
+          <td class="fw-bold text-center">{{ farm.trees.count }}</td>
+          <td>
+            <a href="{% url 'farm_detail' farm.farm_id %}" class="btn btn-sm btn-outline-primary" style="font-size:11px;">
+              <i class="bi bi-eye"></i> View
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-muted py-4">No farms registered yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
-<!-- Farm cards (2-per-row on mobile, 3-per-row on desktop) -->
+<!-- Farm cards -->
 <div class="row g-2 g-md-3">
   {% for farm in farms %}
   <div class="col-12 col-md-6 col-xl-4">
-    <div class="bg-white border rounded-3 shadow-sm h-100">
-      <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
-        <i class="bi bi-geo-alt-fill"></i> {{ farm.farm_id }}
-      </div>
-      <div class="p-3">
+    <div class="card-rg h-100">
+      <div class="card-header-rg"><i class="bi bi-geo-alt-fill"></i> {{ farm.farm_id }}</div>
+      <div class="card-body-rg">
         <div class="fw-bold mb-1" style="font-size:14px;">{{ farm.name }}</div>
         <div class="text-muted mb-1" style="font-size:12px;">
           <i class="bi bi-person-fill"></i> {{ farm.owner_name }}
@@ -59,15 +59,15 @@
         </div>
         <div class="row g-2 mb-3">
           <div class="col-6">
-            <div class="p-2 rounded-3 text-center" style="background:#f9fafb;border:1px solid #e5e7eb;">
-              <div style="font-size:10px;color:#9ca3af;font-weight:600;">TREES</div>
-              <div class="fw-bold" style="font-size:18px;">{{ farm.trees.count }}</div>
+            <div class="stat-box">
+              <div class="stat-label">TREES</div>
+              <div class="stat-value" style="font-size:18px;">{{ farm.trees.count }}</div>
             </div>
           </div>
           <div class="col-6">
-            <div class="p-2 rounded-3 text-center" style="background:#f9fafb;border:1px solid #e5e7eb;">
-              <div style="font-size:10px;color:#9ca3af;font-weight:600;">CENTER</div>
-              <div style="font-size:10px;color:#6b7280;">{{ farm.center_lat|floatformat:3 }}, {{ farm.center_lng|floatformat:3 }}</div>
+            <div class="stat-box">
+              <div class="stat-label">CENTER</div>
+              <div style="font-size:10px;color:var(--text-muted);">{{ farm.center_lat|floatformat:3 }}, {{ farm.center_lng|floatformat:3 }}</div>
             </div>
           </div>
         </div>
@@ -79,7 +79,7 @@
   </div>
   {% empty %}
   <div class="col-12">
-    <div class="bg-white border rounded-3 p-4 text-center text-muted">
+    <div class="card-rg card-body-rg text-center text-muted">
       <i class="bi bi-geo-alt fs-2 mb-2 d-block"></i>
       No farms registered yet.
     </div>
