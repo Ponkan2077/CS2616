@@ -4,26 +4,113 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}RubberGuard{% endblock %} — Rubber Tree Disease Detection</title>
-
-  <!-- Bootstrap 5 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-  <!-- Bootstrap Icons -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-  <!-- Google Fonts: Inter -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <!-- Leaflet CSS -->
   <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
-  <!-- Custom styles -->
   {% load static %}
   <link href="{% static 'css/style.css' %}" rel="stylesheet">
+  <style>
+    /* ── Mobile-first layout ── */
+    :root {
+      --sidebar-w: 260px;
+      --topbar-h: 56px;
+    }
+
+    body { font-family: 'Inter', sans-serif; background: #f4f6f9; margin: 0; overflow-x: hidden; }
+
+    /* Sidebar */
+    #sidebar {
+      position: fixed; top: 0; left: 0; height: 100vh; width: var(--sidebar-w);
+      background: #1a2535; color: #fff; display: flex; flex-direction: column;
+      z-index: 1040; transform: translateX(-100%); transition: transform .25s ease;
+      overflow-y: auto;
+    }
+    #sidebar.open { transform: translateX(0); }
+
+    /* Desktop: always visible */
+    @media (min-width: 992px) {
+      #sidebar { transform: translateX(0); }
+      #main-wrapper { margin-left: var(--sidebar-w); }
+      #hamburger { display: none; }
+      #sidebar-overlay { display: none !important; }
+    }
+
+    #sidebar-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45);
+      z-index: 1039;
+    }
+    #sidebar-overlay.show { display: block; }
+
+    .sidebar-brand { padding: 20px 16px 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
+    .brand-icon { font-size: 28px; color: #4ade80; margin-bottom: 4px; }
+    .brand-title { font-size: 17px; font-weight: 700; }
+    .brand-sub { font-size: 10px; color: rgba(255,255,255,.45); margin-top: 2px; }
+
+    .sidebar-nav { padding: 8px 0; flex: 1; }
+    .nav-section-label { font-size: 10px; font-weight: 700; letter-spacing: .08em;
+      color: rgba(255,255,255,.35); padding: 14px 16px 4px; text-transform: uppercase; }
+    .nav-link { display: flex; align-items: center; gap: 10px; padding: 9px 16px;
+      color: rgba(255,255,255,.7); font-size: 13.5px; text-decoration: none;
+      border-radius: 0; transition: background .15s, color .15s; }
+    .nav-link:hover, .nav-link.active {
+      background: rgba(255,255,255,.08); color: #fff; }
+    .nav-link.active { border-left: 3px solid #4ade80; }
+
+    .sidebar-footer { padding: 12px 16px; font-size: 10px; color: rgba(255,255,255,.3);
+      border-top: 1px solid rgba(255,255,255,.08); }
+
+    /* Topbar */
+    #topbar {
+      position: sticky; top: 0; height: var(--topbar-h); background: #fff;
+      border-bottom: 1px solid #e5e7eb; display: flex; align-items: center;
+      justify-content: space-between; padding: 0 16px; z-index: 100;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    .topbar-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .topbar-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .page-title { font-size: 15px; font-weight: 700; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+    @media (min-width: 480px) { .page-title { max-width: none; } }
+
+    #hamburger { background: none; border: none; font-size: 22px; cursor: pointer;
+      color: #374151; padding: 4px; line-height: 1; }
+    .topbar-btn { background: none; border: 1px solid #e5e7eb; border-radius: 8px;
+      width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: #374151; position: relative; font-size: 16px; }
+    .badge-dot { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px;
+      background: #ef4444; border-radius: 50%; border: 1px solid #fff; }
+    .avatar { width: 34px; height: 34px; border-radius: 50%; background: #1a2535;
+      color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center;
+      justify-content: center; cursor: pointer; }
+
+    /* Content */
+    #main-wrapper { min-height: 100vh; }
+    #content { padding: 16px; }
+    @media (min-width: 768px) { #content { padding: 24px; } }
+
+    /* Notification dropdown */
+    .notif-dropdown { width: min(340px, 92vw); padding: 0; border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0,0,0,.12); }
+    .notif-header { padding: 12px 16px; font-weight: 600; font-size: 13px;
+      border-bottom: 1px solid #f1f5f9; }
+    .notif-item { display: flex; gap: 10px; padding: 10px 16px; font-size: 12px;
+      border-bottom: 1px solid #f8fafc; }
+    .notif-time { font-size: 10px; color: #9ca3af; }
+
+    /* Farm selector */
+    .select-rg {
+      border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 10px;
+      font-size: 12px; background: #fff; color: #374151; outline: none;
+      width: 100%;
+    }
+  </style>
   {% block extra_head %}{% endblock %}
 </head>
 <body>
 
-<!-- Sidebar Overlay (mobile) -->
 <div id="sidebar-overlay"></div>
 
-<!-- ── Sidebar ──────────────────────────────────────────── -->
 <nav id="sidebar">
   <div class="sidebar-brand">
     <div class="brand-icon"><i class="bi bi-tree-fill"></i></div>
@@ -31,13 +118,12 @@
     <div class="brand-sub">Hevea brasiliensis Disease Detection System</div>
   </div>
 
-  <!-- Farm Selector -->
-  <div class="px-3 pb-2 pt-1">
+  <div class="px-3 pb-2 pt-2">
     <form method="POST" action="{% url 'select_farm' %}">
       {% csrf_token %}
       <input type="hidden" name="next" value="{{ request.path }}">
-      <label class="nav-section-label mb-1" style="display:block;">Active Farm</label>
-      <select name="farm_pk" class="select-rg w-100" onchange="this.form.submit()" style="font-size:12px;">
+      <label class="nav-section-label mb-1" style="display:block;padding:0 0 4px;">Active Farm</label>
+      <select name="farm_pk" class="select-rg" onchange="this.form.submit()">
         <option value="">— All Farms —</option>
         {% for farm in all_farms %}
         <option value="{{ farm.pk }}" {% if selected_farm.pk == farm.pk %}selected{% endif %}>
@@ -47,7 +133,7 @@
       </select>
     </form>
     {% if selected_farm %}
-    <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+    <div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:5px;">
       <i class="bi bi-person-fill"></i> {{ selected_farm.owner_name }}
     </div>
     {% endif %}
@@ -55,7 +141,6 @@
 
   <div class="sidebar-nav">
     <div class="nav-section-label">Main</div>
-
     <div class="nav-item">
       <a href="{% url 'dashboard' %}" class="nav-link {% if page == 'dashboard' %}active{% endif %}">
         <i class="bi bi-grid-1x2-fill"></i> Dashboard
@@ -73,7 +158,6 @@
     </div>
 
     <div class="nav-section-label">Data</div>
-
     <div class="nav-item">
       <a href="{% url 'tree_inventory' %}" class="nav-link {% if page == 'tree_inventory' %}active{% endif %}">
         <i class="bi bi-table"></i> Tree Inventory
@@ -86,7 +170,6 @@
     </div>
 
     <div class="nav-section-label">Farms</div>
-
     <div class="nav-item">
       <a href="{% url 'farm_list' %}" class="nav-link {% if page == 'farm_list' %}active{% endif %}">
         <i class="bi bi-geo-alt-fill"></i> Manage Farms
@@ -100,10 +183,7 @@
   </div>
 </nav>
 
-<!-- ── Main wrapper ──────────────────────────────────────── -->
 <div id="main-wrapper">
-
-  <!-- Topbar -->
   <header id="topbar">
     <div class="topbar-left">
       <button id="hamburger" aria-label="Toggle sidebar">
@@ -111,15 +191,14 @@
       </button>
       <span class="page-title">{% block page_title %}RubberGuard{% endblock %}</span>
       {% if selected_farm %}
-      <span class="badge bg-success ms-2" style="font-size:11px;font-weight:500;">
+      <span class="badge bg-success ms-1" style="font-size:10px;font-weight:500;">
         <i class="bi bi-geo-alt-fill"></i> {{ selected_farm.farm_id }}
       </span>
       {% else %}
-      <span class="badge bg-secondary ms-2" style="font-size:11px;font-weight:500;">All Farms</span>
+      <span class="badge bg-secondary ms-1" style="font-size:10px;">All Farms</span>
       {% endif %}
     </div>
     <div class="topbar-right">
-      <!-- Notifications -->
       <div class="dropdown">
         <button class="topbar-btn" data-bs-toggle="dropdown" aria-label="Notifications">
           <i class="bi bi-bell-fill"></i>
@@ -141,8 +220,6 @@
           {% endfor %}
         </div>
       </div>
-
-      <!-- User avatar -->
       <div class="dropdown">
         <div class="avatar" data-bs-toggle="dropdown">RG</div>
         <ul class="dropdown-menu dropdown-menu-end">
@@ -155,22 +232,28 @@
     </div>
   </header>
 
-  <!-- Content -->
   <main id="content">
     {% block content %}{% endblock %}
   </main>
+</div>
 
-</div><!-- /main-wrapper -->
-
-<!-- Toast container -->
 <div id="toast-container" style="position:fixed;bottom:24px;right:24px;z-index:9999;"></div>
 
-<!-- Bootstrap JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<!-- Custom JS -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="{% static 'js/main.js' %}"></script>
+<script>
+  const hamburger = document.getElementById('hamburger');
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  function toggleSidebar() {
+    sidebar.classList.toggle('open');
+    overlay.classList.toggle('show');
+  }
+  hamburger.addEventListener('click', toggleSidebar);
+  overlay.addEventListener('click', toggleSidebar);
+</script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>
