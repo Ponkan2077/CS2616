@@ -4,10 +4,10 @@
 
 {% block content %}
 <!-- Farm Header -->
-<div class="bg-white border rounded-3 shadow-sm mb-3">
-  <div class="p-3 d-flex flex-wrap gap-3 align-items-start justify-content-between">
+<div class="card-rg mb-3">
+  <div class="card-body-rg d-flex flex-wrap gap-3 align-items-start justify-content-between">
     <div>
-      <span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">{{ farm.farm_id }}</span>
+      <span class="badge-farm">{{ farm.farm_id }}</span>
       <h5 class="mt-2 mb-1 fw-bold" style="font-size:16px;">{{ farm.name }}</h5>
       <div class="text-muted" style="font-size:12px;"><i class="bi bi-person-fill"></i> Owner: {{ farm.owner_name }}</div>
       <div class="text-muted" style="font-size:12px;"><i class="bi bi-pin-map-fill"></i> {{ farm.location|default:"—" }}</div>
@@ -18,30 +18,30 @@
   </div>
 </div>
 
-<!-- Stats row: 2-per-row mobile, 4-per-row desktop -->
+<!-- Stats row -->
 <div class="row g-2 g-md-3 mb-3">
   <div class="col-6 col-lg-3">
-    <div class="p-3 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:11px;color:#6b7280;font-weight:600;">TOTAL TREES</div>
-      <div class="fw-bold" style="font-size:24px;">{{ total }}</div>
+    <div class="stat-box">
+      <div class="stat-label">TOTAL TREES</div>
+      <div class="stat-value">{{ total }}</div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="p-3 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:11px;color:#6b7280;font-weight:600;">HEALTHY</div>
-      <div class="fw-bold text-success" style="font-size:24px;">{{ counts.Healthy }}</div>
+    <div class="stat-box">
+      <div class="stat-label">HEALTHY</div>
+      <div class="stat-value text-healthy">{{ counts.Healthy }}</div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="p-3 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:11px;color:#6b7280;font-weight:600;">DISEASED</div>
-      <div class="fw-bold text-danger" style="font-size:24px;">{{ diseased }}</div>
+    <div class="stat-box">
+      <div class="stat-label">DISEASED</div>
+      <div class="stat-value text-pink">{{ diseased }}</div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="p-3 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:11px;color:#6b7280;font-weight:600;">HEALTH RATE</div>
-      <div class="fw-bold text-success" style="font-size:24px;">{{ pcts.Healthy }}%</div>
+    <div class="stat-box">
+      <div class="stat-label">HEALTH RATE</div>
+      <div class="stat-value text-healthy">{{ pcts.Healthy }}%</div>
     </div>
   </div>
 </div>
@@ -49,45 +49,43 @@
 <!-- KPI cards -->
 <div class="row g-2 g-md-3 mb-3">
   <div class="col-6 col-lg-3">
-    <div class="p-3 bg-white rounded-3 border shadow-sm position-relative overflow-hidden">
-      <div style="font-size:11px;font-weight:600;color:#6b7280;">Healthy</div>
-      <div class="fw-bold text-success" style="font-size:26px;">{{ counts.Healthy }}</div>
-      <div style="font-size:11px;color:#9ca3af;">{{ pcts.Healthy }}% of total</div>
-      <i class="bi bi-check-circle-fill position-absolute text-success" style="font-size:38px;right:-6px;bottom:-6px;opacity:.1;"></i>
+    <div class="kpi-card">
+      <div class="kpi-label">Healthy</div>
+      <div class="kpi-value text-healthy">{{ counts.Healthy }}</div>
+      <div class="kpi-pct">{{ pcts.Healthy }}% of total</div>
+      <i class="bi bi-check-circle-fill kpi-icon text-healthy"></i>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="p-3 bg-white rounded-3 border shadow-sm position-relative overflow-hidden">
-      <div style="font-size:11px;font-weight:600;color:#6b7280;">Pink Disease</div>
-      <div class="fw-bold" style="font-size:26px;color:#dc3545;">{{ counts.Pink_Disease }}</div>
-      <div style="font-size:11px;color:#9ca3af;">{{ pcts.Pink_Disease }}% of total</div>
-      <i class="bi bi-virus position-absolute" style="font-size:38px;right:-6px;bottom:-6px;opacity:.08;color:#dc3545;"></i>
+    <div class="kpi-card">
+      <div class="kpi-label">Pink Disease</div>
+      <div class="kpi-value text-pink">{{ counts.Pink_Disease }}</div>
+      <div class="kpi-pct">{{ pcts.Pink_Disease }}% of total</div>
+      <i class="bi bi-virus kpi-icon text-pink"></i>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="p-3 bg-white rounded-3 border shadow-sm position-relative overflow-hidden">
-      <div style="font-size:11px;font-weight:600;color:#6b7280;">White Root Rot</div>
-      <div class="fw-bold" style="font-size:26px;color:#8b5a2b;">{{ counts.White_Root_Rot }}</div>
-      <div style="font-size:11px;color:#9ca3af;">{{ pcts.White_Root_Rot }}% of total</div>
-      <i class="bi bi-bug-fill position-absolute" style="font-size:38px;right:-6px;bottom:-6px;opacity:.08;color:#8b5a2b;"></i>
+    <div class="kpi-card">
+      <div class="kpi-label">White Root Rot</div>
+      <div class="kpi-value text-white-root">{{ counts.White_Root_Rot }}</div>
+      <div class="kpi-pct">{{ pcts.White_Root_Rot }}% of total</div>
+      <i class="bi bi-bug-fill kpi-icon text-white-root"></i>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="p-3 bg-white rounded-3 border shadow-sm position-relative overflow-hidden">
-      <div style="font-size:11px;font-weight:600;color:#6b7280;">Stem Bleeding</div>
-      <div class="fw-bold" style="font-size:26px;color:#8b0000;">{{ counts.Stem_Bleeding }}</div>
-      <div style="font-size:11px;color:#9ca3af;">{{ pcts.Stem_Bleeding }}% of total</div>
-      <i class="bi bi-droplet-fill position-absolute" style="font-size:38px;right:-6px;bottom:-6px;opacity:.08;color:#8b0000;"></i>
+    <div class="kpi-card">
+      <div class="kpi-label">Stem Bleeding</div>
+      <div class="kpi-value text-stem">{{ counts.Stem_Bleeding }}</div>
+      <div class="kpi-pct">{{ pcts.Stem_Bleeding }}% of total</div>
+      <i class="bi bi-droplet-fill kpi-icon text-stem"></i>
     </div>
   </div>
 </div>
 
 <!-- Disease distribution chart -->
-<div class="bg-white border rounded-3 shadow-sm mb-3">
-  <div class="px-3 py-2 border-bottom fw-semibold" style="font-size:13px;">
-    <i class="bi bi-pie-chart-fill"></i> Disease Distribution — {{ farm.name }}
-  </div>
-  <div class="p-3 d-flex flex-column align-items-center">
+<div class="card-rg mb-3">
+  <div class="card-header-rg"><i class="bi bi-pie-chart-fill"></i> Disease Distribution — {{ farm.name }}</div>
+  <div class="card-body-rg d-flex flex-column align-items-center">
     <div style="max-width:220px;width:100%;">
       <canvas id="farmPie"></canvas>
     </div>
@@ -95,37 +93,40 @@
 </div>
 
 <!-- Tree table -->
-<div class="bg-white border rounded-3 shadow-sm">
-  <div class="px-3 py-2 border-bottom d-flex justify-content-between align-items-center">
-    <span class="fw-semibold" style="font-size:13px;"><i class="bi bi-table"></i> Trees in {{ farm.name }}</span>
+<div class="card-rg">
+  <div class="card-header-rg d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-table"></i> Trees in {{ farm.name }}</span>
     <span class="badge bg-secondary">{{ total }}</span>
   </div>
-  <div style="overflow-x:auto;">
-    <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:600px;">
+  <div class="table-responsive-rg">
+    <table class="table-rg" style="min-width:600px;">
       <thead>
-        <tr style="background:#f9fafb;border-bottom:1px solid #e5e7eb;">
-          <th style="padding:10px 12px;text-align:left;font-size:11px;color:#6b7280;font-weight:600;">TREE ID</th>
-          <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;">BLOCK</th>
-          <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;">DISEASE</th>
-          <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;">CONF.</th>
-          <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;">SCANNED</th>
-          <th style="padding:10px 12px;font-size:11px;color:#6b7280;font-weight:600;"></th>
+        <tr>
+          <th>TREE ID</th>
+          <th>BLOCK</th>
+          <th>DISEASE</th>
+          <th>CONF.</th>
+          <th>SCANNED</th>
+          <th></th>
         </tr>
       </thead>
       <tbody>
         {% for tree in trees %}
-        <tr style="border-top:1px solid #f1f5f9;">
-          <td style="padding:10px 12px;font-weight:700;color:#2563eb;">{{ tree.tree_id }}</td>
-          <td style="padding:10px 12px;">{{ tree.block|default:"—" }}</td>
-          <td style="padding:10px 12px;">
-            <span style="padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;
-              background:{% if tree.disease == 'Healthy' %}#dcfce7;color:#166534{% elif tree.disease == 'Pink Disease' %}#fee2e2;color:#991b1b{% elif tree.disease == 'White Root Rot' %}#fef3c7;color:#92400e{% else %}#fce7f3;color:#9d174d{% endif %};">
+        <tr>
+          <td class="fw-bold" style="color:var(--primary);">{{ tree.tree_id }}</td>
+          <td>{{ tree.block|default:"—" }}</td>
+          <td>
+            <span class="badge-disease
+              {% if tree.disease == 'Healthy' %}badge-healthy
+              {% elif tree.disease == 'Pink Disease' %}badge-pink
+              {% elif tree.disease == 'White Root Rot' %}badge-white-root
+              {% else %}badge-stem{% endif %}">
               {{ tree.disease }}
             </span>
           </td>
-          <td style="padding:10px 12px;font-weight:600;">{{ tree.confidence }}%</td>
-          <td style="padding:10px 12px;color:#6b7280;font-size:12px;">{{ tree.date_scanned }}</td>
-          <td style="padding:10px 12px;">
+          <td class="fw-semibold">{{ tree.confidence }}%</td>
+          <td class="text-muted" style="font-size:12px;">{{ tree.date_scanned }}</td>
+          <td>
             <a href="{% url 'tree_details' tree.tree_id %}" class="btn btn-sm btn-outline-primary" style="font-size:11px;">
               <i class="bi bi-eye"></i>
             </a>
@@ -142,20 +143,13 @@
 
 {% block extra_scripts %}
 <script>
-new Chart(document.getElementById('farmPie'), {
-  type: 'doughnut',
-  data: {
-    labels: ['Healthy', 'Pink Disease', 'White Root Rot', 'Stem Bleeding'],
-    datasets: [{
-      data: [{{ counts.Healthy }}, {{ counts.Pink_Disease }}, {{ counts.White_Root_Rot }}, {{ counts.Stem_Bleeding }}],
-      backgroundColor: ['#28a745', '#dc3545', '#8b5a2b', '#8b0000'],
-      borderWidth: 2, borderColor: '#fff',
-    }]
-  },
-  options: {
-    responsive: true, cutout: '60%',
-    plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 10 } } }
-  }
-});
+  const FARM_DETAIL_COUNTS = {
+    healthy: {{ counts.Healthy }},
+    pink: {{ counts.Pink_Disease }},
+    white_root: {{ counts.White_Root_Rot }},
+    stem: {{ counts.Stem_Bleeding }}
+  };
 </script>
+{% load static %}
+<script src="{% static 'js/farm_detail.js' %}"></script>
 {% endblock %}
