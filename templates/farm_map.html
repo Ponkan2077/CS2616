@@ -53,6 +53,14 @@
       {% endfor %}
     </select>
     {% endif %}
+    <div class="view-toggle" role="group" aria-label="Map view mode">
+      <button type="button" id="view-markers-btn" class="view-toggle-btn active">
+        <i class="bi bi-geo-alt-fill"></i> Markers
+      </button>
+      <button type="button" id="view-heatmap-btn" class="view-toggle-btn">
+        <i class="bi bi-fire"></i> Heatmap
+      </button>
+    </div>
     <button id="map-reset" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-arrow-counterclockwise"></i> Reset
     </button>
@@ -61,8 +69,8 @@
   <!-- Map -->
   <div id="map-container" class="map-container-rg"></div>
 
-  <!-- Legend -->
-  <div class="p-3 border-top d-flex flex-wrap gap-3 align-items-center" style="font-size:12px;">
+  <!-- Legend: marker view -->
+  <div id="legend-markers" class="p-3 border-top d-flex flex-wrap gap-3 align-items-center" style="font-size:12px;">
     <strong>Legend:</strong>
     <span><span class="legend-dot" style="background:var(--healthy);"></span>Healthy</span>
     <span><span class="legend-dot" style="background:var(--pink);"></span>Pink Disease</span>
@@ -73,6 +81,14 @@
       <span class="legend-dot-farm"></span>Farm Center
     </span>
     {% endif %}
+  </div>
+
+  <!-- Legend: heatmap view (severity gradient, hidden by default) -->
+  <div id="legend-heatmap" class="p-3 border-top d-flex flex-wrap align-items-center gap-2" style="font-size:12px;display:none;">
+    <strong>Severity:</strong>
+    <span class="heatmap-gradient-bar"></span>
+    <span class="text-muted">Low</span>
+    <span class="text-muted ms-auto">High</span>
   </div>
 </div>
 {% endblock %}
@@ -85,6 +101,7 @@
     showFarmLayers: {% if not selected_farm %}true{% else %}false{% endif %}
   };
 </script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 {% load static %}
 <script src="{% static 'js/farm_map.js' %}"></script>
 {% endblock %}
