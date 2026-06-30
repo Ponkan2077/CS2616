@@ -24,24 +24,59 @@
   </div>
 
   <div class="px-3 pb-2 pt-2">
-    <form method="POST" action="{% url 'select_farm' %}">
-      {% csrf_token %}
-      <input type="hidden" name="next" value="{{ request.path }}">
-      <label class="nav-section-label mb-1" style="display:block;padding:0 0 4px;">Active Farm</label>
-      <select name="farm_pk" class="select-rg" onchange="this.form.submit()">
-        <option value="">— All Farms —</option>
+    <div class="nav-section-label mb-1" style="padding:0 0 6px;">Active Farm</div>
+    <div class="dropdown farm-selector">
+      <button class="farm-selector-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+        <span class="farm-selector-icon">
+          <i class="bi bi-geo-alt-fill"></i>
+        </span>
+        <span class="farm-selector-text">
+          {% if selected_farm %}
+          <span class="farm-selector-name">{{ selected_farm.farm_id }}</span>
+          <span class="farm-selector-sub">{{ selected_farm.name }}</span>
+          {% else %}
+          <span class="farm-selector-name">All Farms</span>
+          <span class="farm-selector-sub">Viewing combined data</span>
+          {% endif %}
+        </span>
+        <i class="bi bi-chevron-down farm-selector-caret"></i>
+      </button>
+      <ul class="dropdown-menu farm-selector-menu">
+        <li>
+          <form method="POST" action="{% url 'select_farm' %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.path }}">
+            <input type="hidden" name="farm_pk" value="">
+            <button type="submit" class="farm-option {% if not selected_farm %}active{% endif %}">
+              <span class="farm-option-dot farm-option-dot-all"></span>
+              <span class="farm-option-text">
+                <span class="farm-option-name">All Farms</span>
+                <span class="farm-option-sub">View combined data</span>
+              </span>
+              {% if not selected_farm %}<i class="bi bi-check-lg farm-option-check"></i>{% endif %}
+            </button>
+          </form>
+        </li>
+        <li><hr class="farm-option-divider"></li>
         {% for farm in all_farms %}
-        <option value="{{ farm.pk }}" {% if selected_farm.pk == farm.pk %}selected{% endif %}>
-          {{ farm.farm_id }} · {{ farm.name }}
-        </option>
+        <li>
+          <form method="POST" action="{% url 'select_farm' %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.path }}">
+            <input type="hidden" name="farm_pk" value="{{ farm.pk }}">
+            <button type="submit" class="farm-option {% if selected_farm.pk == farm.pk %}active{% endif %}">
+              <span class="farm-option-dot"></span>
+              <span class="farm-option-text">
+                <span class="farm-option-name">{{ farm.farm_id }} · {{ farm.name }}</span>
+                <span class="farm-option-sub"><i class="bi bi-person-fill"></i> {{ farm.owner_name }}</span>
+              </span>
+              {% if selected_farm.pk == farm.pk %}<i class="bi bi-check-lg farm-option-check"></i>{% endif %}
+            </button>
+          </form>
+        </li>
         {% endfor %}
-      </select>
-    </form>
-    {% if selected_farm %}
-    <div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:5px;">
-      <i class="bi bi-person-fill"></i> {{ selected_farm.owner_name }}
+      </ul>
     </div>
-    {% endif %}
   </div>
 
   <div class="sidebar-nav">
