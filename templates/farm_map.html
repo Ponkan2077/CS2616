@@ -3,53 +3,55 @@
 {% block page_title %}Interactive Farm Map{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   #map-container {
-    height: 500px !important;
+    height: 55vw;
+    min-height: 280px;
+    max-height: 520px;
     width: 100%;
-    background-color: #f8f9fa;
+    border-radius: 0 0 12px 12px;
   }
 </style>
 {% endblock %}
 
 {% block content %}
+<!-- Stats -->
 <div class="row g-2 mb-3">
   <div class="col-6 col-md-3">
     <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:11px;color:var(--text-muted);font-weight:600;">TOTAL</div>
-      <div class="fw-bold">{{ total }}</div>
+      <div style="font-size:10px;color:#6b7280;font-weight:600;">TOTAL</div>
+      <div class="fw-bold" style="font-size:20px;">{{ total }}</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:11px;color:var(--healthy);font-weight:600;">HEALTHY</div>
-      <div class="fw-bold text-healthy">{{ counts.Healthy }}</div>
+      <div style="font-size:10px;color:#28a745;font-weight:600;">HEALTHY</div>
+      <div class="fw-bold text-success" style="font-size:20px;">{{ counts.Healthy }}</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:11px;color:var(--pink);font-weight:600;">DISEASED</div>
-      <div class="fw-bold text-pink">{{ diseased }}</div>
+      <div style="font-size:10px;color:#dc3545;font-weight:600;">DISEASED</div>
+      <div class="fw-bold text-danger" style="font-size:20px;">{{ diseased }}</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="p-2 bg-white rounded-3 border text-center shadow-sm">
-      <div style="font-size:11px;color:var(--stem);font-weight:600;">STEM BLEEDING</div>
-      <div class="fw-bold text-stem">{{ counts.Stem_Bleeding }}</div>
+      <div style="font-size:10px;color:#8b0000;font-weight:600;">STEM BLEEDING</div>
+      <div class="fw-bold" style="font-size:20px;color:#8b0000;">{{ counts.Stem_Bleeding }}</div>
     </div>
   </div>
 </div>
 
-<div class="card">
+<div class="bg-white border rounded-3 shadow-sm">
+  <!-- Toolbar -->
   <div class="p-3 border-bottom d-flex flex-wrap gap-2 align-items-center">
-    <div style="flex:1;min-width:180px;">
-      <div style="position:relative;">
-        <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);"></i>
-        <input type="text" id="map-search" class="form-control-rg" placeholder="Search Tree ID…" style="padding-left:34px;">
-      </div>
+    <div style="position:relative;flex:1;min-width:140px;">
+      <i class="bi bi-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#9ca3af;font-size:13px;"></i>
+      <input type="text" id="map-search" placeholder="Search Tree ID…"
+        style="width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:7px 10px 7px 32px;font-size:13px;outline:none;">
     </div>
-    <select id="map-filter" class="select-rg" style="width:auto;min-width:160px;">
+    <select id="map-filter" style="border:1px solid #e5e7eb;border-radius:8px;padding:7px 10px;font-size:13px;background:#fff;outline:none;">
       <option value="">All Diseases</option>
       <option value="Healthy">Healthy</option>
       <option value="Pink Disease">Pink Disease</option>
@@ -57,112 +59,90 @@
       <option value="Stem Bleeding">Stem Bleeding</option>
     </select>
     {% if not selected_farm %}
-    <select id="farm-layer-filter" class="select-rg" style="width:auto;min-width:160px;">
+    <select id="farm-layer-filter" style="border:1px solid #e5e7eb;border-radius:8px;padding:7px 10px;font-size:13px;background:#fff;outline:none;">
       <option value="">All Farms</option>
       {% for farm in all_farms %}
-      <option value="{{ farm.farm_id }}">{{ farm.farm_id }} — {{ farm.name }}</option>
+      <option value="{{ farm.farm_id }}">{{ farm.farm_id }}</option>
       {% endfor %}
     </select>
     {% endif %}
-    <button id="map-reset" class="btn-outline-rg btn-sm-rg">
+    <button id="map-reset" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-arrow-counterclockwise"></i> Reset
     </button>
   </div>
 
+  <!-- Map -->
   <div id="map-container"></div>
 
-  <div class="p-3 border-top">
-    <div class="d-flex flex-wrap gap-3 align-items-center">
-      <strong style="font-size:12px;">Legend:</strong>
-      <div style="font-size:12px;display:flex;align-items:center;gap:5px;">
-        <span style="width:14px;height:14px;border-radius:50%;background:var(--healthy);display:inline-block;"></span>Healthy
-      </div>
-      <div style="font-size:12px;display:flex;align-items:center;gap:5px;">
-        <span style="width:14px;height:14px;border-radius:50%;background:var(--pink);display:inline-block;"></span>Pink Disease
-      </div>
-      <div style="font-size:12px;display:flex;align-items:center;gap:5px;">
-        <span style="width:14px;height:14px;border-radius:50%;background:var(--white-root);display:inline-block;"></span>White Root Rot
-      </div>
-      <div style="font-size:12px;display:flex;align-items:center;gap:5px;">
-        <span style="width:14px;height:14px;border-radius:50%;background:var(--stem);display:inline-block;"></span>Stem Bleeding
-      </div>
-      {% if not selected_farm %}
-      <div style="font-size:12px;display:flex;align-items:center;gap:5px;">
-        <span style="width:14px;height:14px;border-radius:4px;background:#0d6efd55;border:2px solid #0d6efd;display:inline-block;"></span>Farm Boundary
-      </div>
-      {% endif %}
-    </div>
+  <!-- Legend -->
+  <div class="p-3 border-top d-flex flex-wrap gap-3 align-items-center" style="font-size:12px;">
+    <strong>Legend:</strong>
+    <span style="display:flex;align-items:center;gap:5px;">
+      <span style="width:12px;height:12px;border-radius:50%;background:#28a745;display:inline-block;"></span>Healthy
+    </span>
+    <span style="display:flex;align-items:center;gap:5px;">
+      <span style="width:12px;height:12px;border-radius:50%;background:#dc3545;display:inline-block;"></span>Pink Disease
+    </span>
+    <span style="display:flex;align-items:center;gap:5px;">
+      <span style="width:12px;height:12px;border-radius:50%;background:#8b5a2b;display:inline-block;"></span>White Root Rot
+    </span>
+    <span style="display:flex;align-items:center;gap:5px;">
+      <span style="width:12px;height:12px;border-radius:50%;background:#8b0000;display:inline-block;"></span>Stem Bleeding
+    </span>
+    {% if not selected_farm %}
+    <span style="display:flex;align-items:center;gap:5px;">
+      <span style="width:12px;height:12px;border-radius:3px;background:#0d6efd44;border:2px solid #0d6efd;display:inline-block;"></span>Farm Center
+    </span>
+    {% endif %}
   </div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function() {
   const TREES = {{ trees_json|safe }};
   const FARMS = {{ farms_json|safe }};
 
-  // Default center: first tree or fallback
   const defaultLat = TREES.length ? TREES[0].lat : 6.9220;
   const defaultLng = TREES.length ? TREES[0].lng : 122.0795;
 
   const map = L.map('map-container').setView([defaultLat, defaultLng], 16);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors',
-    maxZoom: 19,
+    attribution: '© OpenStreetMap contributors', maxZoom: 19,
   }).addTo(map);
 
-  setTimeout(() => map.invalidateSize(), 100);
+  setTimeout(() => map.invalidateSize(), 150);
 
-  // Farm center markers (only when showing all farms)
   {% if not selected_farm %}
   const farmColors = ['#0d6efd', '#6f42c1', '#fd7e14', '#20c997', '#e83e8c'];
   FARMS.forEach((farm, i) => {
     const color = farmColors[i % farmColors.length];
     L.circleMarker([farm.lat, farm.lng], {
-      radius: 18,
-      color: color,
-      weight: 2,
-      fillColor: color,
-      fillOpacity: 0.15,
-      dashArray: '6,4',
-    })
-    .bindPopup(`<b>${farm.farm_id}</b><br>${farm.name}<br><i>${farm.owner}</i>`)
-    .addTo(map);
+      radius: 18, color, weight: 2, fillColor: color, fillOpacity: 0.12, dashArray: '6,4',
+    }).bindPopup(`<b>${farm.farm_id}</b><br>${farm.name}<br><i>${farm.owner}</i>`).addTo(map);
   });
   {% endif %}
 
-  // Tree markers
   const markers = [];
   TREES.forEach(tree => {
     const circle = L.circleMarker([tree.lat, tree.lng], {
-      radius: 10,
-      color: '#fff',
-      weight: 2,
-      fillColor: tree.color,
-      fillOpacity: 0.9,
+      radius: 10, color: '#fff', weight: 2, fillColor: tree.color, fillOpacity: 0.9,
     });
-
-    const popup = `
-      <div style="font-weight:bold;font-size:14px;">${tree.tree_id}</div>
-      <div style="font-size:11px;color:#666;margin-bottom:4px;">
-        <i class="bi bi-geo-alt-fill"></i> ${tree.farm_id} — ${tree.farm_name}
-      </div>
+    circle.bindPopup(`
+      <div style="font-weight:700;font-size:14px;">${tree.tree_id}</div>
+      <div style="font-size:11px;color:#666;margin-bottom:4px;">${tree.farm_id} — ${tree.farm_name}</div>
       <div style="font-size:12px;">Disease: <b>${tree.disease}</b></div>
       <div style="font-size:12px;">Confidence: <b>${tree.confidence}%</b></div>
-      <div style="font-size:12px;">GPS: ${tree.lat.toFixed(4)}, ${tree.lng.toFixed(4)}</div>
       <div style="font-size:12px;">Scanned: ${tree.date_scanned}</div>
       <div style="font-size:12px;">Block: ${tree.block}</div>
-      <div style="font-size:11px;margin-top:4px;">${tree.recommended_action.slice(0,80)}…</div>
-      <a href="/inventory/${tree.tree_id}/" style="display:inline-block;margin-top:8px;padding:4px 10px;background:#0d6efd;color:#fff;text-decoration:none;border-radius:4px;font-size:11px;">View Details</a>
-    `;
-    circle.bindPopup(popup, { maxWidth: 280 });
+      <a href="/inventory/${tree.tree_id}/" style="display:inline-block;margin-top:8px;padding:4px 10px;
+        background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;font-size:11px;">View Details</a>
+    `, { maxWidth: 260 });
     circle.addTo(map);
     markers.push({ el: circle, tree });
   });
 
-  // Filters
   const searchInput = document.getElementById('map-search');
   const filterSelect = document.getElementById('map-filter');
   const farmLayerFilter = document.getElementById('farm-layer-filter');
@@ -172,31 +152,17 @@ document.addEventListener("DOMContentLoaded", function() {
     const q = searchInput ? searchInput.value.toLowerCase() : '';
     const d = filterSelect ? filterSelect.value : '';
     const f = farmLayerFilter ? farmLayerFilter.value : '';
-
     markers.forEach(({ el, tree }) => {
-      const matchQ = !q || tree.tree_id.toLowerCase().includes(q);
-      const matchD = !d || tree.disease === d;
-      const matchF = !f || tree.farm_id === f;
-      if (matchQ && matchD && matchF) {
-        if (!map.hasLayer(el)) el.addTo(map);
-      } else {
-        if (map.hasLayer(el)) map.removeLayer(el);
-      }
+      const show = (!q || tree.tree_id.toLowerCase().includes(q))
+                && (!d || tree.disease === d)
+                && (!f || tree.farm_id === f);
+      show ? (!map.hasLayer(el) && el.addTo(map)) : (map.hasLayer(el) && map.removeLayer(el));
     });
-
-    const match = markers.find(({ tree }) => {
-      const matchQ = !q || tree.tree_id.toLowerCase().includes(q);
-      const matchD = !d || tree.disease === d;
-      const matchF = !f || tree.farm_id === f;
-      return matchQ && matchD && matchF;
-    });
-    if (match) map.panTo([match.tree.lat, match.tree.lng]);
   }
 
   if (searchInput) searchInput.addEventListener('input', applyFilters);
   if (filterSelect) filterSelect.addEventListener('change', applyFilters);
   if (farmLayerFilter) farmLayerFilter.addEventListener('change', applyFilters);
-
   if (resetBtn) resetBtn.addEventListener('click', () => {
     if (searchInput) searchInput.value = '';
     if (filterSelect) filterSelect.value = '';
