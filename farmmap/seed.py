@@ -1,19 +1,31 @@
 """
-Run once to populate the database with sample farms and trees.
+Run once to populate the database with a demo user, sample farms, and trees.
 
 Usage:
     python manage.py shell < farmmap/seed.py
-  OR create a management command and run:
-    python manage.py seed_data
+
+This only deletes and recreates data belonging to the demo user
+(username 'demo'), so it is safe to re-run without touching any
+other registered user's farms or trees.
 """
 
+from django.contrib.auth.models import User
 from farmmap.models import Farm, RubberTree, ScanHistory
 import datetime
 
-# Clear existing data
-ScanHistory.objects.all().delete()
-RubberTree.objects.all().delete()
-Farm.objects.all().delete()
+# Create (or reuse) the demo user that owns all seeded data.
+demo_user, created = User.objects.get_or_create(username="demo")
+if created:
+    demo_user.set_password("demo12345")
+    demo_user.save()
+    print("Created demo user: username='demo', password='demo12345'")
+else:
+    print("Using existing demo user: username='demo'")
+
+# Clear only the demo user's existing data, not any other user's.
+ScanHistory.objects.filter(tree__farm__owner=demo_user).delete()
+RubberTree.objects.filter(farm__owner=demo_user).delete()
+Farm.objects.filter(owner=demo_user).delete()
 
 # ── Farms ──────────────────────────────────────────────────────────────────
 farms_data = [
@@ -45,7 +57,7 @@ farms_data = [
 
 farms = {}
 for fd in farms_data:
-    f = Farm.objects.create(**fd)
+    f = Farm.objects.create(owner=demo_user, **fd)
     farms[fd["farm_id"]] = f
     print(f"Created farm: {f}")
 
@@ -188,7 +200,7 @@ for td in trees_data:
     print(f"Created tree: {tree}")
 
 print("\nSeed complete.")
-print(f"  Farms: {Farm.objects.count()}")
-print(f"  Trees: {RubberTree.objects.count()}")
-print(f"  Scan records: {ScanHistory.objects.count()}")
-
+print(f"  Demo user: demo / demo12345 (only set on first creation)")
+print(f"  Farms: {Farm.objects.filter(owner=demo_user).count()}")
+print(f"  Trees: {RubberTree.objects.filter(farm__owner=demo_user).count()}")
+print(f"  Scan records: {ScanHistory.objects.filter(tree__farm__owner=demo_user).count()}")
