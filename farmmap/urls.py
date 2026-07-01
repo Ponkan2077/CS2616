@@ -10,6 +10,9 @@ urlpatterns = [
     path('inventory/', views.tree_inventory, name='tree_inventory'),
     path('inventory/<str:tree_id>/', views.tree_details, name='tree_details'),
     path('reports/', views.reports, name='reports'),
+    path('reports/export/csv/', views.export_csv, name='export_csv'),
+    path('reports/export/excel/', views.export_excel, name='export_excel'),
+    path('reports/export/pdf/', views.export_pdf, name='export_pdf'),
 
     # Farm management
     path('farms/', views.farm_list, name='farm_list'),
