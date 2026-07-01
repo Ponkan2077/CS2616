@@ -1,9 +1,3 @@
-/* ============================================================
-   RubberGuard Design System
-   Single stylesheet for all templates. Mobile-first, with
-   breakpoints layered on top of base (mobile) styles.
-   ============================================================ */
-
 /* ── Design tokens ───────────────────────────────────────── */
 :root {
   --primary:        #2563eb;
@@ -52,7 +46,7 @@ body {
   position: fixed; top: 0; left: 0; height: 100vh; width: var(--sidebar-w);
   background: var(--sidebar-bg); color: #fff;
   display: flex; flex-direction: column;
-  z-index: 1040; overflow-y: auto;
+  z-index: 1040; overflow-y: auto; overflow-x: hidden;
   transform: translateX(-100%);
   transition: transform .25s ease;
 }
@@ -64,7 +58,15 @@ body {
 }
 #sidebar-overlay.show { display: block; }
 
-.sidebar-brand { padding: 20px 16px 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.sidebar-brand { position: relative; padding: 20px 16px 12px; border-bottom: 1px solid rgba(255,255,255,.08); }
+
+#sidebar-close {
+  position: absolute; top: 14px; right: 12px;
+  background: rgba(255,255,255,.08); border: none; border-radius: 8px;
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,.7); font-size: 14px; cursor: pointer;
+}
+#sidebar-close:hover { background: rgba(255,255,255,.16); color: #fff; }
 .brand-icon { font-size: 28px; color: #4ade80; margin-bottom: 4px; }
 .brand-title { font-size: 17px; font-weight: 700; }
 .brand-sub { font-size: 10px; color: rgba(255,255,255,.45); margin-top: 2px; }
@@ -128,15 +130,19 @@ body {
 
 /* Dropdown menu panel */
 .farm-selector-menu {
-  width: min(280px, 85vw); max-height: 320px; overflow-y: auto;
+  width: 100%; max-width: calc(var(--sidebar-w) - 24px); max-height: 320px;
+  overflow-y: auto; overflow-x: hidden;
   padding: 6px; border-radius: 12px; border: 1px solid var(--border);
   box-shadow: 0 10px 35px rgba(0,0,0,.18);
 }
+.farm-selector-menu li { width: 100%; }
+.farm-selector-menu form { width: 100%; margin: 0; }
 
 .farm-option {
   display: flex; align-items: center; gap: 10px; width: 100%;
   background: none; border: none; border-radius: 8px; padding: 8px 10px;
   text-align: left; cursor: pointer; transition: background .12s;
+  box-sizing: border-box;
 }
 .farm-option:hover { background: #f3f4f6; }
 .farm-option.active { background: #eff6ff; }
@@ -349,6 +355,7 @@ body {
   #main-wrapper { margin-left: var(--sidebar-w); }
   #hamburger { display: none; }
   #sidebar-overlay { display: none !important; }
+  #sidebar-close { display: none; }
 }
 
 @media (max-width: 768px) {
@@ -359,3 +366,46 @@ body {
 @media (max-width: 480px) {
   .kpi-value, .stat-box .stat-value { font-size: 20px; }
 }
+
+/* ============================================================
+   AUTH PAGES — login and registration screens
+   ============================================================ */
+.auth-body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: linear-gradient(160deg, #1a2535 0%, #0f1722 100%);
+  min-height: 100vh; margin: 0;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+}
+
+.auth-card {
+  width: 100%; max-width: 380px; background: #fff;
+  border-radius: 16px; padding: 32px 28px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.3);
+}
+
+.auth-brand { text-align: center; margin-bottom: 24px; }
+.auth-brand .brand-icon { font-size: 36px; color: var(--healthy); margin-bottom: 6px; }
+.auth-brand-title { font-size: 20px; font-weight: 800; color: var(--text-main); }
+.auth-brand-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+.auth-field { margin-bottom: 14px; }
+.auth-field label {
+  display: block; font-size: 12px; font-weight: 600; color: var(--text-muted);
+  margin-bottom: 5px;
+}
+
+.auth-error {
+  background: var(--pink-bg); color: var(--pink-text); border-radius: 8px;
+  padding: 10px 12px; font-size: 12.5px; margin-bottom: 16px;
+}
+.auth-success {
+  background: var(--healthy-bg); color: var(--healthy-text); border-radius: 8px;
+  padding: 10px 12px; font-size: 12.5px; margin-bottom: 16px;
+}
+
+.auth-footer {
+  text-align: center; font-size: 12.5px; color: var(--text-muted); margin-top: 18px;
+}
+.auth-footer a { color: var(--primary); text-decoration: none; font-weight: 600; }
+.auth-footer a:hover { text-decoration: underline; }
