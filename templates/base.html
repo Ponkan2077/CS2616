@@ -18,6 +18,9 @@
 
 <nav id="sidebar">
   <div class="sidebar-brand">
+    <button id="sidebar-close" aria-label="Close sidebar">
+      <i class="bi bi-x-lg"></i>
+    </button>
     <div class="brand-icon"><i class="bi bi-tree-fill"></i></div>
     <div class="brand-title">RubberGuard</div>
     <div class="brand-sub">Hevea brasiliensis Disease Detection System</div>
@@ -161,12 +164,20 @@
         </div>
       </div>
       <div class="dropdown">
-        <div class="avatar" data-bs-toggle="dropdown">RG</div>
+        <div class="avatar" data-bs-toggle="dropdown">{{ user.username|slice:":2"|upper }}</div>
         <ul class="dropdown-menu dropdown-menu-end">
-          <li><span class="dropdown-item-text fw-bold small">Researcher</span></li>
+          <li><span class="dropdown-item-text fw-bold small">{{ user.username }}</span></li>
           <li><span class="dropdown-item-text text-muted small">DA Field Office IX · PRRI</span></li>
           <li><hr class="dropdown-divider"></li>
           <li><a class="dropdown-item small" href="#"><i class="bi bi-gear me-2"></i>Settings</a></li>
+          <li>
+            <form method="POST" action="{% url 'logout' %}">
+              {% csrf_token %}
+              <button type="submit" class="dropdown-item small text-danger">
+                <i class="bi bi-box-arrow-right me-2"></i>Log Out
+              </button>
+            </form>
+          </li>
         </ul>
       </div>
     </div>
