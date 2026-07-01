@@ -1,5 +1,10 @@
 import json
 from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import login
+from django.contrib.auth.forms import UserCreationForm
+from django.contrib import messages
+from django.urls import reverse
 from .models import Farm, RubberTree, ScanHistory
 
 NOTIFICATIONS = [
@@ -23,27 +28,30 @@ MONTHLY_DETECTIONS = [
 ]
 
 
-# Retrieves the currently selected Farm from the session, or returns None.
 def _get_farm_or_none(request):
+    # Retrieves the currently selected Farm from the session, scoped to the
+    # logged-in user, or returns None if nothing is selected or it isn't theirs.
     farm_id = request.session.get("selected_farm_id")
     if farm_id:
-        return Farm.objects.filter(pk=farm_id).first()
+        return Farm.objects.filter(pk=farm_id, owner=request.user).first()
     return None
 
 
-# Returns a queryset of trees filtered by farm, or all trees if no farm is given.
-def _get_trees(farm=None):
-    qs = RubberTree.objects.select_related("farm")
+def _get_trees(request, farm=None):
+    # Returns a queryset of trees belonging to the logged-in user's farms,
+    # optionally filtered down to a single farm.
+    qs = RubberTree.objects.select_related("farm").filter(farm__owner=request.user)
     if farm:
         qs = qs.filter(farm=farm)
     return qs
 
 
-# Aggregates disease counts and percentages for the selected farm, or all farms if none is selected.
-def _get_stats(farm=None):
+def _get_stats(request, farm=None):
+    # Aggregates disease counts and percentages for the selected farm, or
+    # across all of the logged-in user's farms if none is selected.
     if farm:
         return farm.get_stats()
-    trees = RubberTree.objects.all()
+    trees = RubberTree.objects.filter(farm__owner=request.user)
     total = trees.count()
     counts = {"Healthy": 0, "Pink_Disease": 0, "White_Root_Rot": 0, "Stem_Bleeding": 0}
     disease_key_map = {
@@ -59,9 +67,10 @@ def _get_stats(farm=None):
     return total, counts, pcts, diseased
 
 
-# Builds the base template context shared across all views.
 def _base_context(request, farm=None):
-    all_farms = Farm.objects.all().order_by("farm_id")
+    # Builds the base template context shared across all views, scoped to
+    # the logged-in user's own farms.
+    all_farms = Farm.objects.filter(owner=request.user).order_by("farm_id")
     return {
         "notifications": NOTIFICATIONS,
         "all_farms": all_farms,
@@ -69,28 +78,83 @@ def _base_context(request, farm=None):
     }
 
 
-# Saves the selected farm to the session and redirects back to the current page.
+def register(request):
+    # Handles new user sign-up and logs them in immediately on success.
+    if request.user.is_authenticated:
+        return redirect("dashboard")
+    if request.method == "POST":
+        form = UserCreationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            login(request, user)
+            messages.success(request, "Account created. Welcome to RubberGuard!")
+            return redirect("dashboard")
+    else:
+        form = UserCreationForm()
+    return render(request, "register.html", {"form": form})
+
+
+@login_required
 def select_farm(request):
+    # Saves the selected farm to the session and redirects back to the current page.
     farm_pk = request.POST.get("farm_pk", "")
     if farm_pk:
-        request.session["selected_farm_id"] = int(farm_pk)
+        # Only allow selecting a farm the logged-in user actually owns.
+        if Farm.objects.filter(pk=farm_pk, owner=request.user).exists():
+            request.session["selected_farm_id"] = int(farm_pk)
     else:
         request.session.pop("selected_farm_id", None)
     next_url = request.POST.get("next", "/")
     return redirect(next_url)
 
 
-# Displays a list of all registered farms.
+@login_required
 def farm_list(request):
-    farms = Farm.objects.all().order_by("farm_id")
+    # Displays a list of all farms owned by the logged-in user.
+    farms = Farm.objects.filter(owner=request.user).order_by("farm_id")
     ctx = _base_context(request)
     ctx.update({"page": "farm_list", "farms": farms})
     return render(request, "farm_list.html", ctx)
 
 
-# Displays the details, stats, and tree list for a single farm.
+@login_required
+def farm_create(request):
+    # Handles the Add Farm form, creating a new farm owned by the logged-in user.
+    if request.method == "POST":
+        farm_id = request.POST.get("farm_id", "").strip()
+        name = request.POST.get("name", "").strip()
+        owner_name = request.POST.get("owner_name", "").strip()
+        location = request.POST.get("location", "").strip()
+        center_lat = request.POST.get("center_lat") or 6.9214
+        center_lng = request.POST.get("center_lng") or 122.0790
+
+        if not farm_id or not name or not owner_name:
+            messages.error(request, "Farm ID, name, and owner name are required.")
+            return redirect("farm_list")
+
+        if Farm.objects.filter(owner=request.user, farm_id=farm_id).exists():
+            messages.error(request, f"You already have a farm with ID '{farm_id}'.")
+            return redirect("farm_list")
+
+        Farm.objects.create(
+            owner=request.user,
+            farm_id=farm_id,
+            name=name,
+            owner_name=owner_name,
+            location=location,
+            center_lat=float(center_lat),
+            center_lng=float(center_lng),
+        )
+        messages.success(request, f"Farm '{name}' added successfully.")
+        return redirect("farm_list")
+
+    return redirect("farm_list")
+
+
+@login_required
 def farm_detail(request, farm_id):
-    farm = get_object_or_404(Farm, farm_id=farm_id)
+    # Displays the details, stats, and tree list for a single farm owned by the user.
+    farm = get_object_or_404(Farm, farm_id=farm_id, owner=request.user)
     total, counts, pcts, diseased = farm.get_stats()
     trees = farm.trees.all().order_by("tree_id")
     ctx = _base_context(request)
@@ -103,11 +167,12 @@ def farm_detail(request, farm_id):
     return render(request, "farm_detail.html", ctx)
 
 
-# Renders the main dashboard with disease stats and recently scanned trees.
+@login_required
 def dashboard(request):
+    # Renders the main dashboard with disease stats and recently scanned trees.
     farm = _get_farm_or_none(request)
-    total, counts, pcts, diseased = _get_stats(farm)
-    trees = list(_get_trees(farm).order_by("-date_scanned")[:6])
+    total, counts, pcts, diseased = _get_stats(request, farm)
+    trees = list(_get_trees(request, farm).order_by("-date_scanned")[:6])
     recent = [t.to_dict() for t in trees]
     ctx = _base_context(request, farm)
     ctx.update({
@@ -120,11 +185,12 @@ def dashboard(request):
     return render(request, "dashboard.html", ctx)
 
 
-# Renders the interactive Leaflet map with tree markers and farm center layers.
+@login_required
 def farm_map(request):
+    # Renders the interactive Leaflet map with tree markers and farm center layers.
     farm = _get_farm_or_none(request)
-    total, counts, pcts, diseased = _get_stats(farm)
-    trees_qs = _get_trees(farm)
+    total, counts, pcts, diseased = _get_stats(request, farm)
+    trees_qs = _get_trees(request, farm)
     trees_json = json.dumps([t.to_dict() for t in trees_qs])
     farms_json = json.dumps([
         {
@@ -134,7 +200,7 @@ def farm_map(request):
             "lat": f.center_lat,
             "lng": f.center_lng,
         }
-        for f in Farm.objects.all()
+        for f in Farm.objects.filter(owner=request.user)
     ])
     ctx = _base_context(request, farm)
     ctx.update({
@@ -146,19 +212,21 @@ def farm_map(request):
     return render(request, "farm_map.html", ctx)
 
 
-# Renders the disease detection upload page.
+@login_required
 def disease_detection(request):
+    # Renders the disease detection upload page.
     farm = _get_farm_or_none(request)
     ctx = _base_context(request, farm)
     ctx.update({"page": "disease_detection"})
     return render(request, "disease_detection.html", ctx)
 
 
-# Renders the full tree inventory table, filtered by the selected farm if set.
+@login_required
 def tree_inventory(request):
+    # Renders the full tree inventory table, filtered by the selected farm if set.
     farm = _get_farm_or_none(request)
-    total, counts, pcts, diseased = _get_stats(farm)
-    trees = _get_trees(farm).order_by("tree_id")
+    total, counts, pcts, diseased = _get_stats(request, farm)
+    trees = _get_trees(request, farm).order_by("tree_id")
     ctx = _base_context(request, farm)
     ctx.update({
         "page": "tree_inventory",
@@ -168,9 +236,13 @@ def tree_inventory(request):
     return render(request, "tree_inventory.html", ctx)
 
 
-# Renders the detail page for a single tree, including its scan history.
+@login_required
 def tree_details(request, tree_id):
-    tree = get_object_or_404(RubberTree.objects.select_related("farm"), tree_id=tree_id)
+    # Renders the detail page for a single tree owned by the user, including its scan history.
+    tree = get_object_or_404(
+        RubberTree.objects.select_related("farm"),
+        tree_id=tree_id, farm__owner=request.user,
+    )
     history = tree.history.all()
     farm = _get_farm_or_none(request)
     ctx = _base_context(request, farm)
@@ -182,12 +254,13 @@ def tree_details(request, tree_id):
     return render(request, "tree_details.html", ctx)
 
 
-# Renders the reports page with disease stats and a per-farm breakdown table.
+@login_required
 def reports(request):
+    # Renders the reports page with disease stats and a per-farm breakdown table.
     farm = _get_farm_or_none(request)
-    total, counts, pcts, diseased = _get_stats(farm)
+    total, counts, pcts, diseased = _get_stats(request, farm)
     farm_summaries = []
-    for f in Farm.objects.all().order_by("farm_id"):
+    for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
         ft, fc, fp, fd = f.get_stats()
         farm_summaries.append({
             "farm": f,
