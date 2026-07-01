@@ -1,14 +1,21 @@
 from django.db import models
+from django.contrib.auth.models import User
 
 
 class Farm(models.Model):
-    farm_id = models.CharField(max_length=20, unique=True)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="farms")
+    farm_id = models.CharField(max_length=20)
     name = models.CharField(max_length=100)
     owner_name = models.CharField(max_length=100)
     location = models.CharField(max_length=200, blank=True)
     center_lat = models.FloatField(default=6.9214)
     center_lng = models.FloatField(default=122.0790)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # farm_id only needs to be unique within a single user's farms,
+        # not globally, since each user manages their own farm IDs.
+        unique_together = ("owner", "farm_id")
 
     def __str__(self):
         # Returns a readable string representation of the farm.
@@ -60,7 +67,7 @@ class RubberTree(models.Model):
     }
 
     farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name="trees")
-    tree_id = models.CharField(max_length=20, unique=True)
+    tree_id = models.CharField(max_length=20)
     lat = models.FloatField()
     lng = models.FloatField()
     disease = models.CharField(max_length=30, choices=DISEASE_CHOICES, default="Healthy")
@@ -69,6 +76,10 @@ class RubberTree(models.Model):
     block = models.CharField(max_length=10, blank=True)
     recommended_action = models.TextField(blank=True)
     notes = models.TextField(blank=True)
+
+    class Meta:
+        # tree_id only needs to be unique within a single farm, not globally.
+        unique_together = ("farm", "tree_id")
 
     def __str__(self):
         # Returns a readable string representation of the tree.
