@@ -5,18 +5,15 @@ from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib import messages
 from django.urls import reverse
+from django.utils import timezone
 from .models import Farm, RubberTree, ScanHistory
 
-NOTIFICATIONS = [
-    {"icon": "bi-exclamation-triangle-fill", "color": "text-danger",
-     "msg": "Pink Disease detected at Tree RT-021", "time": "2 hrs ago"},
-    {"icon": "bi-exclamation-triangle-fill", "color": "text-warning",
-     "msg": "White Root Rot detected at Tree RT-105", "time": "5 hrs ago"},
-    {"icon": "bi-exclamation-triangle-fill", "color": "text-danger",
-     "msg": "Stem Bleeding detected at Tree RT-078", "time": "1 day ago"},
-    {"icon": "bi-info-circle-fill", "color": "text-success",
-     "msg": "Scan completed — Block A (50 trees)", "time": "2 days ago"},
-]
+# Icon and color shown in the notification bell for each disease type.
+NOTIFICATION_STYLE = {
+    "Pink Disease": {"icon": "bi-exclamation-triangle-fill", "color": "text-danger"},
+    "White Root Rot": {"icon": "bi-exclamation-triangle-fill", "color": "text-warning"},
+    "Stem Bleeding": {"icon": "bi-exclamation-triangle-fill", "color": "text-danger"},
+}
 
 MONTHLY_DETECTIONS = [
     {"month": "Jan", "healthy": 48, "pink": 2, "white_root": 1, "stem": 0},
@@ -26,6 +23,42 @@ MONTHLY_DETECTIONS = [
     {"month": "May", "healthy": 44, "pink": 4, "white_root": 2, "stem": 2},
     {"month": "Jun", "healthy": 43, "pink": 4, "white_root": 3, "stem": 2},
 ]
+
+
+def _humanize_days_ago(days):
+    # Converts a day count into a short human-readable "time ago" string.
+    if days <= 0:
+        return "Today"
+    if days == 1:
+        return "1 day ago"
+    if days < 30:
+        return f"{days} days ago"
+    months = days // 30
+    return f"{months} month{'s' if months > 1 else ''} ago"
+
+
+def _build_notifications(request):
+    # Builds a list of clickable notifications from the user's most recently
+    # scanned diseased trees, each linking to that tree's detail page.
+    diseased_trees = (
+        RubberTree.objects.select_related("farm")
+        .filter(farm__owner=request.user)
+        .exclude(disease="Healthy")
+        .order_by("-date_scanned")[:6]
+    )
+    today = timezone.localdate()
+    notifications = []
+    for t in diseased_trees:
+        style = NOTIFICATION_STYLE.get(t.disease, {"icon": "bi-info-circle-fill", "color": "text-success"})
+        days_ago = (today - t.date_scanned).days
+        notifications.append({
+            "icon": style["icon"],
+            "color": style["color"],
+            "msg": f"{t.disease} detected at Tree {t.tree_id}",
+            "time": _humanize_days_ago(days_ago),
+            "url": reverse("tree_details", args=[t.tree_id]),
+        })
+    return notifications
 
 
 def _get_farm_or_none(request):
@@ -72,7 +105,7 @@ def _base_context(request, farm=None):
     # the logged-in user's own farms.
     all_farms = Farm.objects.filter(owner=request.user).order_by("farm_id")
     return {
-        "notifications": NOTIFICATIONS,
+        "notifications": _build_notifications(request),
         "all_farms": all_farms,
         "selected_farm": farm,
     }
@@ -277,3 +310,122 @@ def reports(request):
         "farm_summaries": farm_summaries,
     })
     return render(request, "reports.html", ctx)
+
+
+def _export_rows(request):
+    # Returns the tree rows and a filename-safe label for the current export,
+    # scoped to the logged-in user and respecting the selected farm filter.
+    farm = _get_farm_or_none(request)
+    trees = _get_trees(request, farm).order_by("farm__farm_id", "tree_id")
+    label = farm.farm_id if farm else "all_farms"
+    return trees, label
+
+
+@login_required
+def export_csv(request):
+    # Exports the current tree data as a CSV file.
+    import csv
+    from django.http import HttpResponse
+
+    trees, label = _export_rows(request)
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = f'attachment; filename="rubberguard_report_{label}.csv"'
+
+    writer = csv.writer(response)
+    writer.writerow(["Tree ID", "Farm", "Block", "Disease", "Confidence (%)", "Date Scanned", "Recommended Action"])
+    for t in trees:
+        writer.writerow([t.tree_id, t.farm.farm_id, t.block, t.disease, t.confidence, t.date_scanned, t.recommended_action])
+    return response
+
+
+@login_required
+def export_excel(request):
+    # Exports the current tree data as an Excel (.xlsx) file.
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from django.http import HttpResponse
+
+    trees, label = _export_rows(request)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "RubberGuard Report"
+
+    headers = ["Tree ID", "Farm", "Block", "Disease", "Confidence (%)", "Date Scanned", "Recommended Action"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill(start_color="1A2535", end_color="1A2535", fill_type="solid")
+
+    for t in trees:
+        ws.append([t.tree_id, t.farm.farm_id, t.block, t.disease, t.confidence, str(t.date_scanned), t.recommended_action])
+
+    for col in ws.columns:
+        max_len = max(len(str(c.value)) if c.value else 0 for c in col)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 45)
+
+    response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    response["Content-Disposition"] = f'attachment; filename="rubberguard_report_{label}.xlsx"'
+    wb.save(response)
+    return response
+
+
+@login_required
+def export_pdf(request):
+    # Exports a summary PDF report: KPI totals plus a per-tree disease table.
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    from django.http import HttpResponse
+
+    trees, label = _export_rows(request)
+    farm = _get_farm_or_none(request)
+    total, counts, pcts, diseased = _get_stats(request, farm)
+
+    response = HttpResponse(content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="rubberguard_report_{label}.pdf"'
+
+    doc = SimpleDocTemplate(response, pagesize=letter, topMargin=0.6 * inch, bottomMargin=0.6 * inch)
+    styles = getSampleStyleSheet()
+    elements = []
+
+    title = farm.name if farm else "All Farms"
+    elements.append(Paragraph("RubberGuard Disease Detection Report", styles["Title"]))
+    elements.append(Paragraph(f"Scope: {title}", styles["Normal"]))
+    elements.append(Spacer(1, 16))
+
+    summary_data = [
+        ["Total Trees", "Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"],
+        [str(total), str(counts["Healthy"]), str(counts["Pink_Disease"]), str(counts["White_Root_Rot"]), str(counts["Stem_Bleeding"])],
+    ]
+    summary_table = Table(summary_data, hAlign="LEFT")
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a2535")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 20))
+
+    tree_rows = [["Tree ID", "Farm", "Block", "Disease", "Conf. %", "Date Scanned"]]
+    for t in trees:
+        tree_rows.append([t.tree_id, t.farm.farm_id, t.block, t.disease, f"{t.confidence}%", str(t.date_scanned)])
+
+    tree_table = Table(tree_rows, hAlign="LEFT", repeatRows=1)
+    tree_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    elements.append(tree_table)
+
+    doc.build(elements)
+    return response
