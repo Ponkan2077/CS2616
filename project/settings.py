@@ -8,6 +8,11 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']  # PythonAnywhere: add your .pythonanywhere.com domain here
 
+# Required for CSRF-protected POST requests (like logout) to work
+CSRF_TRUSTED_ORIGINS = [
+    'https://*.pythonanywhere.com',
+]
+
 INSTALLED_APPS = [
     'django.contrib.auth',
     'django.contrib.contenttypes',
