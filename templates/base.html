@@ -21,9 +21,16 @@
     <button id="sidebar-close" aria-label="Close sidebar">
       <i class="bi bi-x-lg"></i>
     </button>
-    <div class="brand-icon"><i class="bi bi-tree-fill"></i></div>
-    <div class="brand-title">RubberGuard</div>
-    <div class="brand-sub">Hevea brasiliensis Disease Detection System</div>
+    <div class="brand-row">
+      <div class="brand-icon">
+        <i class="bi bi-shield-fill"></i>
+        <i class="bi bi-tree-fill brand-icon-tree"></i>
+      </div>
+      <div class="brand-title-group">
+        <div class="brand-title">RubberGuard</div>
+        <div class="brand-sub">Hevea brasiliensis Disease Detection System</div>
+      </div>
+    </div>
   </div>
 
   <div class="px-3 pb-2 pt-2">
@@ -121,7 +128,7 @@
   </div>
 
   <div class="sidebar-footer">
-    <div>Thesis Prototype v1.0</div>
+    <div>RubberGuard v1.0</div>
     <div style="margin-top:3px;">WMSU · Zamboanga City</div>
   </div>
 </nav>
@@ -153,12 +160,18 @@
             <span class="badge bg-danger rounded-pill">{{ notifications|length }}</span>
           </div>
           {% for n in notifications %}
-          <div class="notif-item">
+          <a href="{{ n.url }}" class="notif-item">
             <i class="bi {{ n.icon }} {{ n.color }} fs-5 mt-1"></i>
             <div class="flex-grow-1">
               <div>{{ n.msg }}</div>
               <div class="notif-time mt-1">{{ n.time }}</div>
             </div>
+            <i class="bi bi-chevron-right notif-chevron"></i>
+          </a>
+          {% empty %}
+          <div class="notif-empty">
+            <i class="bi bi-check-circle-fill text-healthy"></i>
+            No disease alerts right now.
           </div>
           {% endfor %}
         </div>
