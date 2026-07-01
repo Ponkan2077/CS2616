@@ -26,7 +26,7 @@ MONTHLY_DETECTIONS = [
 
 
 def _humanize_days_ago(days):
-    # Converts a day count into a short human-readable "time ago" string.
+    # Converts a day count into a short "time ago" string.
     if days <= 0:
         return "Today"
     if days == 1:
@@ -38,8 +38,7 @@ def _humanize_days_ago(days):
 
 
 def _build_notifications(request):
-    # Builds a list of clickable notifications from the user's most recently
-    # scanned diseased trees, each linking to that tree's detail page.
+    # Builds clickable notifications from the user's most recently scanned diseased trees.
     diseased_trees = (
         RubberTree.objects.select_related("farm")
         .filter(farm__owner=request.user)
@@ -62,8 +61,7 @@ def _build_notifications(request):
 
 
 def _get_farm_or_none(request):
-    # Retrieves the currently selected Farm from the session, scoped to the
-    # logged-in user, or returns None if nothing is selected or it isn't theirs.
+    # Returns the logged-in user's currently selected Farm, or None.
     farm_id = request.session.get("selected_farm_id")
     if farm_id:
         return Farm.objects.filter(pk=farm_id, owner=request.user).first()
@@ -71,8 +69,7 @@ def _get_farm_or_none(request):
 
 
 def _get_trees(request, farm=None):
-    # Returns a queryset of trees belonging to the logged-in user's farms,
-    # optionally filtered down to a single farm.
+    # Returns the logged-in user's trees, optionally filtered to one farm.
     qs = RubberTree.objects.select_related("farm").filter(farm__owner=request.user)
     if farm:
         qs = qs.filter(farm=farm)
@@ -80,8 +77,7 @@ def _get_trees(request, farm=None):
 
 
 def _get_stats(request, farm=None):
-    # Aggregates disease counts and percentages for the selected farm, or
-    # across all of the logged-in user's farms if none is selected.
+    # Aggregates disease counts and percentages for one farm or all the user's farms.
     if farm:
         return farm.get_stats()
     trees = RubberTree.objects.filter(farm__owner=request.user)
@@ -101,8 +97,7 @@ def _get_stats(request, farm=None):
 
 
 def _base_context(request, farm=None):
-    # Builds the base template context shared across all views, scoped to
-    # the logged-in user's own farms.
+    # Builds the context shared across all views, scoped to the logged-in user.
     all_farms = Farm.objects.filter(owner=request.user).order_by("farm_id")
     return {
         "notifications": _build_notifications(request),
@@ -132,7 +127,6 @@ def select_farm(request):
     # Saves the selected farm to the session and redirects back to the current page.
     farm_pk = request.POST.get("farm_pk", "")
     if farm_pk:
-        # Only allow selecting a farm the logged-in user actually owns.
         if Farm.objects.filter(pk=farm_pk, owner=request.user).exists():
             request.session["selected_farm_id"] = int(farm_pk)
     else:
@@ -186,7 +180,7 @@ def farm_create(request):
 
 @login_required
 def farm_detail(request, farm_id):
-    # Displays the details, stats, and tree list for a single farm owned by the user.
+    # Displays details, stats, and trees for a single farm owned by the user.
     farm = get_object_or_404(Farm, farm_id=farm_id, owner=request.user)
     total, counts, pcts, diseased = farm.get_stats()
     trees = farm.trees.all().order_by("tree_id")
@@ -256,7 +250,7 @@ def disease_detection(request):
 
 @login_required
 def tree_inventory(request):
-    # Renders the full tree inventory table, filtered by the selected farm if set.
+    # Renders the tree inventory table, filtered by the selected farm if set.
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
     trees = _get_trees(request, farm).order_by("tree_id")
@@ -271,7 +265,7 @@ def tree_inventory(request):
 
 @login_required
 def tree_details(request, tree_id):
-    # Renders the detail page for a single tree owned by the user, including its scan history.
+    # Renders the detail page for a single tree, including its scan history.
     tree = get_object_or_404(
         RubberTree.objects.select_related("farm"),
         tree_id=tree_id, farm__owner=request.user,
@@ -313,8 +307,7 @@ def reports(request):
 
 
 def _export_rows(request):
-    # Returns the tree rows and a filename-safe label for the current export,
-    # scoped to the logged-in user and respecting the selected farm filter.
+    # Returns the user's trees and a filename-safe label for the current export.
     farm = _get_farm_or_none(request)
     trees = _get_trees(request, farm).order_by("farm__farm_id", "tree_id")
     label = farm.farm_id if farm else "all_farms"
@@ -323,55 +316,196 @@ def _export_rows(request):
 
 @login_required
 def export_csv(request):
-    # Exports the current tree data as a CSV file.
+    # Exports a summary-only CSV: overall disease totals and a per-farm breakdown.
     import csv
     from django.http import HttpResponse
 
-    trees, label = _export_rows(request)
+    farm = _get_farm_or_none(request)
+    total, counts, pcts, diseased = _get_stats(request, farm)
+    label = farm.farm_id if farm else "all_farms"
+
     response = HttpResponse(content_type="text/csv")
-    response["Content-Disposition"] = f'attachment; filename="rubberguard_report_{label}.csv"'
+    response["Content-Disposition"] = f'attachment; filename="rubberguard_summary_{label}.csv"'
 
     writer = csv.writer(response)
-    writer.writerow(["Tree ID", "Farm", "Block", "Disease", "Confidence (%)", "Date Scanned", "Recommended Action"])
-    for t in trees:
-        writer.writerow([t.tree_id, t.farm.farm_id, t.block, t.disease, t.confidence, t.date_scanned, t.recommended_action])
+    writer.writerow(["RubberGuard Disease Detection Summary"])
+    writer.writerow(["Scope", farm.name if farm else "All Farms"])
+    writer.writerow([])
+    writer.writerow(["Disease Class", "Count", "Percentage"])
+    writer.writerow(["Healthy", counts["Healthy"], f'{pcts["Healthy"]}%'])
+    writer.writerow(["Pink Disease", counts["Pink_Disease"], f'{pcts["Pink_Disease"]}%'])
+    writer.writerow(["White Root Rot", counts["White_Root_Rot"], f'{pcts["White_Root_Rot"]}%'])
+    writer.writerow(["Stem Bleeding", counts["Stem_Bleeding"], f'{pcts["Stem_Bleeding"]}%'])
+    writer.writerow(["Total", total, "100%"])
+
+    if not farm:
+        writer.writerow([])
+        writer.writerow(["Per-Farm Breakdown"])
+        writer.writerow(["Farm ID", "Farm Name", "Owner", "Total Trees", "Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"])
+        for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
+            ft, fc, fp, fd = f.get_stats()
+            writer.writerow([f.farm_id, f.name, f.owner_name, ft, fc["Healthy"], fc["Pink_Disease"], fc["White_Root_Rot"], fc["Stem_Bleeding"]])
+
     return response
 
 
 @login_required
 def export_excel(request):
-    # Exports the current tree data as an Excel (.xlsx) file.
+    # Exports a summary-only Excel file: overall disease totals and a per-farm breakdown.
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     from django.http import HttpResponse
 
-    trees, label = _export_rows(request)
+    farm = _get_farm_or_none(request)
+    total, counts, pcts, diseased = _get_stats(request, farm)
+    label = farm.farm_id if farm else "all_farms"
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="1A2535", end_color="1A2535", fill_type="solid")
+    title_font = Font(bold=True, size=13)
+
     wb = Workbook()
     ws = wb.active
-    ws.title = "RubberGuard Report"
+    ws.title = "Summary"
 
-    headers = ["Tree ID", "Farm", "Block", "Disease", "Confidence (%)", "Date Scanned", "Recommended Action"]
-    ws.append(headers)
-    for cell in ws[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill(start_color="1A2535", end_color="1A2535", fill_type="solid")
+    ws.append(["RubberGuard Disease Detection Summary"])
+    ws["A1"].font = title_font
+    ws.append(["Scope", farm.name if farm else "All Farms"])
+    ws.append([])
 
-    for t in trees:
-        ws.append([t.tree_id, t.farm.farm_id, t.block, t.disease, t.confidence, str(t.date_scanned), t.recommended_action])
+    ws.append(["Disease Class", "Count", "Percentage"])
+    for cell in ws[ws.max_row]:
+        cell.font = header_font
+        cell.fill = header_fill
+
+    ws.append(["Healthy", counts["Healthy"], f'{pcts["Healthy"]}%'])
+    ws.append(["Pink Disease", counts["Pink_Disease"], f'{pcts["Pink_Disease"]}%'])
+    ws.append(["White Root Rot", counts["White_Root_Rot"], f'{pcts["White_Root_Rot"]}%'])
+    ws.append(["Stem Bleeding", counts["Stem_Bleeding"], f'{pcts["Stem_Bleeding"]}%'])
+    ws.append(["Total", total, "100%"])
+    for cell in ws[ws.max_row]:
+        cell.font = Font(bold=True)
+
+    if not farm:
+        ws.append([])
+        ws.append(["Per-Farm Breakdown"])
+        ws[f"A{ws.max_row}"].font = Font(bold=True, size=11)
+        ws.append(["Farm ID", "Farm Name", "Owner", "Total Trees", "Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"])
+        for cell in ws[ws.max_row]:
+            cell.font = header_font
+            cell.fill = header_fill
+        for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
+            ft, fc, fp, fd = f.get_stats()
+            ws.append([f.farm_id, f.name, f.owner_name, ft, fc["Healthy"], fc["Pink_Disease"], fc["White_Root_Rot"], fc["Stem_Bleeding"]])
 
     for col in ws.columns:
-        max_len = max(len(str(c.value)) if c.value else 0 for c in col)
-        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 45)
+        max_len = max((len(str(c.value)) if c.value else 0 for c in col), default=0)
+        ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 40)
 
     response = HttpResponse(content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    response["Content-Disposition"] = f'attachment; filename="rubberguard_report_{label}.xlsx"'
+    response["Content-Disposition"] = f'attachment; filename="rubberguard_summary_{label}.xlsx"'
     wb.save(response)
     return response
 
 
+def _build_pie_chart(counts, chart_width, chart_height):
+    # Renders the disease distribution pie chart as a native ReportLab drawing.
+    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.graphics.charts.piecharts import Pie
+    from reportlab.lib import colors as rl_colors
+
+    color_map = {
+        "Healthy": rl_colors.HexColor("#28a745"),
+        "Pink Disease": rl_colors.HexColor("#dc3545"),
+        "White Root Rot": rl_colors.HexColor("#8b5a2b"),
+        "Stem Bleeding": rl_colors.HexColor("#8b0000"),
+    }
+
+    pie_labels = ["Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"]
+    pie_values = [counts["Healthy"], counts["Pink_Disease"], counts["White_Root_Rot"], counts["Stem_Bleeding"]]
+    nonzero = [(l, v) for l, v in zip(pie_labels, pie_values) if v > 0]
+
+    drawing = Drawing(chart_width, chart_height)
+    drawing.add(String(chart_width / 2, chart_height - 12, "Disease Distribution",
+                        fontSize=10, fontName="Helvetica-Bold", textAnchor="middle"))
+    if nonzero:
+        pie = Pie()
+        pie.x = chart_width * 0.22
+        pie.y = 10
+        pie.width = chart_width * 0.56
+        pie.height = chart_height * 0.75
+        pie.data = [v for _, v in nonzero]
+        pie.labels = [f"{l} ({v})" for l, v in nonzero]
+        pie.slices.strokeWidth = 1
+        pie.slices.strokeColor = rl_colors.white
+        pie.simpleLabels = 0
+        pie.sideLabels = 1
+        for i, (label, _) in enumerate(nonzero):
+            pie.slices[i].fillColor = color_map[label]
+            pie.slices[i].fontSize = 6.5
+        drawing.add(pie)
+    else:
+        drawing.add(String(chart_width / 2, chart_height / 2, "No data",
+                            fontSize=9, textAnchor="middle"))
+    return drawing
+
+
+def _build_trend_chart(monthly, chart_width, chart_height):
+    # Renders the monthly detection trend as a native ReportLab bar chart.
+    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.graphics.charts.barcharts import VerticalBarChart
+    from reportlab.graphics.charts.legends import Legend
+    from reportlab.lib import colors as rl_colors
+
+    color_map = {
+        "Healthy": rl_colors.HexColor("#28a745"),
+        "Pink Disease": rl_colors.HexColor("#dc3545"),
+        "White Root Rot": rl_colors.HexColor("#8b5a2b"),
+        "Stem Bleeding": rl_colors.HexColor("#8b0000"),
+    }
+    series_keys = [("healthy", "Healthy"), ("pink", "Pink Disease"),
+                   ("white_root", "White Root Rot"), ("stem", "Stem Bleeding")]
+    months = [m["month"] for m in monthly]
+    trend_data = [[m[key] for m in monthly] for key, _ in series_keys]
+
+    drawing = Drawing(chart_width, chart_height)
+    drawing.add(String(chart_width / 2, chart_height - 12, "Monthly Detection Trend",
+                        fontSize=10, fontName="Helvetica-Bold", textAnchor="middle"))
+
+    bar = VerticalBarChart()
+    bar.x = 45
+    bar.y = 24
+    bar.width = chart_width - 65
+    bar.height = chart_height - 55
+    bar.data = trend_data
+    bar.categoryAxis.categoryNames = months
+    bar.categoryAxis.labels.fontSize = 7
+    bar.valueAxis.labels.fontSize = 7
+    bar.valueAxis.valueMin = 0
+    bar.valueAxis.forceZero = True
+    bar.groupSpacing = 6
+    bar.barSpacing = 1
+    for i, (_, label) in enumerate(series_keys):
+        bar.bars[i].fillColor = color_map[label]
+    drawing.add(bar)
+
+    legend = Legend()
+    legend.x = chart_width - 5
+    legend.y = chart_height - 20
+    legend.dx = 8
+    legend.dy = 8
+    legend.fontSize = 6.5
+    legend.alignment = "right"
+    legend.columnMaximum = 4
+    legend.colorNamePairs = [(color_map[label], label) for _, label in series_keys]
+    drawing.add(legend)
+
+    return drawing
+
+
 @login_required
 def export_pdf(request):
-    # Exports a summary PDF report: KPI totals plus a per-tree disease table.
+    # Exports a full-width PDF: KPI totals, disease/trend charts, and a per-tree table.
     from reportlab.lib.pagesizes import letter
     from reportlab.lib import colors
     from reportlab.lib.units import inch
@@ -386,37 +520,60 @@ def export_pdf(request):
     response = HttpResponse(content_type="application/pdf")
     response["Content-Disposition"] = f'attachment; filename="rubberguard_report_{label}.pdf"'
 
-    doc = SimpleDocTemplate(response, pagesize=letter, topMargin=0.6 * inch, bottomMargin=0.6 * inch)
+    page_width, page_height = letter
+    left_margin = right_margin = 0.5 * inch
+    top_margin = bottom_margin = 0.6 * inch
+    content_width = page_width - left_margin - right_margin
+
+    doc = SimpleDocTemplate(
+        response, pagesize=letter,
+        leftMargin=left_margin, rightMargin=right_margin,
+        topMargin=top_margin, bottomMargin=bottom_margin,
+    )
     styles = getSampleStyleSheet()
     elements = []
 
     title = farm.name if farm else "All Farms"
     elements.append(Paragraph("RubberGuard Disease Detection Report", styles["Title"]))
     elements.append(Paragraph(f"Scope: {title}", styles["Normal"]))
-    elements.append(Spacer(1, 16))
+    elements.append(Spacer(1, 14))
 
     summary_data = [
         ["Total Trees", "Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"],
         [str(total), str(counts["Healthy"]), str(counts["Pink_Disease"]), str(counts["White_Root_Rot"]), str(counts["Stem_Bleeding"])],
     ]
-    summary_table = Table(summary_data, hAlign="LEFT")
+    summary_table = Table(summary_data, colWidths=[content_width / 5] * 5)
     summary_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a2535")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
     ]))
     elements.append(summary_table)
+    elements.append(Spacer(1, 18))
+
+    chart_h = 2.6 * inch
+    pie_w = content_width * 0.38
+    trend_w = content_width * 0.58
+    pie_drawing = _build_pie_chart(counts, pie_w, chart_h)
+    trend_drawing = _build_trend_chart(MONTHLY_DETECTIONS, trend_w, chart_h)
+    chart_row = Table([[pie_drawing, trend_drawing]], colWidths=[content_width * 0.4, content_width * 0.6])
+    chart_row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+    ]))
+    elements.append(chart_row)
     elements.append(Spacer(1, 20))
 
     tree_rows = [["Tree ID", "Farm", "Block", "Disease", "Conf. %", "Date Scanned"]]
     for t in trees:
         tree_rows.append([t.tree_id, t.farm.farm_id, t.block, t.disease, f"{t.confidence}%", str(t.date_scanned)])
 
-    tree_table = Table(tree_rows, hAlign="LEFT", repeatRows=1)
+    col_fractions = [0.16, 0.16, 0.12, 0.26, 0.14, 0.16]
+    tree_table = Table(tree_rows, colWidths=[content_width * f for f in col_fractions], repeatRows=1)
     tree_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
