@@ -6,7 +6,7 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib import messages
 from django.urls import reverse
 from django.utils import timezone
-from .models import Farm, RubberTree, ScanHistory
+from .models import Farm, RubberTree, ScanHistory, Intervention
 
 # Icon and color shown in the notification bell for each disease type.
 NOTIFICATION_STYLE = {
@@ -196,6 +196,7 @@ def farm_create(request):
         location = request.POST.get("location", "").strip()
         center_lat = request.POST.get("center_lat") or 6.9214
         center_lng = request.POST.get("center_lng") or 122.0790
+        boundary_radius_m = request.POST.get("boundary_radius_m") or 300
 
         if not farm_id or not name or not owner_name:
             messages.error(request, "Farm ID, name, and owner name are required.")
@@ -213,6 +214,7 @@ def farm_create(request):
             location=location,
             center_lat=float(center_lat),
             center_lng=float(center_lng),
+            boundary_radius_m=int(boundary_radius_m),
         )
         messages.success(request, f"Farm '{name}' added successfully.")
         return redirect("farm_list")
@@ -278,6 +280,7 @@ def farm_map(request):
             "owner": f.owner_name,
             "lat": f.center_lat,
             "lng": f.center_lng,
+            "radius": f.boundary_radius_m,
         }
         for f in Farm.objects.filter(owner=request.user)
     ])
@@ -318,7 +321,7 @@ def save_detection(request):
 
     if not tree_id:
         existing = farm.trees.count()
-        tree_id = f"RT-{existing + 1:03d}"
+        tree_id = f"RT-{existing + 1:04d}"
 
     if farm.trees.filter(tree_id=tree_id).exists():
         messages.error(request, f"Tree ID '{tree_id}' already exists on this farm.")
@@ -409,6 +412,102 @@ def reports(request):
         "trees_json": json.dumps([t.to_dict() for t in map_trees]),
     })
     return render(request, "reports.html", ctx)
+
+
+@login_required
+def interventions_map(request):
+    # Renders a dedicated map showing every tree that has had at least one
+    # intervention logged, so users can see where treatment work has
+    # actually happened rather than just where disease was detected.
+    farm = _get_farm_or_none(request)
+    trees_qs = _get_trees(request, farm).filter(interventions__isnull=False).distinct()
+    ctx = _base_context(request, farm)
+    ctx.update({
+        "page": "interventions",
+        "trees_json": json.dumps([t.to_dict() for t in trees_qs]),
+        "intervention_count": Intervention.objects.filter(tree__farm__owner=request.user).count(),
+    })
+    return render(request, "interventions_map.html", ctx)
+
+
+@login_required
+def interventions_log(request):
+    # Lists all logged interventions for the user's trees, most recent first.
+    farm = _get_farm_or_none(request)
+    qs = Intervention.objects.select_related("tree", "tree__farm", "performed_by").filter(
+        tree__farm__owner=request.user
+    )
+    if farm:
+        qs = qs.filter(tree__farm=farm)
+    qs = qs.order_by("-date_performed", "-created_at")
+
+    # Pre-built {farm_pk: [{tree_id, disease}, ...]} lookup for the
+    # checklist-mode tree selector in the log-intervention form.
+    farm_trees = {}
+    for f in Farm.objects.filter(owner=request.user):
+        farm_trees[str(f.pk)] = [
+            {"tree_id": t.tree_id, "disease": t.disease}
+            for t in f.trees.order_by("tree_id")
+        ]
+
+    ctx = _base_context(request, farm)
+    ctx.update({
+        "page": "interventions",
+        "interventions": qs,
+        "farm_trees_json": json.dumps(farm_trees),
+    })
+    return render(request, "interventions_log.html", ctx)
+
+
+@login_required
+def intervention_create(request):
+    # Logs a new intervention against one or more trees, selected either by
+    # a tree ID range (e.g. RT-001 to RT-005) or by explicit tree IDs
+    # (e.g. checked off via the map).
+    import datetime
+
+    if request.method != "POST":
+        return redirect("interventions_log")
+
+    action = request.POST.get("action", "Other")
+    date_performed = request.POST.get("date_performed") or str(datetime.date.today())
+    notes = request.POST.get("notes", "").strip()
+    farm_pk = request.POST.get("farm_pk")
+    selection_mode = request.POST.get("selection_mode", "single")
+
+    farm = get_object_or_404(Farm, pk=farm_pk, owner=request.user)
+    trees = RubberTree.objects.none()
+
+    if selection_mode == "range":
+        start_id = request.POST.get("range_start", "").strip()
+        end_id = request.POST.get("range_end", "").strip()
+        all_ids = list(farm.trees.order_by("tree_id").values_list("tree_id", flat=True))
+        try:
+            start_i = all_ids.index(start_id)
+            end_i = all_ids.index(end_id)
+            selected_ids = all_ids[min(start_i, end_i):max(start_i, end_i) + 1]
+            trees = farm.trees.filter(tree_id__in=selected_ids)
+        except ValueError:
+            messages.error(request, "Invalid tree ID range. Check that both IDs exist on this farm.")
+            return redirect("interventions_log")
+    else:
+        tree_ids = request.POST.getlist("tree_ids")
+        trees = farm.trees.filter(tree_id__in=tree_ids)
+
+    if not trees.exists():
+        messages.error(request, "No trees were selected for this intervention.")
+        return redirect("interventions_log")
+
+    created = 0
+    for tree in trees:
+        Intervention.objects.create(
+            tree=tree, performed_by=request.user, action=action,
+            date_performed=date_performed, notes=notes,
+        )
+        created += 1
+
+    messages.success(request, f"Logged '{action}' on {created} tree(s).")
+    return redirect("interventions_log")
 
 
 def _export_rows(request):
@@ -595,13 +694,14 @@ def _build_trend_chart(monthly, chart_width, chart_height):
     drawing.add(bar)
 
     legend = Legend()
-    legend.x = chart_width - 5
-    legend.y = chart_height - 20
-    legend.dx = 8
-    legend.dy = 8
+    legend.x = chart_width - 70
+    legend.y = chart_height - 22
+    legend.dx = 7
+    legend.dy = 7
     legend.fontSize = 6.5
     legend.alignment = "right"
     legend.columnMaximum = 4
+    legend.deltay = 9
     legend.colorNamePairs = [(color_map[label], label) for _, label in series_keys]
     drawing.add(legend)
 
@@ -623,7 +723,19 @@ def export_pdf(request):
     trees, label = _export_rows(request)
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
+    severity_counts = _get_severity_counts(request, farm)
     monthly = _get_monthly_trend(request, farm)
+
+    farm_summaries = []
+    if not farm:
+        for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
+            ft, fc, fp, fd = f.get_stats()
+            farm_summaries.append((f.farm_id, f.name, ft, fc["Healthy"], fc["Pink_Disease"], fc["White_Root_Rot"], fc["Stem_Bleeding"]))
+
+    intervention_qs = Intervention.objects.select_related("tree", "tree__farm").filter(tree__farm__owner=request.user)
+    if farm:
+        intervention_qs = intervention_qs.filter(tree__farm=farm)
+    intervention_qs = intervention_qs.order_by("-date_performed")[:15]
 
     response = HttpResponse(content_type="application/pdf")
     response["Content-Disposition"] = f'attachment; filename="rubberguard_report_{label}.pdf"'
@@ -644,8 +756,8 @@ def export_pdf(request):
 
     title = farm.name if farm else "All Farms"
     elements.append(Paragraph("RubberGuard Disease Detection Report", styles["Title"]))
-    elements.append(Paragraph(f"Scope: {title}", styles["Normal"]))
-    elements.append(Spacer(1, 12))
+    elements.append(Paragraph(f"Scope: {title} &nbsp;&nbsp;|&nbsp;&nbsp; Generated: {timezone.localdate()}", styles["Normal"]))
+    elements.append(Spacer(1, 10))
 
     # KPI summary row
     summary_data = [
@@ -663,11 +775,33 @@ def export_pdf(request):
         ("TOPPADDING", (0, 0), (-1, -1), 8),
     ]))
     elements.append(summary_table)
-    elements.append(Spacer(1, 16))
+    elements.append(Spacer(1, 8))
+
+    # Severity summary row
+    severity_data = [
+        ["Healthy", "Mild", "Moderate", "Severe"],
+        [str(severity_counts["Healthy"]), str(severity_counts["Mild"]), str(severity_counts["Moderate"]), str(severity_counts["Severe"])],
+    ]
+    severity_table = Table(severity_data, colWidths=[content_width / 4] * 4)
+    severity_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#dcfce7")),
+        ("BACKGROUND", (1, 0), (1, -1), colors.HexColor("#fef3c7")),
+        ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#fed7aa")),
+        ("BACKGROUND", (3, 0), (3, -1), colors.HexColor("#fecaca")),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(Paragraph("Severity Distribution", styles["Heading4"]))
+    elements.append(severity_table)
+    elements.append(Spacer(1, 14))
 
     # Charts row — pie and trend, wrapped in KeepInFrame so they can never
     # overflow their allotted space regardless of label length.
-    chart_h = 2.4 * inch
+    chart_h = 2.2 * inch
     pie_w = content_width * 0.32
     trend_w = content_width * 0.64
     pie_drawing = _build_pie_chart(counts, pie_w, chart_h)
@@ -680,9 +814,27 @@ def export_pdf(request):
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
     ]))
     elements.append(chart_row)
-    elements.append(Spacer(1, 18))
+    elements.append(Spacer(1, 14))
+
+    # Per-farm breakdown (only when viewing all farms)
+    if farm_summaries:
+        farm_rows = [["Farm ID", "Farm Name", "Total", "Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"]] + \
+            [[str(v) for v in row] for row in farm_summaries]
+        farm_table = Table(farm_rows, colWidths=[content_width * f for f in [0.12, 0.28, 0.12, 0.12, 0.14, 0.12, 0.10]])
+        farm_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(Paragraph("Per-Farm Breakdown", styles["Heading4"]))
+        elements.append(farm_table)
+        elements.append(Spacer(1, 14))
 
     # Per-tree table
+    elements.append(Paragraph("Tree-Level Detail", styles["Heading4"]))
     tree_rows = [["Tree ID", "Farm", "Block", "Disease", "Conf. %", "Date Scanned"]]
     for t in trees:
         tree_rows.append([t.tree_id, t.farm.farm_id, t.block, t.disease, f"{t.confidence}%", str(t.date_scanned)])
@@ -698,6 +850,26 @@ def export_pdf(request):
         ("TOPPADDING", (0, 0), (-1, -1), 5),
     ]))
     elements.append(tree_table)
+    elements.append(Spacer(1, 14))
+
+    # Recent interventions
+    if intervention_qs:
+        elements.append(Paragraph("Recent Interventions", styles["Heading4"]))
+        iv_rows = [["Tree ID", "Farm", "Action", "Date", "Notes"]]
+        for iv in intervention_qs:
+            iv_rows.append([iv.tree.tree_id, iv.tree.farm.farm_id, iv.action, str(iv.date_performed), (iv.notes or "—")[:40]])
+        iv_table = Table(iv_rows, colWidths=[content_width * f for f in [0.12, 0.12, 0.22, 0.12, 0.42]])
+        iv_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0fdf4")),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+            ("ALIGN", (0, 0), (0, -1), "CENTER"),
+            ("ALIGN", (1, 0), (3, -1), "CENTER"),
+            ("ALIGN", (4, 0), (4, -1), "LEFT"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        elements.append(iv_table)
 
     doc.build(elements)
     return response
