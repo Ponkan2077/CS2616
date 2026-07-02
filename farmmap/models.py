@@ -10,6 +10,9 @@ class Farm(models.Model):
     location = models.CharField(max_length=200, blank=True)
     center_lat = models.FloatField(default=6.9214)
     center_lng = models.FloatField(default=122.0790)
+    # Approximate farm boundary radius in meters, used to draw a territory
+    # circle on the map. Not a precise survey boundary, just a visual aid.
+    boundary_radius_m = models.PositiveIntegerField(default=300)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -140,10 +143,13 @@ class RubberTree(models.Model):
 
     def to_dict(self):
         # Returns a JSON-serializable dict of the tree's data for map and JS usage.
+        latest_scan = self.history.first()
+        latest_intervention = self.interventions.first()
         return {
             "tree_id": self.tree_id,
             "farm_id": self.farm.farm_id,
             "farm_name": self.farm.name,
+            "farm_owner": self.farm.owner_name,
             "lat": self.lat,
             "lng": self.lng,
             "disease": self.disease,
@@ -157,6 +163,10 @@ class RubberTree(models.Model):
             "severity": self.severity,
             "severity_label": self.severity_label,
             "severity_weight": round((self.severity / 3) * (self.confidence / 100), 3) if self.severity else 0,
+            "inspector": latest_scan.inspector if latest_scan else "",
+            "latest_intervention": latest_intervention.action if latest_intervention else "",
+            "latest_intervention_date": str(latest_intervention.date_performed) if latest_intervention else "",
+            "intervention_count": self.interventions.count(),
         }
 
 
@@ -173,3 +183,42 @@ class ScanHistory(models.Model):
     def __str__(self):
         # Returns a readable string showing the tree, scan date, and detected disease.
         return f"{self.tree.tree_id} on {self.date}: {self.disease}"
+
+
+class Intervention(models.Model):
+    """A manual action taken by a farmer/user to treat a diseased tree."""
+    ACTION_CHOICES = [
+        ("Fungicide Application", "Fungicide Application"),
+        ("Bark Removal", "Bark Removal"),
+        ("Root Treatment", "Root Treatment"),
+        ("Uprooting", "Uprooting"),
+        ("Quarantine", "Quarantine"),
+        ("Soil Treatment", "Soil Treatment"),
+        ("Tapping Suspended", "Tapping Suspended"),
+        ("Monitoring Only", "Monitoring Only"),
+        ("Other", "Other"),
+    ]
+
+    tree = models.ForeignKey(RubberTree, on_delete=models.CASCADE, related_name="interventions")
+    performed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="interventions")
+    action = models.CharField(max_length=40, choices=ACTION_CHOICES, default="Other")
+    date_performed = models.DateField()
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-date_performed"]
+
+    def __str__(self):
+        # Returns a readable string showing the tree, action, and date.
+        return f"{self.tree.tree_id}: {self.action} on {self.date_performed}"
+
+    def to_dict(self):
+        # Returns a JSON-serializable dict for map/JS usage.
+        return {
+            "tree_id": self.tree.tree_id,
+            "action": self.action,
+            "date_performed": str(self.date_performed),
+            "notes": self.notes,
+            "performed_by": self.performed_by.username if self.performed_by else "Unknown",
+        }
