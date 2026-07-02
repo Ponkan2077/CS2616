@@ -3,38 +3,30 @@
 {% block page_title %}Reports & Analytics{% endblock %}
 
 {% block content %}
-<!-- KPI Cards -->
+<!-- Summary Cards -->
 <div class="row g-2 g-md-3 mb-3">
   <div class="col-6 col-lg-3">
-    <div class="kpi-card">
-      <div class="kpi-label">Healthy Trees</div>
-      <div class="kpi-value text-healthy">{{ counts.Healthy }}</div>
-      <div class="kpi-pct">{{ pcts.Healthy }}% of total</div>
-      <i class="bi bi-check-circle-fill kpi-icon text-healthy"></i>
+    <div class="summary-card">
+      <div class="summary-icon" style="background:#eff6ff;color:var(--primary);"><i class="bi bi-tree-fill"></i></div>
+      <div><div class="summary-label">Total Trees</div><div class="summary-value">{{ total }}</div></div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="kpi-card">
-      <div class="kpi-label">Pink Disease</div>
-      <div class="kpi-value text-pink">{{ counts.Pink_Disease }}</div>
-      <div class="kpi-pct">{{ pcts.Pink_Disease }}% of total</div>
-      <i class="bi bi-virus kpi-icon text-pink"></i>
+    <div class="summary-card">
+      <div class="summary-icon" style="background:var(--pink-bg);color:var(--pink);"><i class="bi bi-exclamation-triangle-fill"></i></div>
+      <div><div class="summary-label">Disease Cases</div><div class="summary-value text-pink">{{ diseased }}</div></div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="kpi-card">
-      <div class="kpi-label">White Root Rot</div>
-      <div class="kpi-value text-white-root">{{ counts.White_Root_Rot }}</div>
-      <div class="kpi-pct">{{ pcts.White_Root_Rot }}% of total</div>
-      <i class="bi bi-bug-fill kpi-icon text-white-root"></i>
+    <div class="summary-card">
+      <div class="summary-icon" style="background:#fef3c7;color:#92400e;"><i class="bi bi-geo-alt-fill"></i></div>
+      <div><div class="summary-label">Health Rate</div><div class="summary-value">{{ pcts.Healthy }}%</div></div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
-    <div class="kpi-card">
-      <div class="kpi-label">Stem Bleeding</div>
-      <div class="kpi-value text-stem">{{ counts.Stem_Bleeding }}</div>
-      <div class="kpi-pct">{{ pcts.Stem_Bleeding }}% of total</div>
-      <i class="bi bi-droplet-fill kpi-icon text-stem"></i>
+    <div class="summary-card">
+      <div class="summary-icon" style="background:var(--healthy-bg);color:var(--healthy);"><i class="bi bi-check-circle-fill"></i></div>
+      <div><div class="summary-label">Healthy Trees</div><div class="summary-value text-healthy">{{ counts.Healthy }}</div></div>
     </div>
   </div>
 </div>
@@ -46,40 +38,77 @@
   <a href="{% url 'export_excel' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-excel-fill me-1"></i>Export Excel</a>
 </div>
 
-<!-- Charts Row -->
+<!-- Disease Cases by Location -->
+<div class="report-chart-card mb-3">
+  <div class="card-header-rg"><i class="bi bi-pin-map-fill"></i> Disease Cases by Location</div>
+  <div id="report-map" class="report-map"></div>
+</div>
+
 <div class="row g-3 mb-3">
+  <!-- Severity Distribution -->
   <div class="col-12 col-md-5">
-    <div class="card-rg h-100">
-      <div class="card-header-rg"><i class="bi bi-pie-chart-fill"></i> Disease Distribution</div>
+    <div class="report-chart-card">
+      <div class="card-header-rg"><i class="bi bi-pie-chart-fill"></i> Disease Severity Distribution</div>
       <div class="card-body-rg d-flex flex-column align-items-center">
-        <div style="max-width:220px;width:100%;">
-          <canvas id="reportPie"></canvas>
-        </div>
+        <div style="max-width:220px;width:100%;"><canvas id="severityPie"></canvas></div>
         <div class="mt-3 d-flex flex-wrap gap-2 justify-content-center" style="font-size:11px;">
-          <span><span class="legend-dot" style="background:var(--healthy);"></span>Healthy {{ pcts.Healthy }}%</span>
-          <span><span class="legend-dot" style="background:var(--pink);"></span>Pink {{ pcts.Pink_Disease }}%</span>
-          <span><span class="legend-dot" style="background:var(--white-root);"></span>White Root {{ pcts.White_Root_Rot }}%</span>
-          <span><span class="legend-dot" style="background:var(--stem);"></span>Stem {{ pcts.Stem_Bleeding }}%</span>
+          <span><span class="legend-dot" style="background:#28a745;"></span>Healthy {{ severity_counts.Healthy }}</span>
+          <span><span class="legend-dot" style="background:#fbbf24;"></span>Mild {{ severity_counts.Mild }}</span>
+          <span><span class="legend-dot" style="background:#f97316;"></span>Moderate {{ severity_counts.Moderate }}</span>
+          <span><span class="legend-dot" style="background:#dc2626;"></span>Severe {{ severity_counts.Severe }}</span>
         </div>
       </div>
     </div>
   </div>
 
+  <!-- Detection Results Summary -->
   <div class="col-12 col-md-7">
-    <div class="card-rg h-100">
-      <div class="card-header-rg"><i class="bi bi-bar-chart-fill"></i> Disease Count by Type</div>
-      <div class="card-body-rg">
-        <canvas id="reportBar" height="180"></canvas>
-      </div>
+    <div class="report-chart-card">
+      <div class="card-header-rg"><i class="bi bi-bar-chart-fill"></i> Detection Results Summary</div>
+      <div class="card-body-rg"><canvas id="detectionSummary" height="180"></canvas></div>
     </div>
   </div>
 </div>
 
-<!-- Monthly Trend -->
-<div class="card-rg mb-3">
-  <div class="card-header-rg"><i class="bi bi-graph-up"></i> Monthly Detection Trends</div>
+<!-- Reports Over Time -->
+<div class="report-chart-card mb-3">
+  <div class="card-header-rg"><i class="bi bi-graph-up"></i> Disease Reports Over Time</div>
   <div class="card-body-rg">
+    {% if monthly %}
     <canvas id="reportTrend" height="100"></canvas>
+    {% else %}
+    <div class="text-center text-muted py-4" style="font-size:13px;">Not enough scan history yet to show a trend.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <!-- Most Affected Areas -->
+  <div class="col-12 col-md-6">
+    <div class="report-chart-card">
+      <div class="card-header-rg"><i class="bi bi-bar-chart-line-fill"></i> Most Affected Areas</div>
+      <div class="card-body-rg">
+        {% for a in most_affected %}
+        <div class="affected-row">
+          <div class="affected-label">{{ a.label }}</div>
+          <div class="affected-bar-track">
+            <div class="affected-bar-fill" style="width:{{ a.bar_pct }}%;"></div>
+          </div>
+          <div class="affected-count">{{ a.diseased }}</div>
+        </div>
+        {% empty %}
+        <div class="text-center text-muted py-3" style="font-size:13px;">No farms registered yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Disease Count by Type -->
+  <div class="col-12 col-md-6">
+    <div class="report-chart-card">
+      <div class="card-header-rg"><i class="bi bi-bar-chart-fill"></i> Disease Count by Type</div>
+      <div class="card-body-rg"><canvas id="reportBar" height="200"></canvas></div>
+    </div>
   </div>
 </div>
 
@@ -91,9 +120,7 @@
     <table class="table-rg" style="min-width:640px;">
       <thead>
         <tr>
-          <th>FARM</th>
-          <th>OWNER</th>
-          <th>TOTAL</th>
+          <th>FARM</th><th>OWNER</th><th>TOTAL</th>
           <th style="color:var(--healthy);">HEALTHY</th>
           <th style="color:var(--pink);">PINK</th>
           <th style="color:var(--white-root);">WHITE ROOT</th>
@@ -115,9 +142,7 @@
           <td class="fw-bold text-white-root">{{ s.counts.White_Root_Rot }}</td>
           <td class="fw-bold text-stem">{{ s.counts.Stem_Bleeding }}</td>
           <td>
-            <div class="conf-bar" style="width:80px;">
-              <div class="conf-fill" style="width:{{ s.pcts.Healthy }}%;background:var(--healthy);"></div>
-            </div>
+            <div class="conf-bar" style="width:80px;"><div class="conf-fill" style="width:{{ s.pcts.Healthy }}%;background:var(--healthy);"></div></div>
             <div style="font-size:11px;margin-top:2px;">{{ s.pcts.Healthy }}%</div>
           </td>
         </tr>
@@ -127,77 +152,25 @@
   </div>
 </div>
 {% endif %}
-
-<!-- Analytics Summary Table -->
-<div class="card-rg">
-  <div class="card-header-rg"><i class="bi bi-table"></i> Analytics Summary</div>
-  <div class="table-responsive-rg">
-    <table class="table-rg" style="min-width:540px;">
-      <thead>
-        <tr>
-          <th>DISEASE CLASS</th>
-          <th>COUNT</th>
-          <th>%</th>
-          <th>SEVERITY</th>
-          <th>RECOMMENDED RESPONSE</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><span class="badge-disease badge-healthy">Healthy</span></td>
-          <td class="fw-bold">{{ counts.Healthy }}</td>
-          <td>{{ pcts.Healthy }}%</td>
-          <td><span class="badge bg-success">None</span></td>
-          <td class="text-muted">Routine monitoring every 30 days.</td>
-        </tr>
-        <tr>
-          <td><span class="badge-disease badge-pink">Pink Disease</span></td>
-          <td class="fw-bold">{{ counts.Pink_Disease }}</td>
-          <td>{{ pcts.Pink_Disease }}%</td>
-          <td><span class="badge bg-warning text-dark">Moderate</span></td>
-          <td class="text-muted">Apply Mancozeb fungicide. Re-inspect in 14 days.</td>
-        </tr>
-        <tr>
-          <td><span class="badge-disease badge-white-root">White Root Rot</span></td>
-          <td class="fw-bold">{{ counts.White_Root_Rot }}</td>
-          <td>{{ pcts.White_Root_Rot }}%</td>
-          <td><span class="badge bg-danger">High</span></td>
-          <td class="text-muted">Quarantine zone. Soil biocontrol treatment required.</td>
-        </tr>
-        <tr>
-          <td><span class="badge-disease badge-stem">Stem Bleeding</span></td>
-          <td class="fw-bold">{{ counts.Stem_Bleeding }}</td>
-          <td>{{ pcts.Stem_Bleeding }}%</td>
-          <td><span class="badge bg-danger">High</span></td>
-          <td class="text-muted">Halt tapping. Apply Metalaxyl. Monitor latex flow.</td>
-        </tr>
-        <tr style="background:#f9fafb;">
-          <td class="fw-bold">Total</td>
-          <td class="fw-bold">{{ total }}</td>
-          <td class="fw-bold">100%</td>
-          <td>—</td>
-          <td class="text-faint">Last scan: {{ latest_scan|default:"—" }}</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
   const REPORTS_DATA = {
     counts: {
-      healthy: {{ counts.Healthy }},
-      pink: {{ counts.Pink_Disease }},
-      white_root: {{ counts.White_Root_Rot }},
-      stem: {{ counts.Stem_Bleeding }}
+      healthy: {{ counts.Healthy }}, pink: {{ counts.Pink_Disease }},
+      white_root: {{ counts.White_Root_Rot }}, stem: {{ counts.Stem_Bleeding }}
+    },
+    severity: {
+      healthy: {{ severity_counts.Healthy }}, mild: {{ severity_counts.Mild }},
+      moderate: {{ severity_counts.Moderate }}, severe: {{ severity_counts.Severe }}
     },
     monthly: [
       {% for m in monthly %}
       { month: '{{ m.month }}', healthy: {{ m.healthy }}, pink: {{ m.pink }}, white_root: {{ m.white_root }}, stem: {{ m.stem }} },
       {% endfor %}
-    ]
+    ],
+    trees: {{ trees_json|safe }}
   };
 </script>
 {% load static %}
