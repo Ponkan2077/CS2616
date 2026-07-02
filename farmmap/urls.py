@@ -15,6 +15,11 @@ urlpatterns = [
     path('reports/export/excel/', views.export_excel, name='export_excel'),
     path('reports/export/pdf/', views.export_pdf, name='export_pdf'),
 
+    # Interventions
+    path('interventions/', views.interventions_log, name='interventions_log'),
+    path('interventions/map/', views.interventions_map, name='interventions_map'),
+    path('interventions/create/', views.intervention_create, name='intervention_create'),
+
     # Farm management
     path('farms/', views.farm_list, name='farm_list'),
     path('farms/create/', views.farm_create, name='farm_create'),
