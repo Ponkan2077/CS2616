@@ -21,7 +21,6 @@
 
   --sidebar-bg:     #1a2535;
   --sidebar-w:      260px;
-  --sidebar-collapsed-w: 72px;
   --topbar-h:       56px;
   --radius:         12px;
   --shadow-sm:      0 1px 4px rgba(0,0,0,.06);
@@ -337,7 +336,7 @@ body {
 
 .heatmap-gradient-bar {
   display: inline-block; width: 140px; height: 10px; border-radius: 5px;
-  background: linear-gradient(to right, #2563eb, #28a745, #fbbf24, #dc3545, #7f1d1d);
+  background: var(--heatmap-gradient, linear-gradient(to right, #fecaca, #f87171, #b91c1c));
 }
 
 /* ============================================================
@@ -374,31 +373,22 @@ body {
    desktop layout at ≥992px and adjusts spacing below that.
    ============================================================ */
 @media (min-width: 992px) {
-  #sidebar { transform: translateX(0); transition: width .2s ease; }
+  #sidebar { transform: translateX(0); }
   #main-wrapper { margin-left: var(--sidebar-w); transition: margin-left .2s ease; }
   #hamburger { display: none; }
-  #sidebar-overlay { display: none !important; }
+  #sidebar-overlay { display: none; }
   #sidebar-close { display: none; }
   #desktop-sidebar-toggle { display: flex; }
 
-  /* Collapsed state: icon-only rail, text and secondary content hidden */
-  #sidebar.collapsed { width: var(--sidebar-collapsed-w); }
-  #main-wrapper.sidebar-collapsed { margin-left: var(--sidebar-collapsed-w); }
-
-  #sidebar.collapsed .brand-title-group,
-  #sidebar.collapsed .nav-section-label,
-  #sidebar.collapsed .nav-link span,
-  #sidebar.collapsed .farm-selector-text,
-  #sidebar.collapsed .farm-selector-caret,
-  #sidebar.collapsed .sidebar-footer,
-  #sidebar.collapsed .farm-selector-icon { display: none; }
-
-  #sidebar.collapsed .sidebar-brand { justify-content: center; padding: 20px 8px 12px; }
-  #sidebar.collapsed .brand-row { justify-content: center; }
-  #sidebar.collapsed .nav-link { justify-content: center; padding: 10px 0; }
-  #sidebar.collapsed .nav-link.active { border-left: none; border-right: 3px solid #4ade80; }
-  #sidebar.collapsed .farm-selector-btn { justify-content: center; padding: 9px 0; }
-  #sidebar.collapsed .px-3 { padding-left: 8px !important; padding-right: 8px !important; }
+  /* Mobile-preview mode: desktop sidebar temporarily behaves like the
+     mobile overlay sidebar — hidden by default, slides in as an overlay
+     over content (not pushing it), with a dimmed backdrop that closes it
+     on outside click. Toggled by #desktop-sidebar-toggle. */
+  body.mobile-preview #sidebar { transform: translateX(-100%); transition: transform .25s ease; }
+  body.mobile-preview #sidebar.open { transform: translateX(0); }
+  body.mobile-preview #main-wrapper { margin-left: 0; }
+  body.mobile-preview #sidebar-overlay.show { display: block; }
+  body.mobile-preview #sidebar-close { display: flex; }
 }
 
 #desktop-sidebar-toggle {
@@ -490,7 +480,7 @@ body {
 .threshold-confirmed { background: var(--healthy-bg); color: var(--healthy-text); }
 .threshold-review { background: #fef3c7; color: #92400e; }
 
-.ref-card { border-left: 4px solid var(--border); background: var(--surface); }
+.ref-card { border-left: 4px solid var(--border); background: var(--surface); padding: 16px 18px !important; line-height: 1.5; }
 .ref-healthy { border-left-color: var(--healthy); background: #f8fff8; }
 .ref-pink { border-left-color: var(--pink); background: #fff8f8; }
 .ref-white-root { border-left-color: var(--white-root); background: #fdf8f4; }
@@ -524,3 +514,27 @@ body {
 .affected-bar-track { flex: 1; height: 10px; border-radius: 5px; background: #f1f5f9; overflow: hidden; }
 .affected-bar-fill { height: 100%; background: var(--pink); border-radius: 5px; }
 .affected-count { flex: 0 0 28px; font-size: 12px; font-weight: 700; text-align: right; }
+
+/* ============================================================
+   FARM BOUNDARY LABEL — permanent tooltip on the farm map
+   ============================================================ */
+.farm-boundary-label {
+  background: rgba(26,37,53,.85); color: #fff; border: none;
+  border-radius: 6px; padding: 2px 8px; font-size: 11px; font-weight: 700;
+  box-shadow: none;
+}
+.farm-boundary-label::before { display: none; }
+
+/* ============================================================
+   INTERVENTIONS — tree checklist selector
+   ============================================================ */
+.tree-checklist {
+  max-height: 220px; overflow-y: auto; border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px;
+}
+.tree-checklist-item {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-radius: 6px; cursor: pointer; font-size: 12px;
+}
+.tree-checklist-item:hover { background: #f3f4f6; }
+.tree-checklist-item input { flex-shrink: 0; }
