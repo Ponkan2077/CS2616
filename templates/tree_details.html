@@ -103,6 +103,12 @@
       <div class="card-body-rg">
         {% if history %}
         <canvas id="historyChart" height="130"></canvas>
+        <div class="mt-3 d-flex flex-wrap gap-3 justify-content-center" style="font-size:11px;">
+          <span><span class="legend-dot" style="background:#28a745;"></span>Healthy</span>
+          <span><span class="legend-dot" style="background:#dc3545;"></span>Pink Disease</span>
+          <span><span class="legend-dot" style="background:#8b5a2b;"></span>White Root Rot</span>
+          <span><span class="legend-dot" style="background:#8b0000;"></span>Stem Bleeding</span>
+        </div>
         {% else %}
         <div class="text-center text-muted py-4" style="font-size:13px;">No scan history available.</div>
         {% endif %}
@@ -177,11 +183,12 @@
       lng: {{ tree.lng }},
       tree_id: '{{ tree.tree_id }}',
       disease: '{{ tree.disease }}',
-      color: '{{ tree.color }}'
+      color: '{{ tree.color }}',
+      farm_owner: '{{ tree.farm.owner_name }}'
     },
     history: [
       {% for h in history %}
-      { date: '{{ h.date }}', confidence: {{ h.confidence }} },
+      { date: '{{ h.date }}', confidence: {{ h.confidence }}, disease: '{{ h.disease }}' },
       {% endfor %}
     ]
   };
