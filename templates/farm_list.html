@@ -139,8 +139,12 @@
               </div>
             </div>
           </div>
+          <div class="auth-field">
+            <label for="boundary_radius_m">Boundary Radius (meters)</label>
+            <input type="number" step="1" min="50" name="boundary_radius_m" id="boundary_radius_m" class="form-control-rg" placeholder="300">
+          </div>
           <div class="text-muted" style="font-size:11px;">
-            <i class="bi bi-info-circle"></i> Leave coordinates blank to use the default Zamboanga City center point.
+            <i class="bi bi-info-circle"></i> Boundary radius draws an approximate territory circle on the map, not a surveyed boundary. Leave coordinates blank to use the default Zamboanga City center point.
           </div>
         </div>
         <div class="modal-footer">
