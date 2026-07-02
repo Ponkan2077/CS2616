@@ -21,6 +21,7 @@
 
   --sidebar-bg:     #1a2535;
   --sidebar-w:      260px;
+  --sidebar-collapsed-w: 72px;
   --topbar-h:       56px;
   --radius:         12px;
   --shadow-sm:      0 1px 4px rgba(0,0,0,.06);
@@ -373,12 +374,39 @@ body {
    desktop layout at ≥992px and adjusts spacing below that.
    ============================================================ */
 @media (min-width: 992px) {
-  #sidebar { transform: translateX(0); }
-  #main-wrapper { margin-left: var(--sidebar-w); }
+  #sidebar { transform: translateX(0); transition: width .2s ease; }
+  #main-wrapper { margin-left: var(--sidebar-w); transition: margin-left .2s ease; }
   #hamburger { display: none; }
   #sidebar-overlay { display: none !important; }
   #sidebar-close { display: none; }
+  #desktop-sidebar-toggle { display: flex; }
+
+  /* Collapsed state: icon-only rail, text and secondary content hidden */
+  #sidebar.collapsed { width: var(--sidebar-collapsed-w); }
+  #main-wrapper.sidebar-collapsed { margin-left: var(--sidebar-collapsed-w); }
+
+  #sidebar.collapsed .brand-title-group,
+  #sidebar.collapsed .nav-section-label,
+  #sidebar.collapsed .nav-link span,
+  #sidebar.collapsed .farm-selector-text,
+  #sidebar.collapsed .farm-selector-caret,
+  #sidebar.collapsed .sidebar-footer,
+  #sidebar.collapsed .farm-selector-icon { display: none; }
+
+  #sidebar.collapsed .sidebar-brand { justify-content: center; padding: 20px 8px 12px; }
+  #sidebar.collapsed .brand-row { justify-content: center; }
+  #sidebar.collapsed .nav-link { justify-content: center; padding: 10px 0; }
+  #sidebar.collapsed .nav-link.active { border-left: none; border-right: 3px solid #4ade80; }
+  #sidebar.collapsed .farm-selector-btn { justify-content: center; padding: 9px 0; }
+  #sidebar.collapsed .px-3 { padding-left: 8px !important; padding-right: 8px !important; }
 }
+
+#desktop-sidebar-toggle {
+  display: none; background: none; border: 1px solid var(--border); border-radius: 8px;
+  width: 36px; height: 36px; align-items: center; justify-content: center;
+  cursor: pointer; color: #374151; font-size: 16px; flex-shrink: 0;
+}
+#desktop-sidebar-toggle:hover { background: #f3f4f6; }
 
 @media (max-width: 768px) {
   #content { padding: 14px; }
@@ -432,3 +460,67 @@ body {
 }
 .auth-footer a { color: var(--primary); text-decoration: none; font-weight: 600; }
 .auth-footer a:hover { text-decoration: underline; }
+
+/* ============================================================
+   DISEASE DETECTION PAGE
+   ============================================================ */
+.workflow-step {
+  display: flex; align-items: center; gap: 5px; padding: 5px 10px;
+  border-radius: 16px; color: var(--text-faint); font-weight: 600;
+}
+.workflow-step.active { background: #eff6ff; color: var(--primary); }
+.workflow-step.done { background: var(--healthy-bg); color: var(--healthy-text); }
+.workflow-arrow { color: var(--text-faint); font-size: 14px; }
+
+.drop-zone {
+  border: 2px dashed var(--border); border-radius: 12px; padding: 32px 16px;
+  text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+  position: relative; min-height: 180px; display: flex; align-items: center; justify-content: center;
+}
+.drop-zone:hover, .drop-zone.dragover { border-color: var(--primary); background: #f8faff; }
+.drop-zone-icon { font-size: 34px; color: var(--text-faint); margin-bottom: 8px; }
+.drop-zone img#preview-img { display: none; max-width: 100%; max-height: 260px; border-radius: 8px; }
+.drop-zone.has-image #upload-placeholder { display: none; }
+.drop-zone.has-image img#preview-img { display: block; }
+
+.threshold-badge {
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px;
+  border-radius: 14px; font-size: 11px; font-weight: 600;
+}
+.threshold-confirmed { background: var(--healthy-bg); color: var(--healthy-text); }
+.threshold-review { background: #fef3c7; color: #92400e; }
+
+.ref-card { border-left: 4px solid var(--border); background: var(--surface); }
+.ref-healthy { border-left-color: var(--healthy); background: #f8fff8; }
+.ref-pink { border-left-color: var(--pink); background: #fff8f8; }
+.ref-white-root { border-left-color: var(--white-root); background: #fdf8f4; }
+.ref-stem { border-left-color: var(--stem); background: #fff5f5; }
+
+/* ============================================================
+   DASHBOARD — summary cards and compact map
+   ============================================================ */
+.summary-card {
+  display: flex; align-items: center; gap: 12px; padding: 14px;
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-sm); height: 100%;
+}
+.summary-icon {
+  width: 42px; height: 42px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 18px;
+}
+.summary-label { font-size: 11px; font-weight: 600; color: var(--text-muted); }
+.summary-value { font-size: 22px; font-weight: 700; line-height: 1.2; }
+
+.dashboard-map { height: 280px; width: 100%; }
+
+/* ============================================================
+   REPORTS PAGE — chart cards and most-affected bars
+   ============================================================ */
+.report-chart-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); height: 100%; }
+.report-map { height: 320px; width: 100%; }
+
+.affected-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.affected-label { flex: 0 0 120px; font-size: 12px; font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.affected-bar-track { flex: 1; height: 10px; border-radius: 5px; background: #f1f5f9; overflow: hidden; }
+.affected-bar-fill { height: 100%; background: var(--pink); border-radius: 5px; }
+.affected-count { flex: 0 0 28px; font-size: 12px; font-weight: 700; text-align: right; }
