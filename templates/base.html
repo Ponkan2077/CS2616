@@ -92,37 +92,37 @@
   <div class="sidebar-nav">
     <div class="nav-section-label">Main</div>
     <div class="nav-item">
-      <a href="{% url 'dashboard' %}" class="nav-link {% if page == 'dashboard' %}active{% endif %}">
-        <i class="bi bi-grid-1x2-fill"></i> Dashboard
+      <a href="{% url 'dashboard' %}" class="nav-link {% if page == 'dashboard' %}active{% endif %}" title="Dashboard">
+        <i class="bi bi-grid-1x2-fill"></i> <span>Dashboard</span>
       </a>
     </div>
     <div class="nav-item">
-      <a href="{% url 'farm_map' %}" class="nav-link {% if page == 'farm_map' %}active{% endif %}">
-        <i class="bi bi-map-fill"></i> Interactive Farm Map
+      <a href="{% url 'farm_map' %}" class="nav-link {% if page == 'farm_map' %}active{% endif %}" title="Interactive Farm Map">
+        <i class="bi bi-map-fill"></i> <span>Interactive Farm Map</span>
       </a>
     </div>
     <div class="nav-item">
-      <a href="{% url 'disease_detection' %}" class="nav-link {% if page == 'disease_detection' %}active{% endif %}">
-        <i class="bi bi-cpu-fill"></i> Disease Detection
+      <a href="{% url 'disease_detection' %}" class="nav-link {% if page == 'disease_detection' %}active{% endif %}" title="Disease Detection">
+        <i class="bi bi-cpu-fill"></i> <span>Disease Detection</span>
       </a>
     </div>
 
     <div class="nav-section-label">Data</div>
     <div class="nav-item">
-      <a href="{% url 'tree_inventory' %}" class="nav-link {% if page == 'tree_inventory' %}active{% endif %}">
-        <i class="bi bi-table"></i> Tree Inventory
+      <a href="{% url 'tree_inventory' %}" class="nav-link {% if page == 'tree_inventory' %}active{% endif %}" title="Tree Inventory">
+        <i class="bi bi-table"></i> <span>Tree Inventory</span>
       </a>
     </div>
     <div class="nav-item">
-      <a href="{% url 'reports' %}" class="nav-link {% if page == 'reports' %}active{% endif %}">
-        <i class="bi bi-bar-chart-fill"></i> Reports &amp; Analytics
+      <a href="{% url 'reports' %}" class="nav-link {% if page == 'reports' %}active{% endif %}" title="Reports & Analytics">
+        <i class="bi bi-bar-chart-fill"></i> <span>Reports &amp; Analytics</span>
       </a>
     </div>
 
     <div class="nav-section-label">Farms</div>
     <div class="nav-item">
-      <a href="{% url 'farm_list' %}" class="nav-link {% if page == 'farm_list' %}active{% endif %}">
-        <i class="bi bi-geo-alt-fill"></i> Manage Farms
+      <a href="{% url 'farm_list' %}" class="nav-link {% if page == 'farm_list' %}active{% endif %}" title="Manage Farms">
+        <i class="bi bi-geo-alt-fill"></i> <span>Manage Farms</span>
       </a>
     </div>
   </div>
@@ -138,6 +138,9 @@
     <div class="topbar-left">
       <button id="hamburger" aria-label="Toggle sidebar">
         <i class="bi bi-list"></i>
+      </button>
+      <button id="desktop-sidebar-toggle" aria-label="Collapse sidebar">
+        <i class="bi bi-layout-sidebar-inset"></i>
       </button>
       <span class="page-title">{% block page_title %}RubberGuard{% endblock %}</span>
       {% if selected_farm %}
