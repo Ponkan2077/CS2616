@@ -15,14 +15,56 @@ NOTIFICATION_STYLE = {
     "Stem Bleeding": {"icon": "bi-exclamation-triangle-fill", "color": "text-danger"},
 }
 
-MONTHLY_DETECTIONS = [
-    {"month": "Jan", "healthy": 48, "pink": 2, "white_root": 1, "stem": 0},
-    {"month": "Feb", "healthy": 47, "pink": 2, "white_root": 1, "stem": 1},
-    {"month": "Mar", "healthy": 46, "pink": 3, "white_root": 2, "stem": 1},
-    {"month": "Apr", "healthy": 45, "pink": 3, "white_root": 2, "stem": 2},
-    {"month": "May", "healthy": 44, "pink": 4, "white_root": 2, "stem": 2},
-    {"month": "Jun", "healthy": 43, "pink": 4, "white_root": 3, "stem": 2},
-]
+DISEASE_FIELD_MAP = {
+    "Healthy": "healthy", "Pink Disease": "pink",
+    "White Root Rot": "white_root", "Stem Bleeding": "stem",
+}
+
+
+def _get_monthly_trend(request, farm=None):
+    # Groups the user's actual scan history by month, counting each disease
+    # type per month, for the "Reports Over Time" line chart.
+    from collections import OrderedDict
+
+    qs = ScanHistory.objects.filter(tree__farm__owner=request.user)
+    if farm:
+        qs = qs.filter(tree__farm=farm)
+    qs = qs.select_related("tree").order_by("date")
+
+    months = OrderedDict()
+    for h in qs:
+        key = h.date.strftime("%b %Y")
+        if key not in months:
+            months[key] = {"month": key, "healthy": 0, "pink": 0, "white_root": 0, "stem": 0}
+        field = DISEASE_FIELD_MAP.get(h.disease)
+        if field:
+            months[key][field] += 1
+
+    return list(months.values())
+
+
+def _get_severity_counts(request, farm=None):
+    # Returns tree counts by severity tier across the given scope.
+    counts = {"Healthy": 0, "Mild": 0, "Moderate": 0, "Severe": 0}
+    for t in _get_trees(request, farm):
+        counts[t.severity_label] += 1
+    return counts
+
+
+def _get_most_affected_farms(request, limit=8):
+    # Returns farms ranked by diseased tree count, with a pre-computed bar
+    # percentage relative to the worst-affected farm, for the "Most
+    # Affected Areas" chart. Avoids divide-by-zero when nothing is diseased.
+    ranked = []
+    for f in Farm.objects.filter(owner=request.user):
+        total, counts, pcts, diseased = f.get_stats()
+        ranked.append({"label": f.name or f.farm_id, "farm_id": f.farm_id, "diseased": diseased, "total": total})
+    ranked.sort(key=lambda r: r["diseased"], reverse=True)
+    ranked = ranked[:limit]
+    max_diseased = max((r["diseased"] for r in ranked), default=0)
+    for r in ranked:
+        r["bar_pct"] = round(r["diseased"] / max_diseased * 100, 1) if max_diseased else 0
+    return ranked
 
 
 def _humanize_days_ago(days):
@@ -196,17 +238,27 @@ def farm_detail(request, farm_id):
 
 @login_required
 def dashboard(request):
-    # Renders the main dashboard with disease stats and recently scanned trees.
+    # Renders the dashboard: summary cards, recent detections, and a map preview.
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
+    severity_counts = _get_severity_counts(request, farm)
     trees = list(_get_trees(request, farm).order_by("-date_scanned")[:6])
     recent = [t.to_dict() for t in trees]
+    map_trees = _get_trees(request, farm)
+    farm_count = Farm.objects.filter(owner=request.user).count()
+
     ctx = _base_context(request, farm)
     ctx.update({
         "page": "dashboard",
         "total": total, "counts": counts, "pcts": pcts, "diseased": diseased,
+        "severity_counts": severity_counts,
+        "healthy_count": counts["Healthy"],
+        "areas_with_cases": Farm.objects.filter(owner=request.user, trees__disease__in=[
+            "Pink Disease", "White Root Rot", "Stem Bleeding"
+        ]).distinct().count() if not farm else (1 if diseased else 0),
+        "farm_count": farm_count,
         "recent": recent,
-        "monthly": MONTHLY_DETECTIONS,
+        "trees_json": json.dumps([t.to_dict() for t in map_trees]),
         "latest_scan": recent[0]["date_scanned"] if recent else "—",
     })
     return render(request, "dashboard.html", ctx)
@@ -249,6 +301,52 @@ def disease_detection(request):
 
 
 @login_required
+def save_detection(request):
+    # Saves a simulated (or future real) CNN detection result as a new tree.
+    import datetime
+
+    if request.method != "POST":
+        return redirect("disease_detection")
+
+    farm_pk = request.POST.get("farm_pk")
+    disease = request.POST.get("disease", "Healthy")
+    confidence = request.POST.get("confidence", "0")
+    tree_id = request.POST.get("tree_id", "").strip()
+    block = request.POST.get("block", "").strip()
+
+    farm = get_object_or_404(Farm, pk=farm_pk, owner=request.user)
+
+    if not tree_id:
+        existing = farm.trees.count()
+        tree_id = f"RT-{existing + 1:03d}"
+
+    if farm.trees.filter(tree_id=tree_id).exists():
+        messages.error(request, f"Tree ID '{tree_id}' already exists on this farm.")
+        return redirect("disease_detection")
+
+    action_map = {
+        "Healthy": "No action needed. Continue regular monitoring every 30 days.",
+        "Pink Disease": "Apply fungicide (Mancozeb 80% WP) immediately. Remove infected bark.",
+        "White Root Rot": "Uproot and destroy infected roots. Treat soil with Trichoderma biocontrol.",
+        "Stem Bleeding": "Scrape off infected bark. Apply Metalaxyl paste. Avoid tapping 60 days.",
+    }
+
+    tree = RubberTree.objects.create(
+        farm=farm, tree_id=tree_id,
+        lat=farm.center_lat, lng=farm.center_lng,
+        disease=disease, confidence=float(confidence),
+        date_scanned=datetime.date.today(), block=block,
+        recommended_action=action_map.get(disease, ""),
+    )
+    ScanHistory.objects.create(
+        tree=tree, date=datetime.date.today(),
+        disease=disease, confidence=float(confidence), inspector=request.user.username,
+    )
+    messages.success(request, f"Detection saved as tree '{tree_id}'.")
+    return redirect("tree_details", tree_id=tree_id)
+
+
+@login_required
 def tree_inventory(request):
     # Renders the tree inventory table, filtered by the selected farm if set.
     farm = _get_farm_or_none(request)
@@ -283,25 +381,32 @@ def tree_details(request, tree_id):
 
 @login_required
 def reports(request):
-    # Renders the reports page with disease stats and a per-farm breakdown table.
+    # Renders the reports page: severity distribution, trend over time,
+    # most-affected areas, detection summary, an interactive heatmap, and
+    # a per-farm breakdown table.
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
+    severity_counts = _get_severity_counts(request, farm)
+    monthly = _get_monthly_trend(request, farm)
+    most_affected = _get_most_affected_farms(request)
+    map_trees = _get_trees(request, farm)
+
     farm_summaries = []
     for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
         ft, fc, fp, fd = f.get_stats()
         farm_summaries.append({
-            "farm": f,
-            "total": ft,
-            "counts": fc,
-            "pcts": fp,
-            "diseased": fd,
+            "farm": f, "total": ft, "counts": fc, "pcts": fp, "diseased": fd,
         })
+
     ctx = _base_context(request, farm)
     ctx.update({
         "page": "reports",
         "total": total, "counts": counts, "pcts": pcts, "diseased": diseased,
-        "monthly": MONTHLY_DETECTIONS,
+        "severity_counts": severity_counts,
+        "monthly": monthly,
+        "most_affected": most_affected,
         "farm_summaries": farm_summaries,
+        "trees_json": json.dumps([t.to_dict() for t in map_trees]),
     })
     return render(request, "reports.html", ctx)
 
@@ -505,28 +610,32 @@ def _build_trend_chart(monthly, chart_width, chart_height):
 
 @login_required
 def export_pdf(request):
-    # Exports a full-width PDF: KPI totals, disease/trend charts, and a per-tree table.
-    from reportlab.lib.pagesizes import letter
+    # Exports a landscape PDF report with KPI summary, charts, and a per-tree
+    # table. Landscape avoids column/text truncation that portrait caused
+    # with this much side-by-side content.
+    from reportlab.lib.pagesizes import letter, landscape
     from reportlab.lib import colors
     from reportlab.lib.units import inch
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepInFrame
     from reportlab.lib.styles import getSampleStyleSheet
     from django.http import HttpResponse
 
     trees, label = _export_rows(request)
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
+    monthly = _get_monthly_trend(request, farm)
 
     response = HttpResponse(content_type="application/pdf")
     response["Content-Disposition"] = f'attachment; filename="rubberguard_report_{label}.pdf"'
 
-    page_width, page_height = letter
+    page_size = landscape(letter)
+    page_width, page_height = page_size
     left_margin = right_margin = 0.5 * inch
-    top_margin = bottom_margin = 0.6 * inch
+    top_margin = bottom_margin = 0.5 * inch
     content_width = page_width - left_margin - right_margin
 
     doc = SimpleDocTemplate(
-        response, pagesize=letter,
+        response, pagesize=page_size,
         leftMargin=left_margin, rightMargin=right_margin,
         topMargin=top_margin, bottomMargin=bottom_margin,
     )
@@ -536,8 +645,9 @@ def export_pdf(request):
     title = farm.name if farm else "All Farms"
     elements.append(Paragraph("RubberGuard Disease Detection Report", styles["Title"]))
     elements.append(Paragraph(f"Scope: {title}", styles["Normal"]))
-    elements.append(Spacer(1, 14))
+    elements.append(Spacer(1, 12))
 
+    # KPI summary row
     summary_data = [
         ["Total Trees", "Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"],
         [str(total), str(counts["Healthy"]), str(counts["Pink_Disease"]), str(counts["White_Root_Rot"]), str(counts["Stem_Bleeding"])],
@@ -553,26 +663,31 @@ def export_pdf(request):
         ("TOPPADDING", (0, 0), (-1, -1), 8),
     ]))
     elements.append(summary_table)
-    elements.append(Spacer(1, 18))
+    elements.append(Spacer(1, 16))
 
-    chart_h = 2.6 * inch
-    pie_w = content_width * 0.38
-    trend_w = content_width * 0.58
+    # Charts row — pie and trend, wrapped in KeepInFrame so they can never
+    # overflow their allotted space regardless of label length.
+    chart_h = 2.4 * inch
+    pie_w = content_width * 0.32
+    trend_w = content_width * 0.64
     pie_drawing = _build_pie_chart(counts, pie_w, chart_h)
-    trend_drawing = _build_trend_chart(MONTHLY_DETECTIONS, trend_w, chart_h)
-    chart_row = Table([[pie_drawing, trend_drawing]], colWidths=[content_width * 0.4, content_width * 0.6])
+    trend_drawing = _build_trend_chart(monthly, trend_w, chart_h)
+    pie_frame = KeepInFrame(pie_w, chart_h, [pie_drawing])
+    trend_frame = KeepInFrame(trend_w, chart_h, [trend_drawing])
+    chart_row = Table([[pie_frame, trend_frame]], colWidths=[content_width * 0.34, content_width * 0.66])
     chart_row.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
     ]))
     elements.append(chart_row)
-    elements.append(Spacer(1, 20))
+    elements.append(Spacer(1, 18))
 
+    # Per-tree table
     tree_rows = [["Tree ID", "Farm", "Block", "Disease", "Conf. %", "Date Scanned"]]
     for t in trees:
         tree_rows.append([t.tree_id, t.farm.farm_id, t.block, t.disease, f"{t.confidence}%", str(t.date_scanned)])
 
-    col_fractions = [0.16, 0.16, 0.12, 0.26, 0.14, 0.16]
+    col_fractions = [0.14, 0.16, 0.10, 0.28, 0.14, 0.18]
     tree_table = Table(tree_rows, colWidths=[content_width * f for f in col_fractions], repeatRows=1)
     tree_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
