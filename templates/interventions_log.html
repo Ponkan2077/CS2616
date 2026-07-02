@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block title %}Interventions{% endblock %}
+{% block page_title %}Interventions{% endblock %}
+
+{% block content %}
+{% if messages %}
+  {% for message in messages %}
+  <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} py-2" style="font-size:13px;">
+    {{ message }}
+  </div>
+  {% endfor %}
+{% endif %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div class="text-muted small">Actions taken to treat or monitor diseased trees</div>
+  <div class="d-flex gap-2">
+    <a href="{% url 'interventions_map' %}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-pin-map-fill"></i> View on Map
+    </a>
+    <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#logInterventionModal">
+      <i class="bi bi-plus-lg"></i> Log Intervention
+    </button>
+  </div>
+</div>
+
+<!-- Intervention log table -->
+<div class="card-rg">
+  <div class="card-header-rg"><i class="bi bi-clipboard2-pulse-fill"></i> Intervention Log</div>
+  <div class="table-responsive-rg">
+    <table class="table-rg">
+      <thead>
+        <tr>
+          <th>TREE ID</th>
+          <th>FARM</th>
+          <th>ACTION</th>
+          <th>DATE</th>
+          <th>PERFORMED BY</th>
+          <th>NOTES</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for iv in interventions %}
+        <tr>
+          <td><a href="{% url 'tree_details' iv.tree.tree_id %}" class="fw-bold text-decoration-none" style="color:var(--primary);">{{ iv.tree.tree_id }}</a></td>
+          <td><span class="badge-farm">{{ iv.tree.farm.farm_id }}</span></td>
+          <td class="fw-semibold" style="font-size:12px;">{{ iv.action }}</td>
+          <td class="text-muted" style="font-size:12px;">{{ iv.date_performed }}</td>
+          <td class="text-muted" style="font-size:12px;">{{ iv.performed_by.username|default:"—" }}</td>
+          <td class="text-muted" style="font-size:12px;">{{ iv.notes|truncatechars:50|default:"—" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6" class="text-center text-muted py-4">No interventions logged yet. Click "Log Intervention" to record one.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Log Intervention Modal -->
+<div class="modal fade" id="logInterventionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <form method="POST" action="{% url 'intervention_create' %}" id="intervention-form">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h6 class="modal-title fw-bold"><i class="bi bi-clipboard2-pulse-fill me-1"></i> Log Intervention</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="auth-field">
+            <label for="iv-farm">Farm</label>
+            <select name="farm_pk" id="iv-farm" class="form-control-rg" required>
+              <option value="">Select Farm</option>
+              {% for farm in all_farms %}
+              <option value="{{ farm.pk }}" data-farm-id="{{ farm.farm_id }}">{{ farm.farm_id }} — {{ farm.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <!-- Selection mode toggle -->
+          <div class="auth-field">
+            <label>Select Trees By</label>
+            <div class="view-toggle">
+              <button type="button" class="view-toggle-btn active" data-mode="range">
+                <i class="bi bi-sliders"></i> ID Range
+              </button>
+              <button type="button" class="view-toggle-btn" data-mode="single">
+                <i class="bi bi-check2-square"></i> Checklist
+              </button>
+            </div>
+          </div>
+          <input type="hidden" name="selection_mode" id="selection-mode-input" value="range">
+
+          <!-- Range mode -->
+          <div id="range-mode-fields" class="row g-2 mb-2">
+            <div class="col-6">
+              <div class="auth-field">
+                <label for="range_start">From Tree ID</label>
+                <input type="text" name="range_start" id="range_start" class="form-control-rg" placeholder="e.g. RT-001">
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="auth-field">
+                <label for="range_end">To Tree ID</label>
+                <input type="text" name="range_end" id="range_end" class="form-control-rg" placeholder="e.g. RT-005">
+              </div>
+            </div>
+          </div>
+
+          <!-- Checklist mode -->
+          <div id="checklist-mode-fields" class="mb-2" style="display:none;">
+            <div class="text-muted mb-2" style="font-size:11px;">Select a farm first, then check the trees to include.</div>
+            <div id="tree-checklist" class="tree-checklist"></div>
+          </div>
+
+          <div class="row g-2">
+            <div class="col-6">
+              <div class="auth-field">
+                <label for="action">Action Taken</label>
+                <select name="action" id="action" class="form-control-rg" required>
+                  <option value="Fungicide Application">Fungicide Application</option>
+                  <option value="Bark Removal">Bark Removal</option>
+                  <option value="Root Treatment">Root Treatment</option>
+                  <option value="Uprooting">Uprooting</option>
+                  <option value="Quarantine">Quarantine</option>
+                  <option value="Soil Treatment">Soil Treatment</option>
+                  <option value="Tapping Suspended">Tapping Suspended</option>
+                  <option value="Monitoring Only">Monitoring Only</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+            </div>
+            <div class="col-6">
+              <div class="auth-field">
+                <label for="date_performed">Date Performed</label>
+                <input type="date" name="date_performed" id="date_performed" class="form-control-rg" required>
+              </div>
+            </div>
+          </div>
+
+          <div class="auth-field">
+            <label for="notes">Notes</label>
+            <textarea name="notes" id="notes" class="form-control-rg" rows="2" placeholder="Optional details about the intervention"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-check-lg"></i> Save Intervention</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+  const FARM_TREES_BY_ID = {{ farm_trees_json|default:"{}"|safe }};
+</script>
+{% load static %}
+<script src="{% static 'js/interventions.js' %}"></script>
+{% endblock %}
