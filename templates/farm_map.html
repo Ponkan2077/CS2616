@@ -3,6 +3,23 @@
 {% block page_title %}Interactive Farm Map{% endblock %}
 
 {% block content %}
+{% if no_farms %}
+<div class="card-rg card-body-rg text-center text-muted">
+  <i class="bi bi-geo-alt fs-2 mb-2 d-block"></i>
+  No farms registered yet. <a href="{% url 'farm_list' %}">Add a farm</a> to see it on the map.
+</div>
+{% else %}
+
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+  <div>
+    <span class="badge-farm">{{ selected_farm.farm_id }}</span>
+    <span class="fw-semibold ms-1">{{ selected_farm.name }}</span>
+  </div>
+  <div class="text-muted" style="font-size:11px;">
+    <i class="bi bi-info-circle"></i> Zoom in freely — zooming out is limited to this farm's bounds.
+  </div>
+</div>
+
 <!-- Stats -->
 <div class="row g-2 mb-3">
   <div class="col-6 col-md-3">
@@ -45,14 +62,6 @@
       <option value="White Root Rot">White Root Rot</option>
       <option value="Stem Bleeding">Stem Bleeding</option>
     </select>
-    {% if not selected_farm %}
-    <select id="farm-layer-filter" class="select-filter-rg">
-      <option value="">All Farms</option>
-      {% for farm in all_farms %}
-      <option value="{{ farm.farm_id }}">{{ farm.farm_id }}</option>
-      {% endfor %}
-    </select>
-    {% endif %}
     <div class="view-toggle" role="group" aria-label="Map view mode">
       <button type="button" id="view-markers-btn" class="view-toggle-btn active">
         <i class="bi bi-geo-alt-fill"></i> Markers
@@ -76,11 +85,7 @@
     <span><span class="legend-dot" style="background:var(--pink);"></span>Pink Disease</span>
     <span><span class="legend-dot" style="background:var(--white-root);"></span>White Root Rot</span>
     <span><span class="legend-dot" style="background:var(--stem);"></span>Stem Bleeding</span>
-    {% if not selected_farm %}
-    <span>
-      <span class="legend-dot-farm"></span>Farm Center
-    </span>
-    {% endif %}
+    <span class="text-muted ms-auto"><i class="bi bi-cursor-fill"></i> Tap a marker to load its details</span>
   </div>
 
   <!-- Legend: heatmap view (severity gradient, hidden by default) -->
@@ -92,17 +97,20 @@
     <span class="text-muted ms-auto">High intensity</span>
   </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block extra_scripts %}
+{% if not no_farms %}
 <script>
   const FARM_MAP_DATA = {
-    trees: {{ trees_json|safe }},
-    farms: {{ farms_json|safe }},
-    showFarmLayers: {% if not selected_farm %}true{% else %}false{% endif %}
+    markers: {{ markers_json|safe }},
+    bounds: {{ map_bounds|safe }},
+    farmId: '{{ selected_farm.farm_id }}'
   };
 </script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 {% load static %}
 <script src="{% static 'js/farm_map.js' %}"></script>
+{% endif %}
 {% endblock %}
