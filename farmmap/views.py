@@ -259,13 +259,12 @@ def dashboard(request):
     )
     recent = [t.to_dict() for t in trees]
 
-    # Dashboard map is a quick-glance preview, not the full farm map, so cap
-    # it to a bounded sample instead of serializing every tree (which would
-    # be thousands of rows once farms have realistic data volumes).
-    map_trees = list(
-        _get_trees(request, farm).select_related("farm")
-        .exclude(disease="Healthy").order_by("-date_scanned")[:200]
-    )
+    # Dashboard map is a quick-glance preview scoped to one farm, matching
+    # the same "default to first farm" behavior as the full farm map — no
+    # combined multi-farm view. Uses the minimal marker payload; full detail
+    # loads lazily per-marker via the same /map/marker/<id>/ endpoint.
+    map_farm = farm or Farm.objects.filter(owner=request.user).order_by("farm_id").first()
+    map_trees = list(map_farm.trees.exclude(disease="Healthy")[:200]) if map_farm else []
     farm_count = Farm.objects.filter(owner=request.user).count()
 
     ctx = _base_context(request, farm)
@@ -279,7 +278,8 @@ def dashboard(request):
         ]).distinct().count() if not farm else (1 if diseased else 0),
         "farm_count": farm_count,
         "recent": recent,
-        "trees_json": json.dumps([t.to_map_dict() for t in map_trees]),
+        "map_farm": map_farm,
+        "markers_json": json.dumps([t.to_marker_dict() for t in map_trees]),
         "latest_scan": recent[0]["date_scanned"] if recent else "—",
     })
     return render(request, "dashboard.html", ctx)
@@ -337,15 +337,18 @@ def tree_marker_detail(request, tree_id):
     # inspector, latest intervention) for a single tree as JSON. Called via
     # AJAX only when a marker is actually clicked, instead of embedding
     # this for every tree on initial map load.
-    from django.http import JsonResponse
-    tree = get_object_or_404(
+    from django.http import JsonResponse, Http404
+    tree = (
         RubberTree.objects.select_related("farm")
         .prefetch_related(
             Prefetch("history", queryset=ScanHistory.objects.order_by("-date")),
             Prefetch("interventions", queryset=Intervention.objects.order_by("-date_performed")),
-        ),
-        tree_id=tree_id, farm__owner=request.user,
+        )
+        .filter(tree_id=tree_id, farm__owner=request.user)
+        .first()
     )
+    if not tree:
+        raise Http404("Tree not found")
     return JsonResponse(tree.to_dict())
 
 
@@ -376,10 +379,15 @@ def save_detection(request):
 
     if not tree_id:
         existing = farm.trees.count()
-        tree_id = f"RT-{existing + 1:04d}"
+        tree_id = f"{farm.farm_id}-RT-{existing + 1:04d}"
+    elif not tree_id.startswith(f"{farm.farm_id}-"):
+        # Ensure user-typed tree IDs stay globally unique by always
+        # prefixing with the farm ID, since tree_id is only unique per farm
+        # at the database level but URLs/lookups treat it as the sole key.
+        tree_id = f"{farm.farm_id}-{tree_id}"
 
-    if farm.trees.filter(tree_id=tree_id).exists():
-        messages.error(request, f"Tree ID '{tree_id}' already exists on this farm.")
+    if RubberTree.objects.filter(tree_id=tree_id).exists():
+        messages.error(request, f"Tree ID '{tree_id}' already exists.")
         return redirect("disease_detection")
 
     action_map = {
@@ -422,10 +430,14 @@ def tree_inventory(request):
 @login_required
 def tree_details(request, tree_id):
     # Renders the detail page for a single tree, including its scan history.
-    tree = get_object_or_404(
-        RubberTree.objects.select_related("farm"),
-        tree_id=tree_id, farm__owner=request.user,
+    from django.http import Http404
+    tree = (
+        RubberTree.objects.select_related("farm")
+        .filter(tree_id=tree_id, farm__owner=request.user)
+        .first()
     )
+    if not tree:
+        raise Http404("Tree not found")
     history = tree.history.all()
     farm = _get_farm_or_none(request)
     ctx = _base_context(request, farm)
