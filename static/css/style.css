@@ -373,22 +373,18 @@ body {
    desktop layout at ≥992px and adjusts spacing below that.
    ============================================================ */
 @media (min-width: 992px) {
-  #sidebar { transform: translateX(0); }
+  #sidebar { transform: translateX(0); transition: transform .2s ease; }
   #main-wrapper { margin-left: var(--sidebar-w); transition: margin-left .2s ease; }
   #hamburger { display: none; }
-  #sidebar-overlay { display: none; }
+  #sidebar-overlay { display: none !important; }
   #sidebar-close { display: none; }
   #desktop-sidebar-toggle { display: flex; }
 
-  /* Mobile-preview mode: desktop sidebar temporarily behaves like the
-     mobile overlay sidebar — hidden by default, slides in as an overlay
-     over content (not pushing it), with a dimmed backdrop that closes it
-     on outside click. Toggled by #desktop-sidebar-toggle. */
-  body.mobile-preview #sidebar { transform: translateX(-100%); transition: transform .25s ease; }
-  body.mobile-preview #sidebar.open { transform: translateX(0); }
-  body.mobile-preview #main-wrapper { margin-left: 0; }
-  body.mobile-preview #sidebar-overlay.show { display: block; }
-  body.mobile-preview #sidebar-close { display: flex; }
+  /* Desktop sidebar is visible by default. Toggling #desktop-sidebar-toggle
+     simply hides it off-screen and lets content expand to fill the space,
+     with no overlay/backdrop involved — a plain collapsible sidebar. */
+  #sidebar.desktop-hidden { transform: translateX(-100%); }
+  #main-wrapper.sidebar-hidden { margin-left: 0; }
 }
 
 #desktop-sidebar-toggle {
