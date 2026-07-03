@@ -6,19 +6,14 @@ SECRET_KEY = 'django-insecure-rubberguard-thesis-prototype-2025-change-in-produc
 
 DEBUG = True
 
-ALLOWED_HOSTS = ['reyursus.pythonanywhere.com']  # PythonAnywhere: add your .pythonanywhere.com domain here
+ALLOWED_HOSTS = ['*']  # PythonAnywhere: add your .pythonanywhere.com domain here
 
+# Required so Django trusts POST requests coming from the PythonAnywhere
+# domain (Django 4+ requires the scheme to be included explicitly).
 CSRF_TRUSTED_ORIGINS = [
     'https://*.pythonanywhere.com',
     'https://reyursus.pythonanywhere.com',
 ]
-
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-
-CSRF_COOKIE_SECURE = True
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SAMESITE = 'Lax'
-SESSION_COOKIE_SAMESITE = 'Lax'
 
 INSTALLED_APPS = [
     'django.contrib.auth',
