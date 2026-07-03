@@ -109,7 +109,7 @@ for farm_id, farm in farms.items():
         date_scanned = random_date(SCAN_WINDOW_START, SCAN_WINDOW_END)
         tree_objs.append(RubberTree(
             farm=farm,
-            tree_id=f"RT-{i:04d}",
+            tree_id=f"{farm_id}-RT-{i:04d}",
             lat=jitter(farm.center_lat, 0.006),
             lng=jitter(farm.center_lng, 0.006),
             disease=disease,
