@@ -6,7 +6,7 @@ SECRET_KEY = 'django-insecure-rubberguard-thesis-prototype-2025-change-in-produc
 
 DEBUG = True
 
-ALLOWED_HOSTS = ['*']  # PythonAnywhere: add your .pythonanywhere.com domain here
+ALLOWED_HOSTS = ['reyursus.pythonanywhere.com']  # PythonAnywhere: add your .pythonanywhere.com domain here
 
 CSRF_TRUSTED_ORIGINS = [
     'https://*.pythonanywhere.com',
