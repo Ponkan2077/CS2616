@@ -76,7 +76,7 @@ class RubberTree(models.Model):
     }
 
     farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name="trees")
-    tree_id = models.CharField(max_length=20)
+    tree_id = models.CharField(max_length=40, unique=True)
     lat = models.FloatField()
     lng = models.FloatField()
     disease = models.CharField(max_length=30, choices=DISEASE_CHOICES, default="Healthy")
@@ -89,10 +89,6 @@ class RubberTree(models.Model):
     block = models.CharField(max_length=10, blank=True)
     recommended_action = models.TextField(blank=True)
     notes = models.TextField(blank=True)
-
-    class Meta:
-        # tree_id only needs to be unique within a single farm, not globally.
-        unique_together = ("farm", "tree_id")
 
     def save(self, *args, **kwargs):
         # Auto-derives severity_score from disease + confidence on every save,
