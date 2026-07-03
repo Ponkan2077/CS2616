@@ -6,6 +6,7 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib import messages
 from django.urls import reverse
 from django.utils import timezone
+from django.db.models import Count, Q, Prefetch, Min, Max
 from .models import Farm, RubberTree, ScanHistory, Intervention
 
 # Icon and color shown in the notification bell for each disease type.
@@ -44,11 +45,16 @@ def _get_monthly_trend(request, farm=None):
 
 
 def _get_severity_counts(request, farm=None):
-    # Returns tree counts by severity tier across the given scope.
-    counts = {"Healthy": 0, "Mild": 0, "Moderate": 0, "Severe": 0}
-    for t in _get_trees(request, farm):
-        counts[t.severity_label] += 1
-    return counts
+    # Returns tree counts by severity tier, using database-level filtering
+    # on the stored severity_score instead of iterating every tree row and
+    # computing severity_label in Python.
+    qs = RubberTree.objects.filter(farm=farm) if farm else RubberTree.objects.filter(farm__owner=request.user)
+    return {
+        "Healthy": qs.filter(disease="Healthy").count(),
+        "Mild": qs.exclude(disease="Healthy").filter(severity_score__lt=34).count(),
+        "Moderate": qs.exclude(disease="Healthy").filter(severity_score__gte=34, severity_score__lt=67).count(),
+        "Severe": qs.exclude(disease="Healthy").filter(severity_score__gte=67).count(),
+    }
 
 
 def _get_most_affected_farms(request, limit=8):
@@ -119,20 +125,19 @@ def _get_trees(request, farm=None):
 
 
 def _get_stats(request, farm=None):
-    # Aggregates disease counts and percentages for one farm or all the user's farms.
-    if farm:
-        return farm.get_stats()
-    trees = RubberTree.objects.filter(farm__owner=request.user)
-    total = trees.count()
-    counts = {"Healthy": 0, "Pink_Disease": 0, "White_Root_Rot": 0, "Stem_Bleeding": 0}
-    disease_key_map = {
-        "Healthy": "Healthy",
-        "Pink Disease": "Pink_Disease",
-        "White Root Rot": "White_Root_Rot",
-        "Stem Bleeding": "Stem_Bleeding",
+    # Aggregates disease counts and percentages for one farm or all the
+    # user's farms, using a single GROUP BY-style query instead of looping
+    # over every tree row in Python (matters once farms have thousands of
+    # trees each).
+    qs = RubberTree.objects.filter(farm=farm) if farm else RubberTree.objects.filter(farm__owner=request.user)
+    total = qs.count()
+    raw_counts = dict(qs.values_list("disease").annotate(n=Count("id")).values_list("disease", "n"))
+    counts = {
+        "Healthy": raw_counts.get("Healthy", 0),
+        "Pink_Disease": raw_counts.get("Pink Disease", 0),
+        "White_Root_Rot": raw_counts.get("White Root Rot", 0),
+        "Stem_Bleeding": raw_counts.get("Stem Bleeding", 0),
     }
-    for t in trees:
-        counts[disease_key_map[t.disease]] += 1
     pcts = {k: round(v / total * 100, 1) if total else 0 for k, v in counts.items()}
     diseased = counts["Pink_Disease"] + counts["White_Root_Rot"] + counts["Stem_Bleeding"]
     return total, counts, pcts, diseased
@@ -244,9 +249,23 @@ def dashboard(request):
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
     severity_counts = _get_severity_counts(request, farm)
-    trees = list(_get_trees(request, farm).order_by("-date_scanned")[:6])
+    trees = list(
+        _get_trees(request, farm).select_related("farm")
+        .prefetch_related(
+            Prefetch("history", queryset=ScanHistory.objects.order_by("-date")),
+            Prefetch("interventions", queryset=Intervention.objects.order_by("-date_performed")),
+        )
+        .order_by("-date_scanned")[:6]
+    )
     recent = [t.to_dict() for t in trees]
-    map_trees = _get_trees(request, farm)
+
+    # Dashboard map is a quick-glance preview, not the full farm map, so cap
+    # it to a bounded sample instead of serializing every tree (which would
+    # be thousands of rows once farms have realistic data volumes).
+    map_trees = list(
+        _get_trees(request, farm).select_related("farm")
+        .exclude(disease="Healthy").order_by("-date_scanned")[:200]
+    )
     farm_count = Farm.objects.filter(owner=request.user).count()
 
     ctx = _base_context(request, farm)
@@ -260,7 +279,7 @@ def dashboard(request):
         ]).distinct().count() if not farm else (1 if diseased else 0),
         "farm_count": farm_count,
         "recent": recent,
-        "trees_json": json.dumps([t.to_dict() for t in map_trees]),
+        "trees_json": json.dumps([t.to_map_dict() for t in map_trees]),
         "latest_scan": recent[0]["date_scanned"] if recent else "—",
     })
     return render(request, "dashboard.html", ctx)
@@ -268,30 +287,66 @@ def dashboard(request):
 
 @login_required
 def farm_map(request):
-    # Renders the interactive Leaflet map with tree markers and farm center layers.
+    # Renders the interactive Leaflet map for exactly one farm at a time.
+    # If no farm is explicitly selected, defaults to the user's first farm
+    # (by farm_id) rather than showing every farm's trees together, since
+    # combining thousands of trees from multiple farms onto one map doesn't
+    # scale visually or performance-wise.
     farm = _get_farm_or_none(request)
-    total, counts, pcts, diseased = _get_stats(request, farm)
-    trees_qs = _get_trees(request, farm)
-    trees_json = json.dumps([t.to_dict() for t in trees_qs])
-    farms_json = json.dumps([
-        {
-            "farm_id": f.farm_id,
-            "name": f.name,
-            "owner": f.owner_name,
-            "lat": f.center_lat,
-            "lng": f.center_lng,
-            "radius": f.boundary_radius_m,
+    if not farm:
+        farm = Farm.objects.filter(owner=request.user).order_by("farm_id").first()
+
+    if not farm:
+        ctx = _base_context(request, None)
+        ctx.update({"page": "farm_map", "no_farms": True})
+        return render(request, "farm_map.html", ctx)
+
+    total, counts, pcts, diseased = farm.get_stats()
+    trees_qs = farm.trees.all()
+    markers_json = json.dumps([t.to_marker_dict() for t in trees_qs])
+
+    # Bounding box around this farm's actual trees (falling back to the
+    # farm's boundary radius if it has no trees yet), used to lock the map
+    # so the user can zoom in freely but not zoom out past their own farm.
+    bounds = trees_qs.aggregate(
+        min_lat=Min("lat"), max_lat=Max("lat"),
+        min_lng=Min("lng"), max_lng=Max("lng"),
+    )
+    if bounds["min_lat"] is None:
+        # No trees yet — build a small bounding box around the farm center
+        # using its boundary radius (roughly converting meters to degrees).
+        deg_pad = max(farm.boundary_radius_m, 200) / 111000
+        bounds = {
+            "min_lat": farm.center_lat - deg_pad, "max_lat": farm.center_lat + deg_pad,
+            "min_lng": farm.center_lng - deg_pad, "max_lng": farm.center_lng + deg_pad,
         }
-        for f in Farm.objects.filter(owner=request.user)
-    ])
+
     ctx = _base_context(request, farm)
     ctx.update({
         "page": "farm_map",
-        "trees_json": trees_json,
-        "farms_json": farms_json,
+        "markers_json": markers_json,
+        "map_bounds": json.dumps(bounds),
         "total": total, "counts": counts, "diseased": diseased,
     })
     return render(request, "farm_map.html", ctx)
+
+
+@login_required
+def tree_marker_detail(request, tree_id):
+    # Returns full marker popup detail (recommended action, notes, latest
+    # inspector, latest intervention) for a single tree as JSON. Called via
+    # AJAX only when a marker is actually clicked, instead of embedding
+    # this for every tree on initial map load.
+    from django.http import JsonResponse
+    tree = get_object_or_404(
+        RubberTree.objects.select_related("farm")
+        .prefetch_related(
+            Prefetch("history", queryset=ScanHistory.objects.order_by("-date")),
+            Prefetch("interventions", queryset=Intervention.objects.order_by("-date_performed")),
+        ),
+        tree_id=tree_id, farm__owner=request.user,
+    )
+    return JsonResponse(tree.to_dict())
 
 
 @login_required
@@ -392,7 +447,10 @@ def reports(request):
     severity_counts = _get_severity_counts(request, farm)
     monthly = _get_monthly_trend(request, farm)
     most_affected = _get_most_affected_farms(request)
-    map_trees = _get_trees(request, farm)
+    map_trees = list(
+        _get_trees(request, farm).select_related("farm")
+        .exclude(disease="Healthy").order_by("-date_scanned")[:200]
+    )
 
     farm_summaries = []
     for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
@@ -409,7 +467,7 @@ def reports(request):
         "monthly": monthly,
         "most_affected": most_affected,
         "farm_summaries": farm_summaries,
-        "trees_json": json.dumps([t.to_dict() for t in map_trees]),
+        "trees_json": json.dumps([t.to_map_dict() for t in map_trees]),
     })
     return render(request, "reports.html", ctx)
 
@@ -418,9 +476,18 @@ def reports(request):
 def interventions_map(request):
     # Renders a dedicated map showing every tree that has had at least one
     # intervention logged, so users can see where treatment work has
-    # actually happened rather than just where disease was detected.
+    # actually happened rather than just where disease was detected. This
+    # set is naturally small (only treated trees), so the fuller to_dict()
+    # with intervention/inspector detail is fine here.
     farm = _get_farm_or_none(request)
-    trees_qs = _get_trees(request, farm).filter(interventions__isnull=False).distinct()
+    trees_qs = (
+        _get_trees(request, farm).select_related("farm")
+        .prefetch_related(
+            Prefetch("history", queryset=ScanHistory.objects.order_by("-date")),
+            Prefetch("interventions", queryset=Intervention.objects.order_by("-date_performed")),
+        )
+        .filter(interventions__isnull=False).distinct()
+    )
     ctx = _base_context(request, farm)
     ctx.update({
         "page": "interventions",
@@ -442,12 +509,15 @@ def interventions_log(request):
     qs = qs.order_by("-date_performed", "-created_at")
 
     # Pre-built {farm_pk: [{tree_id, disease}, ...]} lookup for the
-    # checklist-mode tree selector in the log-intervention form.
+    # checklist-mode tree selector in the log-intervention form. Capped
+    # since farms can have thousands of trees; range mode (the primary
+    # selection method) has no such limit.
+    CHECKLIST_TREE_LIMIT = 300
     farm_trees = {}
     for f in Farm.objects.filter(owner=request.user):
         farm_trees[str(f.pk)] = [
             {"tree_id": t.tree_id, "disease": t.disease}
-            for t in f.trees.order_by("tree_id")
+            for t in f.trees.order_by("tree_id")[:CHECKLIST_TREE_LIMIT]
         ]
 
     ctx = _base_context(request, farm)
@@ -513,7 +583,7 @@ def intervention_create(request):
 def _export_rows(request):
     # Returns the user's trees and a filename-safe label for the current export.
     farm = _get_farm_or_none(request)
-    trees = _get_trees(request, farm).order_by("farm__farm_id", "tree_id")
+    trees = _get_trees(request, farm).select_related("farm").order_by("farm__farm_id", "tree_id")
     label = farm.farm_id if farm else "all_farms"
     return trees, label
 
@@ -833,10 +903,20 @@ def export_pdf(request):
         elements.append(farm_table)
         elements.append(Spacer(1, 14))
 
-    # Per-tree table
-    elements.append(Paragraph("Tree-Level Detail", styles["Heading4"]))
+    # Per-tree table — capped since PDF generation gets slow and the file
+    # becomes unwieldy past a few hundred rows. CSV/Excel exports remain
+    # uncapped for anyone who needs the complete dataset.
+    PDF_TREE_ROW_LIMIT = 300
+    tree_list = list(trees[:PDF_TREE_ROW_LIMIT])
+    total_tree_count = trees.count()
+
+    heading = "Tree-Level Detail"
+    if total_tree_count > PDF_TREE_ROW_LIMIT:
+        heading += f" (showing {PDF_TREE_ROW_LIMIT} of {total_tree_count} — use CSV/Excel export for the full list)"
+    elements.append(Paragraph(heading, styles["Heading4"]))
+
     tree_rows = [["Tree ID", "Farm", "Block", "Disease", "Conf. %", "Date Scanned"]]
-    for t in trees:
+    for t in tree_list:
         tree_rows.append([t.tree_id, t.farm.farm_id, t.block, t.disease, f"{t.confidence}%", str(t.date_scanned)])
 
     col_fractions = [0.14, 0.16, 0.10, 0.28, 0.14, 0.18]
