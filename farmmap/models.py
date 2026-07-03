@@ -25,19 +25,18 @@ class Farm(models.Model):
         return f"{self.farm_id} — {self.name} ({self.owner_name})"
 
     def get_stats(self):
-        # Returns total tree count, disease counts, percentages, and diseased count for this farm.
-        trees = self.trees.all()
-        total = trees.count()
-        disease_map = {
-            "Healthy": "Healthy",
-            "Pink Disease": "Pink_Disease",
-            "White Root Rot": "White_Root_Rot",
-            "Stem Bleeding": "Stem_Bleeding",
+        # Returns total tree count, disease counts, percentages, and diseased
+        # count for this farm, using a single GROUP BY-style query instead of
+        # looping over every tree row in Python.
+        from django.db.models import Count
+        total = self.trees.count()
+        raw_counts = dict(self.trees.values_list("disease").annotate(n=Count("id")).values_list("disease", "n"))
+        counts = {
+            "Healthy": raw_counts.get("Healthy", 0),
+            "Pink_Disease": raw_counts.get("Pink Disease", 0),
+            "White_Root_Rot": raw_counts.get("White Root Rot", 0),
+            "Stem_Bleeding": raw_counts.get("Stem Bleeding", 0),
         }
-        counts = {v: 0 for v in disease_map.values()}
-        for t in trees:
-            key = disease_map.get(t.disease, "Healthy")
-            counts[key] += 1
         pcts = {k: round(v / total * 100, 1) if total else 0 for k, v in counts.items()}
         diseased = counts["Pink_Disease"] + counts["White_Root_Rot"] + counts["Stem_Bleeding"]
         return total, counts, pcts, diseased
@@ -141,10 +140,28 @@ class RubberTree(models.Model):
             return "Moderate"
         return "Severe"
 
-    def to_dict(self):
-        # Returns a JSON-serializable dict of the tree's data for map and JS usage.
-        latest_scan = self.history.first()
-        latest_intervention = self.interventions.first()
+    def to_marker_dict(self):
+        # Returns the bare minimum needed to place and filter a marker on
+        # the interactive farm map: position, disease, and search/filter
+        # fields. Full detail (recommended action, notes, inspector,
+        # interventions) is fetched lazily via /inventory/api/<tree_id>/
+        # only when the marker is actually clicked, since most markers on
+        # a map are never clicked and don't need that payload sent upfront.
+        return {
+            "tree_id": self.tree_id,
+            "lat": self.lat,
+            "lng": self.lng,
+            "disease": self.disease,
+            "confidence": self.confidence,
+            "color": self.color,
+            "block": self.block,
+        }
+
+    def to_map_dict(self):
+        # Returns a lightweight JSON-serializable dict for plotting map
+        # markers only, without the extra per-tree queries that to_dict()
+        # does for inspector/intervention detail. Use this for any view
+        # that renders many trees at once (e.g. a farm-wide map).
         return {
             "tree_id": self.tree_id,
             "farm_id": self.farm.farm_id,
@@ -163,11 +180,27 @@ class RubberTree(models.Model):
             "severity": self.severity,
             "severity_label": self.severity_label,
             "severity_weight": round((self.severity / 3) * (self.confidence / 100), 3) if self.severity else 0,
+        }
+
+    def to_dict(self):
+        # Returns a JSON-serializable dict including inspector and
+        # intervention detail. If the caller prefetched "history" and
+        # "interventions" (each pre-ordered, most recent first), this reads
+        # entirely from that cache with zero extra queries; otherwise it
+        # falls back to querying them directly. Prefer to_map_dict() for
+        # views plotting many trees at once without prefetching.
+        history_list = list(self.history.all())
+        interventions_list = list(self.interventions.all())
+        latest_scan = history_list[0] if history_list else None
+        latest_intervention = interventions_list[0] if interventions_list else None
+        data = self.to_map_dict()
+        data.update({
             "inspector": latest_scan.inspector if latest_scan else "",
             "latest_intervention": latest_intervention.action if latest_intervention else "",
             "latest_intervention_date": str(latest_intervention.date_performed) if latest_intervention else "",
-            "intervention_count": self.interventions.count(),
-        }
+            "intervention_count": len(interventions_list),
+        })
+        return data
 
 
 class ScanHistory(models.Model):
