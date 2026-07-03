@@ -1,51 +1,43 @@
-// Opens the sidebar (used both for mobile and for desktop's
-// mobile-preview mode) and shows the dimming overlay.
+/* ============================================================
+   main.js — Global behavior shared across every page.
+   Loaded once in base.html.
+
+   Sidebar behavior:
+   - Mobile (<992px): overlay-based. Hamburger opens it, overlay/
+     close-button/nav-link click closes it.
+   - Desktop (>=992px): sidebar is visible by default, pushing
+     content over. Clicking the toggle button simply hides it
+     off-screen and lets content expand to fill the space.
+     Clicking again shows it. No overlay, no blocking — just a
+     plain collapsible sidebar.
+   ============================================================ */
+
+// Opens the mobile sidebar and shows the dimming overlay.
 function openSidebar() {
   document.getElementById('sidebar').classList.add('open');
   document.getElementById('sidebar-overlay').classList.add('show');
 }
 
-// Closes the sidebar and hides the dimming overlay.
+// Closes the mobile sidebar and hides the dimming overlay.
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebar-overlay').classList.remove('show');
 }
 
-// Toggles the sidebar open/closed (mobile, or desktop while in preview mode).
+// Toggles the mobile sidebar open/closed.
 function toggleSidebar() {
   const sidebar = document.getElementById('sidebar');
   sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
 }
 
-// Switches the desktop sidebar into "mobile preview" mode: it becomes an
-// overlay like the mobile sidebar, starting closed so the toggle button
-// itself acts as the open/close control.
-function enterMobilePreview() {
-  document.body.classList.add('mobile-preview');
-  closeSidebar();
-}
-
-// Exits mobile-preview mode, restoring the normal always-visible desktop
-// sidebar that pushes page content over instead of overlaying it.
-function exitMobilePreview() {
-  document.body.classList.remove('mobile-preview');
-  closeSidebar();
-}
-
-// Toggles the desktop sidebar between its normal always-on state and
-// mobile-preview mode, and updates the toggle button's icon to reflect
-// the current mode.
-function toggleDesktopSidebarMode() {
-  const inPreview = document.body.classList.contains('mobile-preview');
-  const icon = document.querySelector('#desktop-sidebar-toggle i');
-  if (inPreview) {
-    exitMobilePreview();
-    if (icon) icon.className = 'bi bi-layout-sidebar-inset';
-  } else {
-    enterMobilePreview();
-    openSidebar();
-    if (icon) icon.className = 'bi bi-layout-sidebar';
-  }
+// Toggles the desktop sidebar between visible and hidden, with content
+// expanding or contracting to match. Persists the choice across pages.
+function toggleDesktopSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const mainWrapper = document.getElementById('main-wrapper');
+  const hidden = sidebar.classList.toggle('desktop-hidden');
+  mainWrapper.classList.toggle('sidebar-hidden', hidden);
+  localStorage.setItem('rg-sidebar-hidden', hidden ? '1' : '0');
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -54,17 +46,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const closeBtn = document.getElementById('sidebar-close');
   const desktopToggle = document.getElementById('desktop-sidebar-toggle');
   const navLinks = document.querySelectorAll('#sidebar .nav-link');
+  const sidebar = document.getElementById('sidebar');
+  const mainWrapper = document.getElementById('main-wrapper');
 
   if (hamburger) hamburger.addEventListener('click', toggleSidebar);
   if (overlay) overlay.addEventListener('click', closeSidebar);
   if (closeBtn) closeBtn.addEventListener('click', closeSidebar);
-  if (desktopToggle) desktopToggle.addEventListener('click', toggleDesktopSidebarMode);
+  if (desktopToggle) desktopToggle.addEventListener('click', toggleDesktopSidebar);
 
-  // Closes the sidebar automatically once a nav link is tapped/clicked,
-  // whether on mobile or in desktop mobile-preview mode.
-  navLinks.forEach(link => link.addEventListener('click', () => {
-    if (window.innerWidth < 992 || document.body.classList.contains('mobile-preview')) {
-      closeSidebar();
-    }
-  }));
+  // Closes the mobile sidebar automatically once a nav link is tapped.
+  navLinks.forEach(link => link.addEventListener('click', closeSidebar));
+
+  // Restores the desktop hidden/visible state from the last session.
+  if (localStorage.getItem('rg-sidebar-hidden') === '1') {
+    sidebar.classList.add('desktop-hidden');
+    mainWrapper.classList.add('sidebar-hidden');
+  }
 });
