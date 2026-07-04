@@ -94,21 +94,59 @@ function renderTrend(monthly) {
   });
 }
 
-function renderLocationMap(trees) {
+// Computes a Healthy/Mild/Moderate/Severe label client-side from disease
+// and confidence, mirroring the server's severity tier logic, since the
+// lightweight marker payload used here doesn't include severity_label.
+function computeSeverityLabel(disease, confidence) {
+  const severityBase = { "Healthy": 0, "Pink Disease": 1, "White Root Rot": 2, "Stem Bleeding": 3 };
+  const base = severityBase[disease] || 0;
+  if (base === 0) return "Healthy";
+  const score = (base / 3) * confidence;
+  if (score < 34) return "Mild";
+  if (score < 67) return "Moderate";
+  return "Severe";
+}
+
+function renderLocationMap(trees, mapBounds, mapFarm) {
   const container = document.getElementById("report-map");
   if (!container || typeof L === "undefined") return;
 
-  const defaultLat = trees.length ? trees[0].lat : 6.9214;
-  const defaultLng = trees.length ? trees[0].lng : 122.0790;
-  const map = L.map("report-map").setView([defaultLat, defaultLng], 13);
+  const hasBounds = mapBounds && mapBounds.min_lat !== undefined;
+  const leafletBounds = hasBounds
+    ? [[mapBounds.min_lat, mapBounds.min_lng], [mapBounds.max_lat, mapBounds.max_lng]]
+    : null;
+
+  const map = leafletBounds
+    ? L.map("report-map", { maxBounds: leafletBounds, maxBoundsViscosity: 0.8 })
+    : L.map("report-map");
+
+  if (leafletBounds) {
+    map.fitBounds(leafletBounds);
+    map.setMinZoom(Math.max(map.getBoundsZoom(leafletBounds) - 1, 1));
+  } else {
+    const defaultLat = trees.length ? trees[0].lat : 6.9214;
+    const defaultLng = trees.length ? trees[0].lng : 122.0790;
+    map.setView([defaultLat, defaultLng], 13);
+  }
+
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "© OpenStreetMap", maxZoom: 19,
   }).addTo(map);
 
+  if (mapFarm && mapFarm.farmId) {
+    L.circle([mapFarm.centerLat, mapFarm.centerLng], {
+      radius: mapFarm.boundaryRadius || 300,
+      color: "#0d6efd", weight: 2.5, fillColor: "#0d6efd", fillOpacity: 0.06,
+    })
+      .bindTooltip(mapFarm.farmName || mapFarm.farmId, { permanent: true, direction: "center", className: "farm-boundary-label" })
+      .bindPopup(`<b>${mapFarm.farmId}</b><br>${mapFarm.farmName}<br><i>${mapFarm.farmOwner}</i>`)
+      .addTo(map);
+  }
+
   trees.forEach(tree => {
     L.circleMarker([tree.lat, tree.lng], {
       radius: 8, color: "#fff", weight: 1.5, fillColor: tree.color, fillOpacity: 0.9,
-    }).bindPopup(`<b>${tree.tree_id}</b><br>${tree.disease}<br>Severity: ${tree.severity_label}`).addTo(map);
+    }).bindPopup(`<b>${tree.tree_id}</b><br>${tree.disease}<br>Severity: ${computeSeverityLabel(tree.disease, tree.confidence)}`).addTo(map);
   });
 
   setTimeout(() => map.invalidateSize(), 150);
@@ -119,5 +157,5 @@ document.addEventListener("DOMContentLoaded", () => {
   renderDetectionSummary(REPORTS_DATA.counts);
   renderDiseaseBar(REPORTS_DATA.counts);
   renderTrend(REPORTS_DATA.monthly);
-  renderLocationMap(REPORTS_DATA.trees);
+  renderLocationMap(REPORTS_DATA.trees, REPORTS_DATA.mapBounds, REPORTS_DATA.mapFarm);
 });
