@@ -31,30 +31,34 @@
   </div>
 </div>
 
-<!-- Toolbar -->
+<!-- Toolbar: real GET filters, applied server-side so pagination stays correct -->
 <div class="card-rg mb-0" style="border-bottom-left-radius:0;border-bottom-right-radius:0;">
-  <div class="card-body-rg d-flex flex-wrap gap-2 align-items-center">
+  <form method="GET" class="card-body-rg d-flex flex-wrap gap-2 align-items-center">
     <div class="search-wrap">
       <i class="bi bi-search"></i>
-      <input type="text" id="tree-search" class="form-control-rg" placeholder="Search Tree ID…">
+      <input type="text" name="q" value="{{ search_q }}" class="form-control-rg" placeholder="Search Tree ID…">
     </div>
-    <select id="disease-filter" class="select-filter-rg">
+    <select name="disease" class="select-filter-rg" onchange="this.form.submit()">
       <option value="">All Diseases</option>
-      <option value="Healthy">Healthy</option>
-      <option value="Pink Disease">Pink Disease</option>
-      <option value="White Root Rot">White Root Rot</option>
-      <option value="Stem Bleeding">Stem Bleeding</option>
+      <option value="Healthy" {% if disease_filter == "Healthy" %}selected{% endif %}>Healthy</option>
+      <option value="Pink Disease" {% if disease_filter == "Pink Disease" %}selected{% endif %}>Pink Disease</option>
+      <option value="White Root Rot" {% if disease_filter == "White Root Rot" %}selected{% endif %}>White Root Rot</option>
+      <option value="Stem Bleeding" {% if disease_filter == "Stem Bleeding" %}selected{% endif %}>Stem Bleeding</option>
     </select>
     {% if not selected_farm %}
-    <select id="farm-filter" class="select-filter-rg">
+    <select name="farm" class="select-filter-rg" onchange="this.form.submit()">
       <option value="">All Farms</option>
       {% for farm in all_farms %}
-      <option value="{{ farm.farm_id }}">{{ farm.farm_id }}</option>
+      <option value="{{ farm.farm_id }}" {% if farm_filter == farm.farm_id %}selected{% endif %}>{{ farm.farm_id }}</option>
       {% endfor %}
     </select>
     {% endif %}
-    <button class="btn btn-sm btn-primary ms-auto"><i class="bi bi-plus-lg"></i> Add Tree</button>
-  </div>
+    <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-search"></i> Search</button>
+    {% if search_q or disease_filter or farm_filter %}
+    <a href="{% url 'tree_inventory' %}" class="btn btn-sm btn-outline-secondary">Clear</a>
+    {% endif %}
+    <button type="button" class="btn btn-sm btn-primary ms-auto"><i class="bi bi-plus-lg"></i> Add Tree</button>
+  </form>
 </div>
 
 <!-- Table -->
@@ -74,7 +78,7 @@
       </thead>
       <tbody>
         {% for t in trees %}
-        <tr class="tree-row" data-treeid="{{ t.tree_id }}" data-disease="{{ t.disease }}" data-farm="{{ t.farm.farm_id }}">
+        <tr>
           <td class="fw-bold" style="color:var(--primary);">{{ t.tree_id }}</td>
           <td>
             <a href="{% url 'farm_detail' t.farm.farm_id %}" style="text-decoration:none;">
@@ -104,18 +108,44 @@
             </a>
           </td>
         </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No trees match your search.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+
+  {% if trees.paginator.num_pages > 1 %}
+  <div class="pagination-rg border-top">
+    {% with base_qs="q="|add:search_q|add:"&disease="|add:disease_filter|add:"&farm="|add:farm_filter %}
+    {% if trees.has_previous %}
+      <a href="?{{ base_qs }}&page={{ trees.previous_page_number }}"><i class="bi bi-chevron-left"></i></a>
+    {% else %}
+      <span class="disabled"><i class="bi bi-chevron-left"></i></span>
+    {% endif %}
+
+    {% for num in trees.paginator.page_range %}
+      {% if num == trees.number %}
+        <span class="active">{{ num }}</span>
+      {% elif num == 1 or num == trees.paginator.num_pages or num|add:"-3" < trees.number and num|add:"3" > trees.number %}
+        <a href="?{{ base_qs }}&page={{ num }}">{{ num }}</a>
+      {% elif num == 2 or num == trees.paginator.num_pages|add:"-1" %}
+        <span class="ellipsis">…</span>
+      {% endif %}
+    {% endfor %}
+
+    {% if trees.has_next %}
+      <a href="?{{ base_qs }}&page={{ trees.next_page_number }}"><i class="bi bi-chevron-right"></i></a>
+    {% else %}
+      <span class="disabled"><i class="bi bi-chevron-right"></i></span>
+    {% endif %}
+    {% endwith %}
+  </div>
+  {% endif %}
+
   <div class="px-3 py-2 border-top d-flex justify-content-between" style="font-size:12px;color:var(--text-faint);">
-    <span id="record-count">Showing {{ trees|length }} records</span>
+    <span>Showing {{ trees.start_index }}–{{ trees.end_index }} of {{ trees.paginator.count }} records</span>
     <span>{% if selected_farm %}{{ selected_farm.name }}{% else %}All Farms{% endif %}</span>
   </div>
 </div>
-{% endblock %}
-
-{% block extra_scripts %}
-{% load static %}
-<script src="{% static 'js/tree_inventory.js' %}"></script>
 {% endblock %}
