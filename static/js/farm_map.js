@@ -185,7 +185,7 @@ function setupViewToggle(map, markerList, markers, colorBasemap, grayBasemap) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const { markers, bounds, farmId } = FARM_MAP_DATA;
+  const { markers, bounds, farmId, farmName, farmOwner, centerLat, centerLng, boundaryRadius } = FARM_MAP_DATA;
 
   const leafletBounds = [
     [bounds.min_lat, bounds.min_lng],
@@ -200,6 +200,16 @@ document.addEventListener('DOMContentLoaded', () => {
   // Zoom in freely; the lower bound keeps the user from zooming out past
   // roughly this farm's own extent (with a little breathing room).
   map.setMinZoom(Math.max(map.getBoundsZoom(leafletBounds) - 1, 1));
+
+  // Farm boundary — an approximate territory circle, not a surveyed
+  // boundary, so users have a visual sense of "this is the farm" on the map.
+  L.circle([centerLat, centerLng], {
+    radius: boundaryRadius || 300,
+    color: '#0d6efd', weight: 2.5, fillColor: '#0d6efd', fillOpacity: 0.06,
+  })
+    .bindTooltip(farmName || farmId, { permanent: true, direction: 'center', className: 'farm-boundary-label' })
+    .bindPopup(`<b>${farmId}</b><br>${farmName}<br><i>${farmOwner}</i>`)
+    .addTo(map);
 
   const colorBasemap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors', maxZoom: 19,
