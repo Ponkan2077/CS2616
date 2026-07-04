@@ -109,6 +109,15 @@
 {% block extra_scripts %}
 <script>
   const DASHBOARD_MARKERS = {{ markers_json|safe }};
+  const DASHBOARD_MAP_BOUNDS = {{ map_bounds|safe }};
+  const DASHBOARD_MAP_FARM = {
+    farmId: '{{ map_farm.farm_id|default:"" }}',
+    farmName: '{{ map_farm.name|escapejs|default:"" }}',
+    farmOwner: '{{ map_farm.owner_name|escapejs|default:"" }}',
+    centerLat: {{ map_farm.center_lat|default:"0" }},
+    centerLng: {{ map_farm.center_lng|default:"0" }},
+    boundaryRadius: {{ map_farm.boundary_radius_m|default:"300" }}
+  };
 </script>
 {% load static %}
 <script src="{% static 'js/dashboard.js' %}"></script>
