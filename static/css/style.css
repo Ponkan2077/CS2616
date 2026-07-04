@@ -1,3 +1,9 @@
+/* ============================================================
+   RubberGuard Design System
+   Single stylesheet for all templates. Mobile-first, with
+   breakpoints layered on top of base (mobile) styles.
+   ============================================================ */
+
 /* ── Design tokens ───────────────────────────────────────── */
 :root {
   --primary:        #2563eb;
@@ -534,3 +540,21 @@ body {
 }
 .tree-checklist-item:hover { background: #f3f4f6; }
 .tree-checklist-item input { flex-shrink: 0; }
+
+/* ============================================================
+   PAGINATION — shared across tree inventory and interventions log
+   ============================================================ */
+.pagination-rg {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  padding: 12px; flex-wrap: wrap;
+}
+.pagination-rg a, .pagination-rg span {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 32px; height: 32px; padding: 0 8px; border-radius: 7px;
+  font-size: 12px; font-weight: 600; text-decoration: none;
+  color: var(--text-main); border: 1px solid var(--border);
+}
+.pagination-rg a:hover { background: #f3f4f6; }
+.pagination-rg .active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.pagination-rg .disabled { color: var(--text-faint); pointer-events: none; }
+.pagination-rg .ellipsis { border: none; color: var(--text-faint); }
