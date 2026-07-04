@@ -85,6 +85,7 @@
     <span><span class="legend-dot" style="background:var(--pink);"></span>Pink Disease</span>
     <span><span class="legend-dot" style="background:var(--white-root);"></span>White Root Rot</span>
     <span><span class="legend-dot" style="background:var(--stem);"></span>Stem Bleeding</span>
+    <span><span class="legend-dot-farm"></span>Farm Boundary</span>
     <span class="text-muted ms-auto"><i class="bi bi-cursor-fill"></i> Tap a marker to load its details</span>
   </div>
 
@@ -106,7 +107,12 @@
   const FARM_MAP_DATA = {
     markers: {{ markers_json|safe }},
     bounds: {{ map_bounds|safe }},
-    farmId: '{{ selected_farm.farm_id }}'
+    farmId: '{{ selected_farm.farm_id }}',
+    farmName: '{{ selected_farm.name|escapejs }}',
+    farmOwner: '{{ selected_farm.owner_name|escapejs }}',
+    centerLat: {{ selected_farm.center_lat }},
+    centerLng: {{ selected_farm.center_lng }},
+    boundaryRadius: {{ selected_farm.boundary_radius_m }}
   };
 </script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
