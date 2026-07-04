@@ -6,6 +6,7 @@ from django.contrib.auth.forms import UserCreationForm
 from django.contrib import messages
 from django.urls import reverse
 from django.utils import timezone
+from django.core.paginator import Paginator
 from django.db.models import Count, Q, Prefetch, Min, Max
 from .models import Farm, RubberTree, ScanHistory, Intervention
 
@@ -265,6 +266,7 @@ def dashboard(request):
     # loads lazily per-marker via the same /map/marker/<id>/ endpoint.
     map_farm = farm or Farm.objects.filter(owner=request.user).order_by("farm_id").first()
     map_trees = list(map_farm.trees.exclude(disease="Healthy")[:200]) if map_farm else []
+    map_bounds = _farm_map_bounds(map_farm) if map_farm else None
     farm_count = Farm.objects.filter(owner=request.user).count()
 
     ctx = _base_context(request, farm)
@@ -280,9 +282,28 @@ def dashboard(request):
         "recent": recent,
         "map_farm": map_farm,
         "markers_json": json.dumps([t.to_marker_dict() for t in map_trees]),
+        "map_bounds": json.dumps(map_bounds) if map_bounds else "null",
         "latest_scan": recent[0]["date_scanned"] if recent else "—",
     })
     return render(request, "dashboard.html", ctx)
+
+
+def _farm_map_bounds(farm):
+    # Returns a bounding box around a farm's actual trees (falling back to
+    # its boundary radius if it has no trees yet), used to zoom-lock any
+    # map so the user can zoom in freely but not zoom out past their own
+    # farm's extent. Shared by farm_map and the reports page map.
+    bounds = farm.trees.aggregate(
+        min_lat=Min("lat"), max_lat=Max("lat"),
+        min_lng=Min("lng"), max_lng=Max("lng"),
+    )
+    if bounds["min_lat"] is None:
+        deg_pad = max(farm.boundary_radius_m, 200) / 111000
+        bounds = {
+            "min_lat": farm.center_lat - deg_pad, "max_lat": farm.center_lat + deg_pad,
+            "min_lng": farm.center_lng - deg_pad, "max_lng": farm.center_lng + deg_pad,
+        }
+    return bounds
 
 
 @login_required
@@ -304,22 +325,7 @@ def farm_map(request):
     total, counts, pcts, diseased = farm.get_stats()
     trees_qs = farm.trees.all()
     markers_json = json.dumps([t.to_marker_dict() for t in trees_qs])
-
-    # Bounding box around this farm's actual trees (falling back to the
-    # farm's boundary radius if it has no trees yet), used to lock the map
-    # so the user can zoom in freely but not zoom out past their own farm.
-    bounds = trees_qs.aggregate(
-        min_lat=Min("lat"), max_lat=Max("lat"),
-        min_lng=Min("lng"), max_lng=Max("lng"),
-    )
-    if bounds["min_lat"] is None:
-        # No trees yet — build a small bounding box around the farm center
-        # using its boundary radius (roughly converting meters to degrees).
-        deg_pad = max(farm.boundary_radius_m, 200) / 111000
-        bounds = {
-            "min_lat": farm.center_lat - deg_pad, "max_lat": farm.center_lat + deg_pad,
-            "min_lng": farm.center_lng - deg_pad, "max_lng": farm.center_lng + deg_pad,
-        }
+    bounds = _farm_map_bounds(farm)
 
     ctx = _base_context(request, farm)
     ctx.update({
@@ -414,15 +420,34 @@ def save_detection(request):
 
 @login_required
 def tree_inventory(request):
-    # Renders the tree inventory table, filtered by the selected farm if set.
+    # Renders the tree inventory table, filtered by the selected farm if
+    # set, plus optional search/disease/farm query params, and paginated
+    # so large datasets don't try to render thousands of rows at once.
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
-    trees = _get_trees(request, farm).order_by("tree_id")
+    trees_qs = _get_trees(request, farm).select_related("farm").order_by("tree_id")
+
+    search_q = request.GET.get("q", "").strip()
+    disease_filter = request.GET.get("disease", "").strip()
+    farm_filter = request.GET.get("farm", "").strip()
+
+    if search_q:
+        trees_qs = trees_qs.filter(tree_id__icontains=search_q)
+    if disease_filter:
+        trees_qs = trees_qs.filter(disease=disease_filter)
+    if farm_filter:
+        trees_qs = trees_qs.filter(farm__farm_id=farm_filter)
+
+    paginator = Paginator(trees_qs, 50)
+    page_number = request.GET.get("page", 1)
+    trees_page = paginator.get_page(page_number)
+
     ctx = _base_context(request, farm)
     ctx.update({
         "page": "tree_inventory",
-        "trees": trees,
+        "trees": trees_page,
         "total": total, "counts": counts, "diseased": diseased,
+        "search_q": search_q, "disease_filter": disease_filter, "farm_filter": farm_filter,
     })
     return render(request, "tree_inventory.html", ctx)
 
@@ -459,10 +484,13 @@ def reports(request):
     severity_counts = _get_severity_counts(request, farm)
     monthly = _get_monthly_trend(request, farm)
     most_affected = _get_most_affected_farms(request)
-    map_trees = list(
-        _get_trees(request, farm).select_related("farm")
-        .exclude(disease="Healthy").order_by("-date_scanned")[:200]
-    )
+
+    # Reports map follows the same single-farm rule as the main farm map:
+    # default to the user's first farm when none is explicitly selected,
+    # rather than mixing multiple farms' trees on one map.
+    map_farm = farm or Farm.objects.filter(owner=request.user).order_by("farm_id").first()
+    map_trees = list(map_farm.trees.exclude(disease="Healthy")[:200]) if map_farm else []
+    map_bounds = _farm_map_bounds(map_farm) if map_farm else None
 
     farm_summaries = []
     for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
@@ -479,7 +507,9 @@ def reports(request):
         "monthly": monthly,
         "most_affected": most_affected,
         "farm_summaries": farm_summaries,
-        "trees_json": json.dumps([t.to_map_dict() for t in map_trees]),
+        "map_farm": map_farm,
+        "markers_json": json.dumps([t.to_marker_dict() for t in map_trees]),
+        "map_bounds": json.dumps(map_bounds) if map_bounds else "null",
     })
     return render(request, "reports.html", ctx)
 
@@ -511,7 +541,9 @@ def interventions_map(request):
 
 @login_required
 def interventions_log(request):
-    # Lists all logged interventions for the user's trees, most recent first.
+    # Lists all logged interventions for the user's trees, most recent
+    # first, paginated so a farm with many interventions doesn't render
+    # them all on one page.
     farm = _get_farm_or_none(request)
     qs = Intervention.objects.select_related("tree", "tree__farm", "performed_by").filter(
         tree__farm__owner=request.user
@@ -519,6 +551,10 @@ def interventions_log(request):
     if farm:
         qs = qs.filter(tree__farm=farm)
     qs = qs.order_by("-date_performed", "-created_at")
+
+    paginator = Paginator(qs, 50)
+    page_number = request.GET.get("page", 1)
+    interventions_page = paginator.get_page(page_number)
 
     # Pre-built {farm_pk: [{tree_id, disease}, ...]} lookup for the
     # checklist-mode tree selector in the log-intervention form. Capped
@@ -535,7 +571,7 @@ def interventions_log(request):
     ctx = _base_context(request, farm)
     ctx.update({
         "page": "interventions",
-        "interventions": qs,
+        "interventions": interventions_page,
         "farm_trees_json": json.dumps(farm_trees),
     })
     return render(request, "interventions_log.html", ctx)
