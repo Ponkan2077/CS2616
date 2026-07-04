@@ -1,21 +1,45 @@
 /* Renders the compact "Disease Cases by Location" map on the dashboard.
    Uses the minimal marker payload for a fast initial load; full detail
-   for a tree is fetched lazily only when its marker is clicked. Expects
-   DASHBOARD_MARKERS defined inline in dashboard.html before this loads. */
+   for a tree is fetched lazily only when its marker is clicked. Zoom is
+   locked to the farm's own bounds, matching the full farm map. Expects
+   DASHBOARD_MARKERS/DASHBOARD_MAP_BOUNDS/DASHBOARD_MAP_FARM defined
+   inline in dashboard.html before this loads. */
 
 document.addEventListener("DOMContentLoaded", () => {
   const container = document.getElementById("dashboard-mini-map");
   if (!container || typeof L === "undefined") return;
 
   const markers = DASHBOARD_MARKERS || [];
-  const defaultLat = markers.length ? markers[0].lat : 6.9214;
-  const defaultLng = markers.length ? markers[0].lng : 122.0790;
+  const bounds = DASHBOARD_MAP_BOUNDS;
+  const farm = DASHBOARD_MAP_FARM;
+  const hasBounds = bounds && bounds.min_lat !== undefined;
+  const leafletBounds = hasBounds
+    ? [[bounds.min_lat, bounds.min_lng], [bounds.max_lat, bounds.max_lng]]
+    : null;
 
-  const map = L.map("dashboard-mini-map", { zoomControl: true, scrollWheelZoom: false })
-    .setView([defaultLat, defaultLng], 13);
+  const map = leafletBounds
+    ? L.map("dashboard-mini-map", { zoomControl: true, scrollWheelZoom: false, maxBounds: leafletBounds, maxBoundsViscosity: 0.8 })
+    : L.map("dashboard-mini-map", { zoomControl: true, scrollWheelZoom: false });
+
+  if (leafletBounds) {
+    map.fitBounds(leafletBounds);
+    map.setMinZoom(Math.max(map.getBoundsZoom(leafletBounds) - 1, 1));
+  } else {
+    const defaultLat = markers.length ? markers[0].lat : 6.9214;
+    const defaultLng = markers.length ? markers[0].lng : 122.0790;
+    map.setView([defaultLat, defaultLng], 13);
+  }
+
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "© OpenStreetMap", maxZoom: 19,
   }).addTo(map);
+
+  if (farm && farm.farmId) {
+    L.circle([farm.centerLat, farm.centerLng], {
+      radius: farm.boundaryRadius || 300,
+      color: "#0d6efd", weight: 2, fillColor: "#0d6efd", fillOpacity: 0.06,
+    }).addTo(map);
+  }
 
   const detailCache = {};
 
