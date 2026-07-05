@@ -185,7 +185,7 @@ function setupViewToggle(map, markerList, markers, colorBasemap, grayBasemap) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const { markers, bounds, farmId, farmName, farmOwner, centerLat, centerLng, boundaryRadius } = FARM_MAP_DATA;
+  const { markers, bounds, boundaryPolygon, farmId, farmName, farmOwner } = FARM_MAP_DATA;
 
   const leafletBounds = [
     [bounds.min_lat, bounds.min_lng],
@@ -197,19 +197,29 @@ document.addEventListener('DOMContentLoaded', () => {
     maxBoundsViscosity: 0.8,
   });
   map.fitBounds(leafletBounds);
-  // Zoom in freely; the lower bound keeps the user from zooming out past
-  // roughly this farm's own extent (with a little breathing room).
-  map.setMinZoom(Math.max(map.getBoundsZoom(leafletBounds) - 1, 1));
+  // getBoundsZoom needs the container's real pixel size, which isn't
+  // reliably available the instant the map is created — invalidate size
+  // first, then compute the min zoom, with a sane fallback if invalid.
+  setTimeout(() => {
+    map.invalidateSize();
+    const boundsZoom = map.getBoundsZoom(leafletBounds);
+    map.setMinZoom(Number.isFinite(boundsZoom) ? Math.max(boundsZoom - 1, 1) : 12);
+  }, 150);
 
-  // Farm boundary — an approximate territory circle, not a surveyed
-  // boundary, so users have a visual sense of "this is the farm" on the map.
-  L.circle([centerLat, centerLng], {
-    radius: boundaryRadius || 300,
-    color: '#0d6efd', weight: 2.5, fillColor: '#0d6efd', fillOpacity: 0.06,
-  })
-    .bindTooltip(farmName || farmId, { permanent: true, direction: 'center', className: 'farm-boundary-label' })
-    .bindPopup(`<b>${farmId}</b><br>${farmName}<br><i>${farmOwner}</i>`)
-    .addTo(map);
+  // Scale control — shows a ruler segment labeled with its real-world
+  // distance in meters/km, so users can gauge how far apart trees are.
+  L.control.scale({ metric: true, imperial: false, position: 'bottomleft' }).addTo(map);
+
+  // Farm boundary — a convex hull around the farm's actual trees, so the
+  // shape follows the planted area instead of an arbitrary circle.
+  if (boundaryPolygon && boundaryPolygon.length >= 3) {
+    L.polygon(boundaryPolygon, {
+      color: '#0d6efd', weight: 2.5, fillColor: '#0d6efd', fillOpacity: 0.06,
+    })
+      .bindTooltip(farmName || farmId, { permanent: true, direction: 'center', className: 'farm-boundary-label' })
+      .bindPopup(`<b>${farmId}</b><br>${farmName}<br><i>${farmOwner}</i>`)
+      .addTo(map);
+  }
 
   const colorBasemap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors', maxZoom: 19,
@@ -218,8 +228,6 @@ document.addEventListener('DOMContentLoaded', () => {
     attribution: '© OpenStreetMap contributors, © CARTO', maxZoom: 19, subdomains: 'abcd',
   });
   colorBasemap.addTo(map);
-
-  setTimeout(() => map.invalidateSize(), 150);
 
   const markerList = renderTreeMarkers(map, markers, farmId);
   markerList.forEach(({ el }) => el.addTo(map));
