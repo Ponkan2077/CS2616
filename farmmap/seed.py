@@ -11,6 +11,7 @@ Uses bulk_create for performance since this generates thousands of rows.
 """
 
 import random
+import math
 import datetime
 from django.contrib.auth.models import User
 from farmmap.models import Farm, RubberTree, ScanHistory, Intervention
@@ -57,6 +58,40 @@ def jitter(base, spread):
     return round(base + random.uniform(-spread, spread), 6)
 
 
+def generate_grid_positions(center_lat, center_lng, count, row_spacing_m=6, col_spacing_m=3, jitter_m=0.8):
+    # Places trees on a grid matching real rubber plantation spacing
+    # (6m x 3m rows, ~555 trees/hectare, a standard configuration per
+    # agricultural planting guides) instead of uniform random scatter,
+    # which produced unrealistic dense clumps and empty gaps. A small
+    # jitter is added per tree so the layout doesn't look robotically
+    # perfect. NOTE: this places trees purely relative to the farm's
+    # center coordinate with no coastline/land-use awareness — if a
+    # farm's center_lat/center_lng is set too close to open water,
+    # trees can still end up over water. Verify each farm's center
+    # point is inland before relying on this for a real deployment.
+    m_per_deg_lat = 111320
+    m_per_deg_lng = 111320 * math.cos(math.radians(center_lat))
+    row_spacing_deg = row_spacing_m / m_per_deg_lat
+    col_spacing_deg = col_spacing_m / m_per_deg_lng
+    jitter_lat_deg = jitter_m / m_per_deg_lat
+    jitter_lng_deg = jitter_m / m_per_deg_lng
+
+    cols = math.ceil(math.sqrt(count))
+    rows = math.ceil(count / cols)
+    positions = []
+    start_lat = center_lat - (rows / 2) * row_spacing_deg
+    start_lng = center_lng - (cols / 2) * col_spacing_deg
+
+    for r in range(rows):
+        for c in range(cols):
+            if len(positions) >= count:
+                break
+            lat = start_lat + r * row_spacing_deg + random.uniform(-jitter_lat_deg, jitter_lat_deg)
+            lng = start_lng + c * col_spacing_deg + random.uniform(-jitter_lng_deg, jitter_lng_deg)
+            positions.append((round(lat, 6), round(lng, 6)))
+    return positions
+
+
 # Create (or reuse) the demo user that owns all seeded data.
 demo_user, created = User.objects.get_or_create(username="demo")
 if created:
@@ -77,17 +112,17 @@ farms_data = [
     {
         "farm_id": "FARM-001", "name": "Reyes Rubber Estate", "owner_name": "Jose Reyes",
         "location": "Brgy. Mampang, Zamboanga City",
-        "center_lat": 6.9214, "center_lng": 122.0790, "boundary_radius_m": 800,
+        "center_lat": 6.9214, "center_lng": 122.0790, "boundary_radius_m": 200,
     },
     {
         "farm_id": "FARM-002", "name": "Santos Plantation", "owner_name": "Maria Santos",
         "location": "Brgy. Sinunoc, Zamboanga City",
-        "center_lat": 6.9350, "center_lng": 122.0900, "boundary_radius_m": 750,
+        "center_lat": 6.9350, "center_lng": 122.0900, "boundary_radius_m": 180,
     },
     {
         "farm_id": "FARM-003", "name": "Cruz Family Farm", "owner_name": "Pedro Cruz",
         "location": "Brgy. Talon-Talon, Zamboanga City",
-        "center_lat": 6.9100, "center_lng": 122.0650, "boundary_radius_m": 700,
+        "center_lat": 6.9100, "center_lng": 122.0650, "boundary_radius_m": 160,
     },
 ]
 
@@ -102,16 +137,18 @@ SCAN_WINDOW_END = datetime.date(2026, 6, 30)
 
 # ── Trees, scan history, and interventions (bulk-created for speed) ───────
 for farm_id, farm in farms.items():
+    positions = generate_grid_positions(farm.center_lat, farm.center_lng, TREES_PER_FARM)
     tree_objs = []
     for i in range(1, TREES_PER_FARM + 1):
         disease = weighted_disease()
         confidence = round(random.uniform(75, 99.5), 1)
         date_scanned = random_date(SCAN_WINDOW_START, SCAN_WINDOW_END)
+        lat, lng = positions[i - 1]
         tree_objs.append(RubberTree(
             farm=farm,
             tree_id=f"{farm_id}-RT-{i:04d}",
-            lat=jitter(farm.center_lat, 0.006),
-            lng=jitter(farm.center_lng, 0.006),
+            lat=lat,
+            lng=lng,
             disease=disease,
             confidence=confidence,
             severity_score=compute_severity_score(disease, confidence),
