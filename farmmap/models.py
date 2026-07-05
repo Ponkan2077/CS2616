@@ -2,6 +2,42 @@ from django.db import models
 from django.contrib.auth.models import User
 
 
+def _convex_hull(points):
+    # Computes the convex hull of a set of (lat, lng) points using Andrew's
+    # monotone chain algorithm. Pure Python, no external dependencies
+    # (scipy isn't guaranteed to be available on all hosting tiers).
+    points = sorted(set(points))
+    if len(points) <= 2:
+        return points
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower = []
+    for p in points:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+
+    upper = []
+    for p in reversed(points):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+
+    return lower[:-1] + upper[:-1]
+
+
+def _expand_polygon(hull, center_lat, center_lng, factor=1.06):
+    # Scales each hull point outward from the farm's center by a small
+    # factor, so the drawn boundary sits just outside the outermost trees
+    # instead of passing directly through them.
+    return [
+        [center_lat + (lat - center_lat) * factor, center_lng + (lng - center_lng) * factor]
+        for lat, lng in hull
+    ]
+
+
 class Farm(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="farms")
     farm_id = models.CharField(max_length=20)
@@ -47,6 +83,27 @@ class Farm(models.Model):
         for t in self.trees.all():
             counts[t.severity_label] += 1
         return counts
+
+    def get_boundary_polygon(self):
+        # Returns the convex hull of this farm's tree coordinates as a list
+        # of [lat, lng] points, forming a boundary that actually follows the
+        # shape of the planted area instead of a fixed-radius circle. Falls
+        # back to a small square around the farm center if there are fewer
+        # than 3 trees (not enough points to form a hull).
+        points = list(self.trees.values_list("lat", "lng"))
+        if len(points) < 3:
+            pad = max(self.boundary_radius_m, 200) / 111000
+            return [
+                [self.center_lat - pad, self.center_lng - pad],
+                [self.center_lat - pad, self.center_lng + pad],
+                [self.center_lat + pad, self.center_lng + pad],
+                [self.center_lat + pad, self.center_lng - pad],
+            ]
+
+        hull = _convex_hull(points)
+        # Expand the hull outward slightly so the boundary sits just
+        # outside the outermost trees rather than clipping through them.
+        return _expand_polygon(hull, self.center_lat, self.center_lng, factor=1.06)
 
 
 class RubberTree(models.Model):
