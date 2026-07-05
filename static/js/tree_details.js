@@ -11,29 +11,53 @@ const DISEASE_COLOR_MAP = {
 };
 
 // Renders a small Leaflet map centered on the tree's GPS point.
-function renderMiniMap(tree) {
-  const farmBounds = [
-    [tree.farm_center_lat - (tree.farm_boundary_radius / 111000), tree.farm_center_lng - (tree.farm_boundary_radius / 111000)],
-    [tree.farm_center_lat + (tree.farm_boundary_radius / 111000), tree.farm_center_lng + (tree.farm_boundary_radius / 111000)],
-  ];
+function renderMiniMap(tree, farmBoundary) {
+  const hasBoundary = farmBoundary && farmBoundary.length >= 3;
+
+  // Derive a bounding box from the polygon's own points for the zoom
+  // lock, so this map is capped at roughly the same extent as the main
+  // farm map, without needing a separate radius value.
+  let farmBounds = null;
+  if (hasBoundary) {
+    const lats = farmBoundary.map(p => p[0]);
+    const lngs = farmBoundary.map(p => p[1]);
+    farmBounds = [
+      [Math.min(...lats), Math.min(...lngs)],
+      [Math.max(...lats), Math.max(...lngs)],
+    ];
+  }
 
   const miniMap = L.map('mini-map', {
     zoomControl: true, scrollWheelZoom: false,
-    maxBounds: farmBounds, maxBoundsViscosity: 0.8,
+    ...(farmBounds ? { maxBounds: farmBounds, maxBoundsViscosity: 0.8 } : {}),
   }).setView([tree.lat, tree.lng], 17);
-
-  // Zoom in freely toward the tree; zooming out is capped once the whole
-  // farm is visible, matching the same constraint used on the other maps.
-  miniMap.setMinZoom(Math.max(miniMap.getBoundsZoom(farmBounds) - 1, 1));
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap',
   }).addTo(miniMap);
 
-  L.circle([tree.farm_center_lat, tree.farm_center_lng], {
-    radius: tree.farm_boundary_radius || 300,
-    color: '#0d6efd', weight: 2, fillColor: '#0d6efd', fillOpacity: 0.05,
-  }).bindTooltip(tree.farm_name || tree.farm_id, { permanent: false, direction: 'center', className: 'farm-boundary-label' }).addTo(miniMap);
+  L.control.scale({ metric: true, imperial: false, position: 'bottomleft' }).addTo(miniMap);
+
+  // getBoundsZoom needs the container's real pixel size to compute
+  // correctly, which isn't reliably available the instant the map is
+  // created inside a grid layout — invalidateSize() first, then compute
+  // the min zoom, falling back to a sane default if it comes back invalid.
+  if (farmBounds) {
+    setTimeout(() => {
+      miniMap.invalidateSize();
+      const boundsZoom = miniMap.getBoundsZoom(farmBounds);
+      const minZoom = Number.isFinite(boundsZoom) ? Math.max(boundsZoom - 1, 1) : 12;
+      miniMap.setMinZoom(minZoom);
+    }, 150);
+  } else {
+    setTimeout(() => miniMap.invalidateSize(), 150);
+  }
+
+  if (hasBoundary) {
+    L.polygon(farmBoundary, {
+      color: '#0d6efd', weight: 2, fillColor: '#0d6efd', fillOpacity: 0.05,
+    }).bindTooltip(tree.farm_name || tree.farm_id, { permanent: false, direction: 'center', className: 'farm-boundary-label' }).addTo(miniMap);
+  }
 
   L.circleMarker([tree.lat, tree.lng], {
     radius: 10, color: '#fff', weight: 2,
@@ -98,6 +122,6 @@ function renderHistoryChart(tree, history) {
 
 document.addEventListener('DOMContentLoaded', () => {
   const { tree, history } = TREE_DETAIL_DATA;
-  renderMiniMap(tree);
+  renderMiniMap(tree, TREE_DETAIL_DATA.farmBoundary);
   renderHistoryChart(tree, history);
 });
