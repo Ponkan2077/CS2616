@@ -23,7 +23,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (leafletBounds) {
     map.fitBounds(leafletBounds);
-    map.setMinZoom(Math.max(map.getBoundsZoom(leafletBounds) - 1, 1));
+    setTimeout(() => {
+      map.invalidateSize();
+      const boundsZoom = map.getBoundsZoom(leafletBounds);
+      map.setMinZoom(Number.isFinite(boundsZoom) ? Math.max(boundsZoom - 1, 1) : 12);
+    }, 150);
   } else {
     const defaultLat = markers.length ? markers[0].lat : 6.9214;
     const defaultLng = markers.length ? markers[0].lng : 122.0790;
@@ -34,9 +38,11 @@ document.addEventListener("DOMContentLoaded", () => {
     attribution: "© OpenStreetMap", maxZoom: 19,
   }).addTo(map);
 
-  if (farm && farm.farmId) {
-    L.circle([farm.centerLat, farm.centerLng], {
-      radius: farm.boundaryRadius || 300,
+  L.control.scale({ metric: true, imperial: false, position: "bottomleft" }).addTo(map);
+
+  const boundaryPolygon = DASHBOARD_MAP_FARM_BOUNDARY;
+  if (farm && farm.farmId && boundaryPolygon && boundaryPolygon.length >= 3) {
+    L.polygon(boundaryPolygon, {
       color: "#0d6efd", weight: 2, fillColor: "#0d6efd", fillOpacity: 0.06,
     }).addTo(map);
   }
