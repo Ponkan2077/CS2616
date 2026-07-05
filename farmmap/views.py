@@ -283,6 +283,7 @@ def dashboard(request):
         "map_farm": map_farm,
         "markers_json": json.dumps([t.to_marker_dict() for t in map_trees]),
         "map_bounds": json.dumps(map_bounds) if map_bounds else "null",
+        "map_farm_boundary": json.dumps(map_farm.get_boundary_polygon()) if map_farm else "null",
         "latest_scan": recent[0]["date_scanned"] if recent else "—",
     })
     return render(request, "dashboard.html", ctx)
@@ -308,30 +309,43 @@ def _farm_map_bounds(farm):
 
 @login_required
 def farm_map(request):
-    # Renders the interactive Leaflet map for exactly one farm at a time.
-    # If no farm is explicitly selected, defaults to the user's first farm
-    # (by farm_id) rather than showing every farm's trees together, since
-    # combining thousands of trees from multiple farms onto one map doesn't
-    # scale visually or performance-wise.
-    farm = _get_farm_or_none(request)
-    if not farm:
-        farm = Farm.objects.filter(owner=request.user).order_by("farm_id").first()
+    # Renders the interactive Leaflet map for exactly one farm at a time,
+    # with its own page-scoped farm selector (a ?farm=<id> query param)
+    # independent of the sidebar's "Active Farm" selector. This avoids the
+    # sidebar showing a specific farm as "selected" just because the map
+    # needed to default to one — the sidebar keeps reflecting the user's
+    # actual session-wide choice (which may genuinely be "All Farms").
+    sidebar_farm = _get_farm_or_none(request)
+    all_user_farms = Farm.objects.filter(owner=request.user).order_by("farm_id")
 
-    if not farm:
-        ctx = _base_context(request, None)
+    map_farm_id = request.GET.get("farm", "")
+    if map_farm_id:
+        map_farm = all_user_farms.filter(farm_id=map_farm_id).first()
+    else:
+        map_farm = sidebar_farm or all_user_farms.first()
+
+    if not map_farm:
+        ctx = _base_context(request, sidebar_farm)
         ctx.update({"page": "farm_map", "no_farms": True})
         return render(request, "farm_map.html", ctx)
 
-    total, counts, pcts, diseased = farm.get_stats()
-    trees_qs = farm.trees.all()
+    total, counts, pcts, diseased = map_farm.get_stats()
+    trees_qs = map_farm.trees.all()
     markers_json = json.dumps([t.to_marker_dict() for t in trees_qs])
-    bounds = _farm_map_bounds(farm)
+    bounds = _farm_map_bounds(map_farm)
+    boundary_polygon = json.dumps(map_farm.get_boundary_polygon())
 
-    ctx = _base_context(request, farm)
+    # Uses the sidebar's own selected_farm (not map_farm) for shared
+    # context, so the sidebar dropdown never appears to change just from
+    # visiting this page.
+    ctx = _base_context(request, sidebar_farm)
     ctx.update({
         "page": "farm_map",
+        "map_farm": map_farm,
+        "all_user_farms": all_user_farms,
         "markers_json": markers_json,
         "map_bounds": json.dumps(bounds),
+        "map_farm_boundary": boundary_polygon,
         "total": total, "counts": counts, "diseased": diseased,
     })
     return render(request, "farm_map.html", ctx)
@@ -470,6 +484,7 @@ def tree_details(request, tree_id):
         "page": "tree_inventory",
         "tree": tree,
         "history": history,
+        "tree_farm_boundary": json.dumps(tree.farm.get_boundary_polygon()),
     })
     return render(request, "tree_details.html", ctx)
 
@@ -510,6 +525,7 @@ def reports(request):
         "map_farm": map_farm,
         "markers_json": json.dumps([t.to_marker_dict() for t in map_trees]),
         "map_bounds": json.dumps(map_bounds) if map_bounds else "null",
+        "map_farm_boundary": json.dumps(map_farm.get_boundary_polygon()) if map_farm else "null",
     })
     return render(request, "reports.html", ctx)
 
