@@ -75,7 +75,7 @@
   <div class="card-header-rg"><i class="bi bi-graph-up"></i> Disease Reports Over Time</div>
   <div class="card-body-rg">
     {% if monthly %}
-    <canvas id="reportTrend" height="100"></canvas>
+    <canvas id="reportTrend" height="160"></canvas>
     {% else %}
     <div class="text-center text-muted py-4" style="font-size:13px;">Not enough scan history yet to show a trend.</div>
     {% endif %}
@@ -172,13 +172,11 @@
     ],
     trees: {{ markers_json|safe }},
     mapBounds: {{ map_bounds|safe }},
+    mapFarmBoundary: {{ map_farm_boundary|safe }},
     mapFarm: {
       farmId: '{{ map_farm.farm_id|default:"" }}',
       farmName: '{{ map_farm.name|escapejs|default:"" }}',
-      farmOwner: '{{ map_farm.owner_name|escapejs|default:"" }}',
-      centerLat: {{ map_farm.center_lat|default:"0" }},
-      centerLng: {{ map_farm.center_lng|default:"0" }},
-      boundaryRadius: {{ map_farm.boundary_radius_m|default:"300" }}
+      farmOwner: '{{ map_farm.owner_name|escapejs|default:"" }}'
     }
   };
 </script>
