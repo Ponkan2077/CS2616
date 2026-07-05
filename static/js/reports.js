@@ -72,23 +72,43 @@ function renderDiseaseBar(counts) {
 function renderTrend(monthly) {
   const canvas = document.getElementById("reportTrend");
   if (!canvas || !monthly.length) return;
+
+  // If a Chart.js instance is already attached to this canvas (e.g. from
+  // a stale render), destroy it first — Chart.js can otherwise silently
+  // produce a broken/empty-looking chart instead of a visible error.
+  const existing = Chart.getChart(canvas);
+  if (existing) existing.destroy();
+
+  const healthyData = monthly.map(m => Number(m.healthy) || 0);
+  const pinkData = monthly.map(m => Number(m.pink) || 0);
+  const whiteRootData = monthly.map(m => Number(m.white_root) || 0);
+  const stemData = monthly.map(m => Number(m.stem) || 0);
+
+  // Explicitly compute the y-axis max from the real data instead of
+  // relying solely on Chart.js's automatic scale detection, which can
+  // fail to pick up a sensible range in some edge cases.
+  const allValues = [...healthyData, ...pinkData, ...whiteRootData, ...stemData];
+  const dataMax = Math.max(1, ...allValues);
+  const yMax = Math.ceil(dataMax * 1.15 / 10) * 10;
+
   new Chart(canvas, {
     type: "line",
     data: {
       labels: monthly.map(m => m.month),
       datasets: [
-        { label: "Healthy",        data: monthly.map(m => m.healthy),    borderColor: DISEASE_COLORS.healthy,    backgroundColor: "rgba(40,167,69,.1)",  tension: .4, fill: true,  pointRadius: 4 },
-        { label: "Pink Disease",   data: monthly.map(m => m.pink),       borderColor: DISEASE_COLORS.pink,       backgroundColor: "rgba(220,53,69,.08)", tension: .4, fill: false, pointRadius: 4 },
-        { label: "White Root Rot", data: monthly.map(m => m.white_root), borderColor: DISEASE_COLORS.white_root, backgroundColor: "rgba(139,90,43,.08)", tension: .4, fill: false, pointRadius: 4 },
-        { label: "Stem Bleeding",  data: monthly.map(m => m.stem),       borderColor: DISEASE_COLORS.stem,       backgroundColor: "rgba(139,0,0,.08)",   tension: .4, fill: false, pointRadius: 4 },
+        { label: "Healthy",        data: healthyData,    borderColor: DISEASE_COLORS.healthy,    backgroundColor: "rgba(40,167,69,.1)",  tension: .4, fill: true,  pointRadius: 4 },
+        { label: "Pink Disease",   data: pinkData,       borderColor: DISEASE_COLORS.pink,       backgroundColor: "rgba(220,53,69,.08)", tension: .4, fill: false, pointRadius: 4 },
+        { label: "White Root Rot", data: whiteRootData,  borderColor: DISEASE_COLORS.white_root, backgroundColor: "rgba(139,90,43,.08)", tension: .4, fill: false, pointRadius: 4 },
+        { label: "Stem Bleeding",  data: stemData,       borderColor: DISEASE_COLORS.stem,       backgroundColor: "rgba(139,0,0,.08)",   tension: .4, fill: false, pointRadius: 4 },
       ]
     },
     options: {
       responsive: true,
+      maintainAspectRatio: true,
       plugins: { legend: { position: "bottom", labels: { font: { size: 11 }, boxWidth: 12 } } },
       scales: {
         x: { grid: { display: false }, ticks: { font: { size: 11 } } },
-        y: { beginAtZero: true, ticks: { font: { size: 11 } } }
+        y: { beginAtZero: true, min: 0, max: yMax, ticks: { font: { size: 11 } } }
       }
     }
   });
@@ -107,7 +127,7 @@ function computeSeverityLabel(disease, confidence) {
   return "Severe";
 }
 
-function renderLocationMap(trees, mapBounds, mapFarm) {
+function renderLocationMap(trees, mapBounds, mapFarm, mapFarmBoundary) {
   const container = document.getElementById("report-map");
   if (!container || typeof L === "undefined") return;
 
@@ -122,7 +142,11 @@ function renderLocationMap(trees, mapBounds, mapFarm) {
 
   if (leafletBounds) {
     map.fitBounds(leafletBounds);
-    map.setMinZoom(Math.max(map.getBoundsZoom(leafletBounds) - 1, 1));
+    setTimeout(() => {
+      map.invalidateSize();
+      const boundsZoom = map.getBoundsZoom(leafletBounds);
+      map.setMinZoom(Number.isFinite(boundsZoom) ? Math.max(boundsZoom - 1, 1) : 12);
+    }, 150);
   } else {
     const defaultLat = trees.length ? trees[0].lat : 6.9214;
     const defaultLng = trees.length ? trees[0].lng : 122.0790;
@@ -133,9 +157,10 @@ function renderLocationMap(trees, mapBounds, mapFarm) {
     attribution: "© OpenStreetMap", maxZoom: 19,
   }).addTo(map);
 
-  if (mapFarm && mapFarm.farmId) {
-    L.circle([mapFarm.centerLat, mapFarm.centerLng], {
-      radius: mapFarm.boundaryRadius || 300,
+  L.control.scale({ metric: true, imperial: false, position: "bottomleft" }).addTo(map);
+
+  if (mapFarm && mapFarm.farmId && mapFarmBoundary && mapFarmBoundary.length >= 3) {
+    L.polygon(mapFarmBoundary, {
       color: "#0d6efd", weight: 2.5, fillColor: "#0d6efd", fillOpacity: 0.06,
     })
       .bindTooltip(mapFarm.farmName || mapFarm.farmId, { permanent: true, direction: "center", className: "farm-boundary-label" })
@@ -157,5 +182,5 @@ document.addEventListener("DOMContentLoaded", () => {
   renderDetectionSummary(REPORTS_DATA.counts);
   renderDiseaseBar(REPORTS_DATA.counts);
   renderTrend(REPORTS_DATA.monthly);
-  renderLocationMap(REPORTS_DATA.trees, REPORTS_DATA.mapBounds, REPORTS_DATA.mapFarm);
+  renderLocationMap(REPORTS_DATA.trees, REPORTS_DATA.mapBounds, REPORTS_DATA.mapFarm, REPORTS_DATA.mapFarmBoundary);
 });
