@@ -184,8 +184,11 @@
       tree_id: '{{ tree.tree_id }}',
       disease: '{{ tree.disease }}',
       color: '{{ tree.color }}',
-      farm_owner: '{{ tree.farm.owner_name }}'
+      farm_owner: '{{ tree.farm.owner_name }}',
+      farm_id: '{{ tree.farm.farm_id }}',
+      farm_name: '{{ tree.farm.name|escapejs }}'
     },
+    farmBoundary: {{ tree_farm_boundary|safe }},
     history: [
       {% for h in history %}
       { date: '{{ h.date }}', confidence: {{ h.confidence }}, disease: '{{ h.disease }}' },
