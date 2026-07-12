@@ -58,6 +58,143 @@ def _get_severity_counts(request, farm=None):
     }
 
 
+# Current AI model + report template version, surfaced in the PDF report's
+# metadata footer so a reader knows exactly which detector produced the
+# underlying classifications and which report layout generated the file.
+AI_MODEL_VERSION = "MobileNetV3-Large v2.3 (CNN Trunk Disease Classifier)"
+REPORT_VERSION = "2.0"
+
+
+def _get_block_summary(request, farm=None):
+    # Groups trees by block and returns healthy vs. infected counts per
+    # block, sorted alphabetically (A, B, C...), for the Block Summary
+    # section on the dashboard, reports page, and PDF export.
+    from collections import OrderedDict
+    qs = RubberTree.objects.filter(farm=farm) if farm else RubberTree.objects.filter(farm__owner=request.user)
+    blocks = OrderedDict()
+    for block_val, disease in qs.values_list("block", "disease").order_by("block"):
+        key = block_val or "Unassigned"
+        if key not in blocks:
+            blocks[key] = {"block": key, "healthy": 0, "infected": 0, "total": 0}
+        blocks[key]["total"] += 1
+        if disease == "Healthy":
+            blocks[key]["healthy"] += 1
+        else:
+            blocks[key]["infected"] += 1
+    rows = sorted(blocks.values(), key=lambda r: r["block"])
+    for r in rows:
+        r["infected_pct"] = round(r["infected"] / r["total"] * 100, 1) if r["total"] else 0
+    return rows
+
+
+def _get_intervention_effectiveness(request, farm=None):
+    # For each intervention action type, estimates how often the treated
+    # tree's CURRENT status is Healthy — a proxy for how effective that
+    # action has been at resolving disease. Also returns the most recent
+    # interventions logged, for a "recent activity" list.
+    qs = Intervention.objects.select_related("tree", "tree__farm").filter(tree__farm__owner=request.user)
+    if farm:
+        qs = qs.filter(tree__farm=farm)
+
+    by_action = {}
+    for iv in qs.select_related("tree"):
+        action = iv.action
+        if action not in by_action:
+            by_action[action] = {"action": action, "treated": 0, "recovered": 0}
+        by_action[action]["treated"] += 1
+        if iv.tree.disease == "Healthy":
+            by_action[action]["recovered"] += 1
+
+    effectiveness = []
+    for row in by_action.values():
+        row["recovery_pct"] = round(row["recovered"] / row["treated"] * 100, 1) if row["treated"] else 0
+        effectiveness.append(row)
+    effectiveness.sort(key=lambda r: r["treated"], reverse=True)
+
+    recent = list(qs.order_by("-date_performed")[:8])
+    return effectiveness, recent
+
+
+def _get_key_insights(total, counts, pcts, diseased, block_rows, effectiveness):
+    # Builds a short list of plain-language, data-driven takeaways from
+    # the current stats. Used on the reports page and in the PDF export
+    # so a non-technical reader gets the "so what" up front.
+    insights = []
+    if total == 0:
+        return ["No trees have been scanned yet — insights will appear once detection data is available."]
+
+    insights.append(
+        f"{pcts.get('Healthy', 0)}% of monitored trees ({counts.get('Healthy', 0)} of {total}) are currently Healthy."
+    )
+
+    disease_labels = {
+        "Pink_Disease": "Pink Disease", "White_Root_Rot": "White Root Rot", "Stem_Bleeding": "Stem Bleeding",
+    }
+    if diseased:
+        top_key = max(("Pink_Disease", "White_Root_Rot", "Stem_Bleeding"), key=lambda k: counts.get(k, 0))
+        if counts.get(top_key, 0) > 0:
+            insights.append(
+                f"{disease_labels[top_key]} is the most common issue detected, accounting for "
+                f"{counts.get(top_key, 0)} case(s) ({pcts.get(top_key, 0)}% of all trees)."
+            )
+    else:
+        insights.append("No active disease cases detected across the monitored trees.")
+
+    infected_blocks = [b for b in block_rows if b["infected"] > 0]
+    if infected_blocks:
+        worst = max(infected_blocks, key=lambda b: b["infected_pct"])
+        insights.append(
+            f"Block {worst['block']} has the highest infection rate at {worst['infected_pct']}% "
+            f"({worst['infected']} of {worst['total']} trees)."
+        )
+    elif block_rows:
+        insights.append("Every tracked block is currently fully healthy.")
+
+    if effectiveness:
+        best = max(effectiveness, key=lambda r: (r["recovery_pct"], r["treated"]))
+        if best["recovery_pct"] > 0:
+            insights.append(
+                f"\"{best['action']}\" is the most effective intervention on record, with "
+                f"{best['recovery_pct']}% of treated trees ({best['recovered']} of {best['treated']}) now Healthy."
+            )
+        else:
+            total_treated = sum(r["treated"] for r in effectiveness)
+            insights.append(
+                f"{total_treated} intervention(s) have been logged, but none of the treated trees are currently "
+                f"marked Healthy yet — recovery may take longer than the current scan history covers."
+            )
+    else:
+        insights.append("No interventions have been logged yet — recommendations below are detection-based only.")
+
+    return insights[:5]
+
+
+def _get_recommendations(block_rows, effectiveness):
+    # Builds short, actionable recommendations per block based on
+    # infection severity, plus a general intervention recommendation
+    # drawn from the least-effective logged action (if any).
+    recs = []
+    for b in sorted(block_rows, key=lambda r: r["infected_pct"], reverse=True):
+        if b["infected"] == 0:
+            continue
+        if b["infected_pct"] >= 50:
+            recs.append(f"Apply treatment in Block {b['block']} — {b['infected_pct']}% of trees show disease symptoms; prioritize immediate intervention.")
+        elif b["infected_pct"] >= 20:
+            recs.append(f"Schedule a follow-up inspection in Block {b['block']} — {b['infected']} tree(s) affected ({b['infected_pct']}%).")
+        else:
+            recs.append(f"Monitor Block {b['block']} — isolated case(s) detected ({b['infected']} tree(s)); recheck on the next scheduled scan.")
+
+    if effectiveness:
+        weakest = min(effectiveness, key=lambda r: r["recovery_pct"])
+        if weakest["treated"] >= 2 and weakest["recovery_pct"] < 50:
+            recs.append(f"Reassess the \"{weakest['action']}\" protocol — only {weakest['recovery_pct']}% of treated trees have recovered so far.")
+
+    if not recs:
+        recs.append("No disease-affected blocks at this time — maintain routine monitoring on the standard scan schedule.")
+
+    return recs[:6]
+
+
 def _get_most_affected_farms(request, limit=8):
     # Returns farms ranked by diseased tree count, with a pre-computed bar
     # percentage relative to the worst-affected farm, for the "Most
@@ -260,14 +397,8 @@ def dashboard(request):
     )
     recent = [t.to_dict() for t in trees]
 
-    # Dashboard map is a quick-glance preview scoped to one farm, matching
-    # the same "default to first farm" behavior as the full farm map — no
-    # combined multi-farm view. Uses the minimal marker payload; full detail
-    # loads lazily per-marker via the same /map/marker/<id>/ endpoint.
-    map_farm = farm or Farm.objects.filter(owner=request.user).order_by("farm_id").first()
-    map_trees = list(map_farm.trees.exclude(disease="Healthy")[:200]) if map_farm else []
-    map_bounds = _farm_map_bounds(map_farm) if map_farm else None
     farm_count = Farm.objects.filter(owner=request.user).count()
+    block_summary = _get_block_summary(request, farm)
 
     ctx = _base_context(request, farm)
     ctx.update({
@@ -280,10 +411,7 @@ def dashboard(request):
         ]).distinct().count() if not farm else (1 if diseased else 0),
         "farm_count": farm_count,
         "recent": recent,
-        "map_farm": map_farm,
-        "markers_json": json.dumps([t.to_marker_dict() for t in map_trees]),
-        "map_bounds": json.dumps(map_bounds) if map_bounds else "null",
-        "map_farm_boundary": json.dumps(map_farm.get_boundary_polygon()) if map_farm else "null",
+        "block_summary": block_summary,
         "latest_scan": recent[0]["date_scanned"] if recent else "—",
     })
     return render(request, "dashboard.html", ctx)
@@ -499,13 +627,10 @@ def reports(request):
     severity_counts = _get_severity_counts(request, farm)
     monthly = _get_monthly_trend(request, farm)
     most_affected = _get_most_affected_farms(request)
-
-    # Reports map follows the same single-farm rule as the main farm map:
-    # default to the user's first farm when none is explicitly selected,
-    # rather than mixing multiple farms' trees on one map.
-    map_farm = farm or Farm.objects.filter(owner=request.user).order_by("farm_id").first()
-    map_trees = list(map_farm.trees.exclude(disease="Healthy")[:200]) if map_farm else []
-    map_bounds = _farm_map_bounds(map_farm) if map_farm else None
+    block_summary = _get_block_summary(request, farm)
+    effectiveness, recent_interventions = _get_intervention_effectiveness(request, farm)
+    key_insights = _get_key_insights(total, counts, pcts, diseased, block_summary, effectiveness)
+    recommendations = _get_recommendations(block_summary, effectiveness)
 
     farm_summaries = []
     for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
@@ -522,10 +647,14 @@ def reports(request):
         "monthly": monthly,
         "most_affected": most_affected,
         "farm_summaries": farm_summaries,
-        "map_farm": map_farm,
-        "markers_json": json.dumps([t.to_marker_dict() for t in map_trees]),
-        "map_bounds": json.dumps(map_bounds) if map_bounds else "null",
-        "map_farm_boundary": json.dumps(map_farm.get_boundary_polygon()) if map_farm else "null",
+        "block_summary": block_summary,
+        "effectiveness": effectiveness,
+        "recent_interventions": recent_interventions,
+        "key_insights": key_insights,
+        "recommendations": recommendations,
+        "ai_model_version": AI_MODEL_VERSION,
+        "report_version": REPORT_VERSION,
+        "generated_at": timezone.now(),
     })
     return render(request, "reports.html", ctx)
 
@@ -859,6 +988,11 @@ def export_pdf(request):
     total, counts, pcts, diseased = _get_stats(request, farm)
     severity_counts = _get_severity_counts(request, farm)
     monthly = _get_monthly_trend(request, farm)
+    block_summary = _get_block_summary(request, farm)
+    effectiveness, _recent_ivs = _get_intervention_effectiveness(request, farm)
+    key_insights = _get_key_insights(total, counts, pcts, diseased, block_summary, effectiveness)
+    recommendations = _get_recommendations(block_summary, effectiveness)
+    generated_at = timezone.now()
 
     farm_summaries = []
     if not farm:
@@ -891,7 +1025,32 @@ def export_pdf(request):
     title = farm.name if farm else "All Farms"
     elements.append(Paragraph("RubberGuard Disease Detection Report", styles["Title"]))
     elements.append(Paragraph(f"Scope: {title} &nbsp;&nbsp;|&nbsp;&nbsp; Generated: {timezone.localdate()}", styles["Normal"]))
+
+    # Report metadata — which AI model produced the underlying classifications,
+    # which report template version generated this file, and the exact
+    # generation timestamp (not just the date), so any copy of this PDF can
+    # be traced back to the data and detector version behind it.
+    meta_style = styles["Normal"].clone("meta_style")
+    meta_style.fontSize = 8
+    meta_style.textColor = colors.HexColor("#6b7280")
+    elements.append(Paragraph(
+        f"AI Model: {AI_MODEL_VERSION} &nbsp;&nbsp;|&nbsp;&nbsp; "
+        f"Report Version: {REPORT_VERSION} &nbsp;&nbsp;|&nbsp;&nbsp; "
+        f"Generated at: {generated_at.strftime('%Y-%m-%d %H:%M %Z') or generated_at.strftime('%Y-%m-%d %H:%M')}",
+        meta_style,
+    ))
     elements.append(Spacer(1, 10))
+
+    # Key Insights — plain-language, data-driven takeaways up front so a
+    # non-technical reader gets the "so what" before the raw tables.
+    elements.append(Paragraph("Key Insights", styles["Heading4"]))
+    insight_style = styles["Normal"].clone("insight_style")
+    insight_style.fontSize = 9
+    insight_style.leftIndent = 10
+    insight_style.spaceAfter = 3
+    for point in key_insights:
+        elements.append(Paragraph(f"•  {point}", insight_style))
+    elements.append(Spacer(1, 12))
 
     # KPI summary row
     summary_data = [
@@ -933,6 +1092,33 @@ def export_pdf(request):
     elements.append(severity_table)
     elements.append(Spacer(1, 14))
 
+    # Block Summary — healthy vs. infected counts per block, the basis for
+    # the Recommendations section further down.
+    if block_summary:
+        block_rows = [["Block", "Total", "Healthy", "Infected", "Infected %"]] + [
+            [b["block"], str(b["total"]), str(b["healthy"]), str(b["infected"]), f"{b['infected_pct']}%"]
+            for b in block_summary
+        ]
+        block_table = Table(block_rows, colWidths=[content_width * f for f in [0.2, 0.2, 0.2, 0.2, 0.2]])
+        block_style = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a2535")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ]
+        for i, b in enumerate(block_summary, start=1):
+            if b["infected_pct"] >= 50:
+                block_style.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#fecaca")))
+            elif b["infected_pct"] > 0:
+                block_style.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#fef3c7")))
+        block_table.setStyle(TableStyle(block_style))
+        elements.append(Paragraph("Block Summary", styles["Heading4"]))
+        elements.append(block_table)
+        elements.append(Spacer(1, 14))
+
     # Charts row — pie and trend, wrapped in KeepInFrame so they can never
     # overflow their allotted space regardless of label length.
     chart_h = 2.2 * inch
@@ -967,10 +1153,43 @@ def export_pdf(request):
         elements.append(farm_table)
         elements.append(Spacer(1, 14))
 
-    # Per-tree table — capped since PDF generation gets slow and the file
-    # becomes unwieldy past a few hundred rows. CSV/Excel exports remain
-    # uncapped for anyone who needs the complete dataset.
-    PDF_TREE_ROW_LIMIT = 300
+    # Recommendations — short, actionable next steps derived from the
+    # Block Summary and intervention track record above.
+    elements.append(Paragraph("Recommendations", styles["Heading4"]))
+    rec_style = styles["Normal"].clone("rec_style")
+    rec_style.fontSize = 9
+    rec_style.leftIndent = 10
+    rec_style.spaceAfter = 3
+    for rec in recommendations:
+        elements.append(Paragraph(f"•  {rec}", rec_style))
+    elements.append(Spacer(1, 14))
+
+    # Intervention Effectiveness — what % of trees treated with each action
+    # are currently Healthy, i.e. how well that intervention has worked.
+    if effectiveness:
+        eff_rows = [["Intervention", "Trees Treated", "Now Healthy", "Recovery Rate"]] + [
+            [e["action"], str(e["treated"]), str(e["recovered"]), f"{e['recovery_pct']}%"]
+            for e in effectiveness
+        ]
+        eff_table = Table(eff_rows, colWidths=[content_width * f for f in [0.4, 0.2, 0.2, 0.2]])
+        eff_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a2535")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+            ("ALIGN", (0, 0), (0, -1), "LEFT"),
+            ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(Paragraph("Intervention Effectiveness", styles["Heading4"]))
+        elements.append(eff_table)
+        elements.append(Spacer(1, 14))
+
+    # Per-tree table — capped to a page-friendly sample since a full
+    # multi-thousand-row dump makes the PDF slow to generate and awkward
+    # to read. CSV/Excel exports remain uncapped for the complete dataset.
+    PDF_TREE_ROW_LIMIT = 75
     tree_list = list(trees[:PDF_TREE_ROW_LIMIT])
     total_tree_count = trees.count()
 
