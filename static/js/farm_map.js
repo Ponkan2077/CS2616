@@ -7,15 +7,15 @@ function renderTreeMarkers(map, markers, farmId) {
   const markerList = [];
 
   markers.forEach(tree => {
-    const circle = L.circleMarker([tree.lat, tree.lng], {
-      radius: 10, color: '#fff', weight: 2, fillColor: tree.color, fillOpacity: 0.9,
+    const marker = L.marker([tree.lat, tree.lng], {
+      icon: rgPinIcon(tree.color, 22),
     });
 
-    circle.bindPopup('<div style="font-size:12px;padding:4px;">Loading…</div>', { maxWidth: 270 });
+    marker.bindPopup('<div style="font-size:12px;padding:4px;">Loading…</div>', { maxWidth: 270 });
 
-    circle.on('popupopen', async () => {
+    marker.on('popupopen', async () => {
       if (detailCache[tree.tree_id]) {
-        circle.setPopupContent(buildPopupHtml(detailCache[tree.tree_id]));
+        marker.setPopupContent(buildPopupHtml(detailCache[tree.tree_id]));
         return;
       }
       try {
@@ -23,13 +23,13 @@ function renderTreeMarkers(map, markers, farmId) {
         if (!res.ok) throw new Error('fetch failed');
         const detail = await res.json();
         detailCache[tree.tree_id] = detail;
-        circle.setPopupContent(buildPopupHtml(detail));
+        marker.setPopupContent(buildPopupHtml(detail));
       } catch (err) {
-        circle.setPopupContent('<div style="font-size:12px;color:#dc3545;padding:4px;">Failed to load details. Try again.</div>');
+        marker.setPopupContent('<div style="font-size:12px;color:#dc3545;padding:4px;">Failed to load details. Try again.</div>');
       }
     });
 
-    markerList.push({ el: circle, tree });
+    markerList.push({ el: marker, tree });
   });
 
   return markerList;
@@ -231,6 +231,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const markerList = renderTreeMarkers(map, markers, farmId);
   markerList.forEach(({ el }) => el.addTo(map));
+  // Pins shrink when zoomed out (less crowding across a dense block) and
+  // grow when zoomed in (easier to tap the exact tree you want).
+  setTimeout(() => rgAttachPinScaling(map, markerList), 160);
 
   const { getActiveLayer, redrawHeat } = setupViewToggle(map, markerList, markers, colorBasemap, grayBasemap);
   setupMapFilters(map, markerList, leafletBounds, getActiveLayer, redrawHeat);
