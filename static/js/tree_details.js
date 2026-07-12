@@ -59,9 +59,8 @@ function renderMiniMap(tree, farmBoundary) {
     }).bindTooltip(tree.farm_name || tree.farm_id, { permanent: false, direction: 'center', className: 'farm-boundary-label' }).addTo(miniMap);
   }
 
-  L.circleMarker([tree.lat, tree.lng], {
-    radius: 10, color: '#fff', weight: 2,
-    fillColor: tree.color, fillOpacity: 0.9,
+  L.marker([tree.lat, tree.lng], {
+    icon: rgPinIcon(tree.color, 26),
   }).bindPopup(`<b>${tree.tree_id}</b><br>${tree.disease}<br><i style="font-size:11px;color:#666;">Managed by ${tree.farm_owner}</i>`).addTo(miniMap).openPopup();
 }
 
