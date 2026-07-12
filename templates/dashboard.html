@@ -7,7 +7,7 @@
 <div class="row g-2 g-md-3 mb-3">
   <div class="col-6 col-lg-3">
     <div class="summary-card">
-      <div class="summary-icon" style="background:#eff6ff;color:var(--primary);"><i class="bi bi-tree-fill"></i></div>
+      <div class="summary-icon" style="background:rgba(59,130,246,.16);color:var(--primary);"><i class="bi bi-tree-fill"></i></div>
       <div>
         <div class="summary-label">Total Trees Monitored</div>
         <div class="summary-value">{{ total }}</div>
@@ -25,7 +25,7 @@
   </div>
   <div class="col-6 col-lg-3">
     <div class="summary-card">
-      <div class="summary-icon" style="background:#fef3c7;color:#92400e;"><i class="bi bi-geo-alt-fill"></i></div>
+      <div class="summary-icon" style="background:rgba(208,153,95,.18);color:#e0aa6f;"><i class="bi bi-geo-alt-fill"></i></div>
       <div>
         <div class="summary-label">Areas with Active Cases</div>
         <div class="summary-value">{{ areas_with_cases }}</div>
@@ -88,17 +88,43 @@
     </div>
   </div>
 
-  <!-- Compact location map -->
+  <!-- Block Summary -->
   <div class="col-12 col-xl-5">
     <div class="card-rg h-100">
       <div class="card-header-rg d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-pin-map-fill"></i> Disease Cases by Location</span>
-        {% if map_farm %}<span class="badge-farm">{{ map_farm.farm_id }}</span>{% endif %}
+        <span><i class="bi bi-grid-3x3-gap-fill"></i> Block Summary</span>
+        {% if selected_farm %}<span class="badge-farm">{{ selected_farm.farm_id }}</span>{% endif %}
       </div>
-      <div id="dashboard-mini-map" class="dashboard-map"></div>
-      <div class="p-3 border-top">
+      <div class="table-responsive-rg">
+        <table class="table-rg">
+          <thead>
+            <tr>
+              <th>BLOCK</th>
+              <th class="text-healthy">HEALTHY</th>
+              <th class="text-pink">INFECTED</th>
+              <th>RATE</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in block_summary %}
+            <tr>
+              <td class="fw-bold">{{ b.block }}</td>
+              <td class="text-healthy fw-semibold">{{ b.healthy }}</td>
+              <td class="text-pink fw-semibold">{{ b.infected }}</td>
+              <td>
+                <div class="conf-bar" style="width:60px;"><div class="conf-fill" style="width:{{ b.infected_pct }}%;background:var(--pink);"></div></div>
+                <div style="font-size:10px;margin-top:2px;color:var(--text-muted);">{{ b.infected_pct }}%</div>
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="text-center text-muted py-4">No blocks recorded yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="p-3 text-end border-top">
         <a href="{% url 'farm_map' %}" style="font-size:12px;color:var(--primary);text-decoration:none;">
-          Open Full Farm Map <i class="bi bi-arrow-up-right-square"></i>
+          Open Interactive Farm Map <i class="bi bi-arrow-up-right-square"></i>
         </a>
       </div>
     </div>
@@ -107,16 +133,4 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script>
-  const DASHBOARD_MARKERS = {{ markers_json|safe }};
-  const DASHBOARD_MAP_BOUNDS = {{ map_bounds|safe }};
-  const DASHBOARD_MAP_FARM_BOUNDARY = {{ map_farm_boundary|safe }};
-  const DASHBOARD_MAP_FARM = {
-    farmId: '{{ map_farm.farm_id|default:"" }}',
-    farmName: '{{ map_farm.name|escapejs|default:"" }}',
-    farmOwner: '{{ map_farm.owner_name|escapejs|default:"" }}'
-  };
-</script>
-{% load static %}
-<script src="{% static 'js/dashboard.js' %}"></script>
 {% endblock %}
