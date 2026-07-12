@@ -40,6 +40,62 @@ function toggleDesktopSidebar() {
   localStorage.setItem('rg-sidebar-hidden', hidden ? '1' : '0');
 }
 
+/* ============================================================
+   TREE MARKER ICON — shared Google-Maps-style pin used on every
+   Leaflet map in the app (farm map, interventions map, tree
+   detail mini-map). A teardrop pin with a dark, high-contrast
+   border reads far better against both basemaps than a plain
+   circle, and its tapered shape leaves more clear space between
+   neighboring trees so individual markers stay clickable even
+   when a block is planted densely.
+   ============================================================ */
+const RG_PIN_BORDER = '#1a2535';
+
+// Builds a divIcon pin at the given pixel size. `size` is the pin's
+// width in px; height and anchor are derived to keep the classic
+// teardrop proportions and point the tip at the tree's exact coordinate.
+function rgPinIcon(color, size) {
+  size = size || 26;
+  const h = Math.round(size * 1.34);
+  return L.divIcon({
+    className: 'rg-pin-icon',
+    html: `
+      <svg width="${size}" height="${h}" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg" style="display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));">
+        <path d="M12 0.75C5.79 0.75 0.75 5.79 0.75 12c0 8.25 11.25 19.25 11.25 19.25S23.25 20.25 23.25 12C23.25 5.79 18.21 0.75 12 0.75z"
+          fill="${color}" stroke="${RG_PIN_BORDER}" stroke-width="1.75"/>
+        <circle cx="12" cy="12" r="4.25" fill="#fff"/>
+      </svg>`,
+    iconSize: [size, h],
+    iconAnchor: [size / 2, h],
+    popupAnchor: [0, -h * 0.82],
+  });
+}
+
+// Returns a pin pixel size for the given zoom level, scaled between the
+// map's own min/max zoom. Smaller when zoomed out (less crowding, easier
+// to tell trees apart), larger when zoomed in (easier to tap precisely).
+function rgPinSizeForZoom(map) {
+  const zoom = map.getZoom();
+  const minZoom = map.getMinZoom() || 10;
+  const maxZoom = map.getMaxZoom && Number.isFinite(map.getMaxZoom()) ? map.getMaxZoom() : minZoom + 8;
+  const span = Math.max(maxZoom - minZoom, 1);
+  const t = Math.min(Math.max((zoom - minZoom) / span, 0), 1);
+  return Math.round(14 + t * 16); // 14px fully zoomed out → 30px fully zoomed in
+}
+
+// Wires a map so every marker in markerList (each { el, tree }, el being
+// an L.marker built with rgPinIcon) rescales on zoom.
+function rgAttachPinScaling(map, markerList) {
+  function rescale() {
+    const size = rgPinSizeForZoom(map);
+    markerList.forEach(({ el, tree }) => {
+      if (el.setIcon) el.setIcon(rgPinIcon(tree.color, size));
+    });
+  }
+  map.on('zoomend', rescale);
+  rescale();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const hamburger = document.getElementById('hamburger');
   const overlay = document.getElementById('sidebar-overlay');
