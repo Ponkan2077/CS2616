@@ -59,16 +59,29 @@ def jitter(base, spread):
 
 
 def generate_grid_positions(center_lat, center_lng, count, row_spacing_m=6, col_spacing_m=3, jitter_m=0.8):
-    # Places trees on a grid matching real rubber plantation spacing
-    # (6m x 3m rows, ~555 trees/hectare, a standard configuration per
-    # agricultural planting guides) instead of uniform random scatter,
-    # which produced unrealistic dense clumps and empty gaps. A small
-    # jitter is added per tree so the layout doesn't look robotically
-    # perfect. NOTE: this places trees purely relative to the farm's
-    # center coordinate with no coastline/land-use awareness — if a
-    # farm's center_lat/center_lng is set too close to open water,
-    # trees can still end up over water. Verify each farm's center
-    # point is inland before relying on this for a real deployment.
+    # Places trees on a grid matching real rubber plantation spacing:
+    # 3m between trees within a row, rows 6m apart (~555 trees/hectare,
+    # a standard configuration per agricultural planting guides) instead
+    # of uniform random scatter, which produced unrealistic dense clumps
+    # and empty gaps. A small jitter is added per tree so the layout
+    # doesn't look robotically perfect.
+    #
+    # Rows and columns are NOT capped to any target area (e.g. "1 hectare")
+    # and are not simply ceil(sqrt(count)) either — that would treat rows
+    # and columns as equally-spaced units, but since row spacing (6m) is
+    # double column spacing (3m), an equal row/column COUNT produces a
+    # plot twice as tall as it is wide. Instead, columns and rows are
+    # balanced by their PHYSICAL size (cols*col_spacing ≈ rows*row_spacing)
+    # so `count` trees at true 3m/6m spacing fill out into a naturally
+    # proportioned plot — for 1,500 trees that's roughly 168m x 168m
+    # (~2.8 ha, matching the ~555 trees/ha standard), not squeezed into a
+    # long, narrow strip or an artificially small area.
+    #
+    # NOTE: this places trees purely relative to the farm's center
+    # coordinate with no coastline/land-use awareness — if a farm's
+    # center_lat/center_lng is set too close to open water, trees can
+    # still end up over water. Verify each farm's center point is inland
+    # before relying on this for a real deployment.
     m_per_deg_lat = 111320
     m_per_deg_lng = 111320 * math.cos(math.radians(center_lat))
     row_spacing_deg = row_spacing_m / m_per_deg_lat
@@ -76,8 +89,12 @@ def generate_grid_positions(center_lat, center_lng, count, row_spacing_m=6, col_
     jitter_lat_deg = jitter_m / m_per_deg_lat
     jitter_lng_deg = jitter_m / m_per_deg_lng
 
-    cols = math.ceil(math.sqrt(count))
-    rows = math.ceil(count / cols)
+    # rows * cols >= count, with cols/rows ≈ row_spacing_m/col_spacing_m
+    # so the resulting plot is roughly as wide as it is tall in meters.
+    ratio = row_spacing_m / col_spacing_m
+    rows = max(1, math.ceil(math.sqrt(count / ratio)))
+    cols = max(1, math.ceil(count / rows))
+
     positions = []
     start_lat = center_lat - (rows / 2) * row_spacing_deg
     start_lng = center_lng - (cols / 2) * col_spacing_deg
