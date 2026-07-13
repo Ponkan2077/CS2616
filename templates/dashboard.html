@@ -3,6 +3,10 @@
 {% block page_title %}Dashboard{% endblock %}
 
 {% block content %}
+<div class="text-muted mb-2" style="font-size:12px;">
+  <i class="bi bi-info-circle"></i> Quick operational snapshot — what's happening right now and recently. For historical trends, block-level breakdowns, and exportable reports, see <a href="{% url 'reports' %}" style="color:var(--primary);">Reports &amp; Analytics</a>.
+</div>
+
 <!-- Summary Cards -->
 <div class="row g-2 g-md-3 mb-3">
   <div class="col-6 col-lg-3">
@@ -11,6 +15,9 @@
       <div>
         <div class="summary-label">Total Trees Monitored</div>
         <div class="summary-value">{{ total }}</div>
+        {% if scan_activity.new_trees %}
+        <div class="trend-delta trend-up"><i class="bi bi-arrow-up-short"></i>{{ scan_activity.new_trees }} new (last {{ scan_activity.days }}d)</div>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -38,10 +45,47 @@
       <div>
         <div class="summary-label">Healthy Trees</div>
         <div class="summary-value text-healthy">{{ healthy_count }}</div>
+        {% if scan_activity.health_rate_delta != None %}
+        <div class="trend-delta {% if scan_activity.health_rate_delta > 0 %}trend-up{% elif scan_activity.health_rate_delta < 0 %}trend-down{% else %}trend-flat{% endif %}">
+          <i class="bi {% if scan_activity.health_rate_delta > 0 %}bi-arrow-up-short{% elif scan_activity.health_rate_delta < 0 %}bi-arrow-down-short{% else %}bi-dash{% endif %}"></i>
+          {{ scan_activity.health_rate_delta|floatformat:1 }} pts vs prior {{ scan_activity.days }}d
+        </div>
+        {% endif %}
       </div>
     </div>
   </div>
 </div>
+
+<!-- Recent Scan Activity -->
+{% if scan_activity %}
+<div class="card-rg mb-3">
+  <div class="card-header-rg"><i class="bi bi-activity"></i> Recent Scan Activity <span class="text-muted" style="font-weight:400;">— last {{ scan_activity.days }} days vs the {{ scan_activity.days }} days before that</span></div>
+  <div class="card-body-rg">
+    <div class="row g-3 text-center">
+      <div class="col-6 col-md-3">
+        <div class="scan-stat-value">{{ scan_activity.scans_count }}</div>
+        <div class="scan-stat-label">Scans Logged</div>
+        <div class="trend-delta {% if scan_activity.scans_delta > 0 %}trend-up{% elif scan_activity.scans_delta < 0 %}trend-down{% else %}trend-flat{% endif %}">
+          <i class="bi {% if scan_activity.scans_delta > 0 %}bi-arrow-up-short{% elif scan_activity.scans_delta < 0 %}bi-arrow-down-short{% else %}bi-dash{% endif %}"></i>
+          {{ scan_activity.scans_delta }} vs prior period
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="scan-stat-value">{{ scan_activity.trees_scanned }}</div>
+        <div class="scan-stat-label">Trees Scanned</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="scan-stat-value text-healthy">{{ scan_activity.healthy_scans }}</div>
+        <div class="scan-stat-label">Came Back Healthy</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="scan-stat-value text-pink">{{ scan_activity.diseased_scans }}</div>
+        <div class="scan-stat-label">Came Back Diseased</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <div class="row g-3 mb-3">
   <!-- Recent Detections -->
@@ -126,6 +170,63 @@
         <a href="{% url 'farm_map' %}" style="font-size:12px;color:var(--primary);text-decoration:none;">
           Open Interactive Farm Map <i class="bi bi-arrow-up-right-square"></i>
         </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <!-- Recent Interventions -->
+  <div class="col-12 col-md-7">
+    <div class="card-rg h-100">
+      <div class="card-header-rg"><i class="bi bi-clipboard2-pulse-fill"></i> Recent Interventions</div>
+      <div class="table-responsive-rg">
+        <table class="table-rg">
+          <thead>
+            <tr><th>TREE ID</th><th>ACTION</th><th>DATE</th><th>STATUS NOW</th></tr>
+          </thead>
+          <tbody>
+            {% for iv in recent_interventions %}
+            <tr>
+              <td><a href="{% url 'tree_details' iv.tree.tree_id %}" class="fw-bold text-decoration-none" style="color:var(--primary);">{{ iv.tree.tree_id }}</a></td>
+              <td style="font-size:12px;">{{ iv.action }}</td>
+              <td class="text-muted" style="font-size:11px;">{{ iv.date_performed }}</td>
+              <td>
+                <span class="badge-disease {% if iv.tree.disease == 'Healthy' %}badge-healthy{% elif iv.tree.disease == 'Pink Disease' %}badge-pink{% elif iv.tree.disease == 'White Root Rot' %}badge-white-root{% else %}badge-stem{% endif %}">
+                  {{ iv.tree.disease }}
+                </span>
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="text-center text-muted py-4">No interventions logged yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="p-3 text-end border-top">
+        <a href="{% url 'interventions_log' %}" style="font-size:12px;color:var(--primary);text-decoration:none;">
+          Log New Intervention <i class="bi bi-arrow-right"></i>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top Interventions -->
+  <div class="col-12 col-md-5">
+    <div class="card-rg h-100">
+      <div class="card-header-rg"><i class="bi bi-trophy-fill"></i> Top Interventions <span class="text-muted" style="font-weight:400;">— by recovery rate</span></div>
+      <div class="card-body-rg">
+        {% for e in top_interventions %}
+        <div class="affected-row">
+          <div class="affected-label">{{ e.action }}</div>
+          <div class="affected-bar-track">
+            <div class="affected-bar-fill" style="width:{{ e.recovery_pct }}%;background:var(--healthy);"></div>
+          </div>
+          <div class="affected-count text-healthy">{{ e.recovery_pct }}%</div>
+        </div>
+        {% empty %}
+        <div class="text-center text-muted py-3" style="font-size:13px;">No interventions logged yet.</div>
+        {% endfor %}
       </div>
     </div>
   </div>
