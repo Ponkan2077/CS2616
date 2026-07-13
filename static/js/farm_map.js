@@ -56,12 +56,12 @@ function buildPopupHtml(tree) {
   `;
 }
 
-// Per-disease color used for that disease's heatmap gradient.
-const DISEASE_HEAT_GRADIENTS = {
-  'Pink Disease':    { 0.3: '#fecaca', 0.6: '#f87171', 1.0: '#b91c1c' },
-  'White Root Rot':  { 0.3: '#e7d3b8', 0.6: '#c08a4e', 1.0: '#6b4423' },
-  'Stem Bleeding':   { 0.3: '#f4b8b8', 0.6: '#b91c1c', 1.0: '#450a0a' },
-};
+// A single vivid severity gradient (Mild → Moderate → Severe) shared by every
+// disease's heat layer, matching the labeled scale in the legend below the
+// map. Using one consistent scale — instead of a different, more muted tint
+// per disease — makes intensity comparable across diseases and reads with
+// far more color against the dark heatmap basemap.
+const SEVERITY_HEAT_GRADIENT = { 0.35: '#fbbf24', 0.65: '#fb923c', 1.0: '#ef4444' };
 
 // Builds a heat layer for a single disease type only, using the minimal
 // marker data already available on the page (no extra fetch needed).
@@ -70,8 +70,8 @@ function buildHeatLayerForDisease(markers, disease) {
     .filter(t => t.disease === disease)
     .map(t => [t.lat, t.lng, Math.max(t.confidence / 100, 0.35)]);
   return L.heatLayer(points, {
-    radius: 38, blur: 28, maxZoom: 18, max: 1.0, minOpacity: 0.45,
-    gradient: DISEASE_HEAT_GRADIENTS[disease] || DISEASE_HEAT_GRADIENTS['Pink Disease'],
+    radius: 34, blur: 24, maxZoom: 18, max: 1.0, minOpacity: 0.55,
+    gradient: SEVERITY_HEAT_GRADIENT,
   });
 }
 
@@ -104,17 +104,9 @@ function setupMapFilters(map, markerList, bounds, getActiveLayer, onDiseaseChang
   });
 }
 
-const DISEASE_GRADIENT_CSS = {
-  'Pink Disease':   'linear-gradient(to right, #fecaca, #f87171, #b91c1c)',
-  'White Root Rot': 'linear-gradient(to right, #e7d3b8, #c08a4e, #6b4423)',
-  'Stem Bleeding':  'linear-gradient(to right, #f4b8b8, #b91c1c, #450a0a)',
-};
-
 function updateHeatmapLegendLabel(disease) {
   const label = document.getElementById('heatmap-disease-label');
   if (label) label.textContent = disease;
-  const bar = document.querySelector('.heatmap-gradient-bar');
-  if (bar) bar.style.setProperty('--heatmap-gradient', DISEASE_GRADIENT_CSS[disease] || '');
 }
 
 // Wires up the Markers/Heatmap toggle buttons. Heatmap mode requires a
@@ -224,7 +216,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const colorBasemap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors', maxZoom: 19,
   });
-  const grayBasemap = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+  const grayBasemap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors, © CARTO', maxZoom: 19, subdomains: 'abcd',
   });
   colorBasemap.addTo(map);
