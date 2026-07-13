@@ -1,85 +1,237 @@
-/* Renders the compact "Disease Cases by Location" map on the dashboard.
-   Uses the minimal marker payload for a fast initial load; full detail
-   for a tree is fetched lazily only when its marker is clicked. Zoom is
-   locked to the farm's own bounds, matching the full farm map. Expects
-   DASHBOARD_MARKERS/DASHBOARD_MAP_BOUNDS/DASHBOARD_MAP_FARM defined
-   inline in dashboard.html before this loads. */
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
 
-document.addEventListener("DOMContentLoaded", () => {
-  const container = document.getElementById("dashboard-mini-map");
-  if (!container || typeof L === "undefined") return;
+{% block content %}
+<div class="text-muted mb-2" style="font-size:12px;">
+  <i class="bi bi-info-circle"></i> Quick operational snapshot — what's happening right now and recently. For historical trends, block-level breakdowns, and exportable reports, see <a href="{% url 'reports' %}" style="color:var(--primary);">Reports &amp; Analytics</a>.
+</div>
 
-  const markers = DASHBOARD_MARKERS || [];
-  const bounds = DASHBOARD_MAP_BOUNDS;
-  const farm = DASHBOARD_MAP_FARM;
-  const hasBounds = bounds && bounds.min_lat !== undefined;
-  const leafletBounds = hasBounds
-    ? [[bounds.min_lat, bounds.min_lng], [bounds.max_lat, bounds.max_lng]]
-    : null;
+<!-- Summary Cards -->
+<div class="row g-2 g-md-3 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="summary-card">
+      <div class="summary-icon" style="background:rgba(59,130,246,.16);color:var(--primary);"><i class="bi bi-tree-fill"></i></div>
+      <div>
+        <div class="summary-label">Total Trees Monitored</div>
+        <div class="summary-value">{{ total }}</div>
+        {% if scan_activity.new_trees %}
+        <div class="trend-delta trend-up"><i class="bi bi-arrow-up-short"></i>{{ scan_activity.new_trees }} new (last {{ scan_activity.days }}d)</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="summary-card">
+      <div class="summary-icon" style="background:var(--pink-bg);color:var(--pink);"><i class="bi bi-exclamation-triangle-fill"></i></div>
+      <div>
+        <div class="summary-label">Total Disease Cases</div>
+        <div class="summary-value text-pink">{{ diseased }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="summary-card">
+      <div class="summary-icon" style="background:rgba(208,153,95,.18);color:#e0aa6f;"><i class="bi bi-geo-alt-fill"></i></div>
+      <div>
+        <div class="summary-label">Areas with Active Cases</div>
+        <div class="summary-value">{{ areas_with_cases }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="summary-card">
+      <div class="summary-icon" style="background:var(--healthy-bg);color:var(--healthy);"><i class="bi bi-check-circle-fill"></i></div>
+      <div>
+        <div class="summary-label">Healthy Trees</div>
+        <div class="summary-value text-healthy">{{ healthy_count }}</div>
+        {% if scan_activity.health_rate_delta != None %}
+        <div class="trend-delta {% if scan_activity.health_rate_delta > 0 %}trend-up{% elif scan_activity.health_rate_delta < 0 %}trend-down{% else %}trend-flat{% endif %}">
+          <i class="bi {% if scan_activity.health_rate_delta > 0 %}bi-arrow-up-short{% elif scan_activity.health_rate_delta < 0 %}bi-arrow-down-short{% else %}bi-dash{% endif %}"></i>
+          {{ scan_activity.health_rate_delta|floatformat:1 }} pts vs prior {{ scan_activity.days }}d
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
 
-  const map = leafletBounds
-    ? L.map("dashboard-mini-map", { zoomControl: true, scrollWheelZoom: false, maxBounds: leafletBounds, maxBoundsViscosity: 0.8 })
-    : L.map("dashboard-mini-map", { zoomControl: true, scrollWheelZoom: false });
+<!-- Recent Scan Activity -->
+{% if scan_activity %}
+<div class="card-rg mb-3">
+  <div class="card-header-rg"><i class="bi bi-activity"></i> Recent Scan Activity <span class="text-muted" style="font-weight:400;">— last {{ scan_activity.days }} days vs the {{ scan_activity.days }} days before that</span></div>
+  <div class="card-body-rg">
+    <div class="row g-3 text-center">
+      <div class="col-6 col-md-3">
+        <div class="scan-stat-value">{{ scan_activity.scans_count }}</div>
+        <div class="scan-stat-label">Scans Logged</div>
+        <div class="trend-delta {% if scan_activity.scans_delta > 0 %}trend-up{% elif scan_activity.scans_delta < 0 %}trend-down{% else %}trend-flat{% endif %}">
+          <i class="bi {% if scan_activity.scans_delta > 0 %}bi-arrow-up-short{% elif scan_activity.scans_delta < 0 %}bi-arrow-down-short{% else %}bi-dash{% endif %}"></i>
+          {{ scan_activity.scans_delta }} vs prior period
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="scan-stat-value">{{ scan_activity.trees_scanned }}</div>
+        <div class="scan-stat-label">Trees Scanned</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="scan-stat-value text-healthy">{{ scan_activity.healthy_scans }}</div>
+        <div class="scan-stat-label">Came Back Healthy</div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="scan-stat-value text-pink">{{ scan_activity.diseased_scans }}</div>
+        <div class="scan-stat-label">Came Back Diseased</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
-  if (leafletBounds) {
-    map.fitBounds(leafletBounds);
-    setTimeout(() => {
-      map.invalidateSize();
-      const boundsZoom = map.getBoundsZoom(leafletBounds);
-      map.setMinZoom(Number.isFinite(boundsZoom) ? Math.max(boundsZoom - 1, 1) : 12);
-    }, 150);
-  } else {
-    const defaultLat = markers.length ? markers[0].lat : 6.9214;
-    const defaultLng = markers.length ? markers[0].lng : 122.0790;
-    map.setView([defaultLat, defaultLng], 13);
-  }
+<div class="row g-3 mb-3">
+  <!-- Recent Detections -->
+  <div class="col-12 col-xl-7">
+    <div class="card-rg h-100">
+      <div class="card-header-rg"><i class="bi bi-clock-history"></i> Recent Detections</div>
+      <div class="table-responsive-rg">
+        <table class="table-rg">
+          <thead>
+            <tr>
+              <th>TREE ID</th>
+              <th>DISEASE</th>
+              <th>CONF.</th>
+              <th>DATE</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in recent %}
+            <tr>
+              <td><a href="{% url 'tree_details' t.tree_id %}" class="fw-bold text-decoration-none" style="color:var(--primary);">{{ t.tree_id }}</a></td>
+              <td>
+                <span class="badge-disease
+                  {% if t.disease == 'Healthy' %}badge-healthy
+                  {% elif t.disease == 'Pink Disease' %}badge-pink
+                  {% elif t.disease == 'White Root Rot' %}badge-white-root
+                  {% else %}badge-stem{% endif %}">
+                  {{ t.disease }}
+                </span>
+              </td>
+              <td class="fw-semibold" style="font-size:12px;">{{ t.confidence }}%</td>
+              <td class="text-muted" style="font-size:11px;">{{ t.date_scanned }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="text-center text-muted py-4">No detections yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="p-3 text-end border-top">
+        <a href="{% url 'tree_inventory' %}" style="font-size:12px;color:var(--primary);text-decoration:none;">
+          View All Trees <i class="bi bi-arrow-right"></i>
+        </a>
+      </div>
+    </div>
+  </div>
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap", maxZoom: 19,
-  }).addTo(map);
+  <!-- Block Summary -->
+  <div class="col-12 col-xl-5">
+    <div class="card-rg h-100">
+      <div class="card-header-rg d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-grid-3x3-gap-fill"></i> Block Summary</span>
+        {% if selected_farm %}<span class="badge-farm">{{ selected_farm.farm_id }}</span>{% endif %}
+      </div>
+      <div class="table-responsive-rg">
+        <table class="table-rg">
+          <thead>
+            <tr>
+              <th>BLOCK</th>
+              <th class="text-healthy">HEALTHY</th>
+              <th class="text-pink">INFECTED</th>
+              <th>RATE</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in block_summary %}
+            <tr>
+              <td class="fw-bold">{{ b.block }}</td>
+              <td class="text-healthy fw-semibold">{{ b.healthy }}</td>
+              <td class="text-pink fw-semibold">{{ b.infected }}</td>
+              <td>
+                <div class="conf-bar" style="width:60px;"><div class="conf-fill" style="width:{{ b.infected_pct }}%;background:var(--pink);"></div></div>
+                <div style="font-size:10px;margin-top:2px;color:var(--text-muted);">{{ b.infected_pct }}%</div>
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="text-center text-muted py-4">No blocks recorded yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="p-3 text-end border-top">
+        <a href="{% url 'farm_map' %}" style="font-size:12px;color:var(--primary);text-decoration:none;">
+          Open Interactive Farm Map <i class="bi bi-arrow-up-right-square"></i>
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
 
-  L.control.scale({ metric: true, imperial: false, position: "bottomleft" }).addTo(map);
+<div class="row g-3 mb-3">
+  <!-- Recent Interventions -->
+  <div class="col-12 col-md-7">
+    <div class="card-rg h-100">
+      <div class="card-header-rg"><i class="bi bi-clipboard2-pulse-fill"></i> Recent Interventions</div>
+      <div class="table-responsive-rg">
+        <table class="table-rg">
+          <thead>
+            <tr><th>TREE ID</th><th>ACTION</th><th>DATE</th><th>STATUS NOW</th></tr>
+          </thead>
+          <tbody>
+            {% for iv in recent_interventions %}
+            <tr>
+              <td><a href="{% url 'tree_details' iv.tree.tree_id %}" class="fw-bold text-decoration-none" style="color:var(--primary);">{{ iv.tree.tree_id }}</a></td>
+              <td style="font-size:12px;">{{ iv.action }}</td>
+              <td class="text-muted" style="font-size:11px;">{{ iv.date_performed }}</td>
+              <td>
+                <span class="badge-disease {% if iv.tree.disease == 'Healthy' %}badge-healthy{% elif iv.tree.disease == 'Pink Disease' %}badge-pink{% elif iv.tree.disease == 'White Root Rot' %}badge-white-root{% else %}badge-stem{% endif %}">
+                  {{ iv.tree.disease }}
+                </span>
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" class="text-center text-muted py-4">No interventions logged yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="p-3 text-end border-top">
+        <a href="{% url 'interventions_log' %}" style="font-size:12px;color:var(--primary);text-decoration:none;">
+          Log New Intervention <i class="bi bi-arrow-right"></i>
+        </a>
+      </div>
+    </div>
+  </div>
 
-  const boundaryPolygon = DASHBOARD_MAP_FARM_BOUNDARY;
-  if (farm && farm.farmId && boundaryPolygon && boundaryPolygon.length >= 3) {
-    L.polygon(boundaryPolygon, {
-      color: "#0d6efd", weight: 2, fillColor: "#0d6efd", fillOpacity: 0.06,
-    }).addTo(map);
-  }
+  <!-- Top Interventions -->
+  <div class="col-12 col-md-5">
+    <div class="card-rg h-100">
+      <div class="card-header-rg"><i class="bi bi-trophy-fill"></i> Top Interventions <span class="text-muted" style="font-weight:400;">— by recovery rate</span></div>
+      <div class="card-body-rg">
+        {% for e in top_interventions %}
+        <div class="affected-row">
+          <div class="affected-label">{{ e.action }}</div>
+          <div class="affected-bar-track">
+            <div class="affected-bar-fill" style="width:{{ e.recovery_pct }}%;background:var(--healthy);"></div>
+          </div>
+          <div class="affected-count text-healthy">{{ e.recovery_pct }}%</div>
+        </div>
+        {% empty %}
+        <div class="text-center text-muted py-3" style="font-size:13px;">No interventions logged yet.</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
 
-  const detailCache = {};
-
-  markers.forEach(tree => {
-    const circle = L.circleMarker([tree.lat, tree.lng], {
-      radius: 7, color: "#fff", weight: 1.5, fillColor: tree.color, fillOpacity: 0.9,
-    });
-    circle.bindPopup(`<b>${tree.tree_id}</b><br>${tree.disease} · ${tree.confidence}%`);
-
-    circle.on("popupopen", async () => {
-      if (detailCache[tree.tree_id]) {
-        circle.setPopupContent(detailCache[tree.tree_id]);
-        return;
-      }
-      try {
-        const res = await fetch(`/map/marker/${tree.tree_id}/`);
-        if (!res.ok) throw new Error("fetch failed");
-        const detail = await res.json();
-        const html = `
-          <b>${detail.tree_id}</b><br>
-          ${detail.disease} · ${detail.confidence}%<br>
-          <span style="font-size:11px;color:#666;">Block ${detail.block}</span><br>
-          <a href="/inventory/${detail.tree_id}/" style="font-size:11px;">View Details →</a>
-        `;
-        detailCache[tree.tree_id] = html;
-        circle.setPopupContent(html);
-      } catch (err) {
-        // Keep the lightweight popup content on failure — not critical
-        // enough to show an error state for a dashboard preview map.
-      }
-    });
-
-    circle.addTo(map);
-  });
-
-  setTimeout(() => map.invalidateSize(), 150);
-});
+{% block extra_scripts %}
+{% endblock %}
