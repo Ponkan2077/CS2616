@@ -56,21 +56,34 @@ function buildPopupHtml(tree) {
   `;
 }
 
-// A single vivid severity gradient (Mild → Moderate → Severe) shared by every
-// disease's heat layer, matching the labeled scale in the legend below the
-// map. Using one consistent scale — instead of a different, more muted tint
-// per disease — makes intensity comparable across diseases and reads with
-// far more color against the dark heatmap basemap.
-const SEVERITY_HEAT_GRADIENT = { 0.35: '#fbbf24', 0.65: '#fb923c', 1.0: '#ef4444' };
+// A single vivid severity gradient (Mild → Moderate → Severe → Critical)
+// shared by every disease's heat layer, matching the labeled scale in the
+// legend below the map. Using one consistent scale — instead of a
+// different, more muted tint per disease — makes intensity comparable
+// across diseases and reads with far more color against the dark
+// heatmap basemap.
+const SEVERITY_HEAT_GRADIENT = {
+  0.15: '#fde047', 0.35: '#fbbf24', 0.55: '#fb923c', 0.75: '#f87171', 1.0: '#dc2626',
+};
 
 // Builds a heat layer for a single disease type only, using the minimal
 // marker data already available on the page (no extra fetch needed).
 function buildHeatLayerForDisease(markers, disease) {
+  // Detection confidence for flagged trees is almost always 75–99.5%, so
+  // dividing by 100 alone crushed every point into the top sliver of the
+  // gradient — the map read as a near-solid red blob with no visible
+  // contrast. Stretching that narrow real-world range across the FULL
+  // 0–1 weight range makes mild/moderate/severe cases actually look
+  // different from each other, the whole point of a heatmap.
+  const CONF_MIN = 70, CONF_MAX = 100;
   const points = markers
     .filter(t => t.disease === disease)
-    .map(t => [t.lat, t.lng, Math.max(t.confidence / 100, 0.35)]);
+    .map(t => {
+      const stretched = (t.confidence - CONF_MIN) / (CONF_MAX - CONF_MIN);
+      return [t.lat, t.lng, Math.min(Math.max(stretched, 0.12), 1.0)];
+    });
   return L.heatLayer(points, {
-    radius: 34, blur: 24, maxZoom: 18, max: 1.0, minOpacity: 0.55,
+    radius: 30, blur: 22, maxZoom: 18, max: 1.0, minOpacity: 0.25,
     gradient: SEVERITY_HEAT_GRADIENT,
   });
 }
