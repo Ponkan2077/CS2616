@@ -347,7 +347,7 @@ body {
 .heatmap-gradient-bar {
   position: relative;
   display: block; width: 180px; height: 16px; border-radius: 5px;
-  background: linear-gradient(to right, #fde047, #fbbf24, #fb923c, #f87171, #dc2626);
+  background: linear-gradient(to right, #fde047, #fb923c, #f97316, #ef4444, #b91c1c);
   border: 1px solid rgba(255,255,255,.25);
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
 }
