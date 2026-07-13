@@ -3,11 +3,15 @@
 {% block page_title %}Reports & Analytics{% endblock %}
 
 {% block content %}
+<div class="text-muted mb-2" style="font-size:12px;">
+  <i class="bi bi-info-circle"></i> Historical trends, block-level breakdowns, and exportable reports. For a quick live snapshot, see the <a href="{% url 'dashboard' %}" style="color:var(--primary);">Dashboard</a>.
+</div>
+
 <!-- Summary Cards -->
 <div class="row g-2 g-md-3 mb-3">
   <div class="col-6 col-lg-3">
     <div class="summary-card">
-      <div class="summary-icon" style="background:#eff6ff;color:var(--primary);"><i class="bi bi-tree-fill"></i></div>
+      <div class="summary-icon" style="background:rgba(59,130,246,.16);color:var(--primary);"><i class="bi bi-tree-fill"></i></div>
       <div><div class="summary-label">Total Trees</div><div class="summary-value">{{ total }}</div></div>
     </div>
   </div>
@@ -19,7 +23,7 @@
   </div>
   <div class="col-6 col-lg-3">
     <div class="summary-card">
-      <div class="summary-icon" style="background:#fef3c7;color:#92400e;"><i class="bi bi-geo-alt-fill"></i></div>
+      <div class="summary-icon" style="background:rgba(208,153,95,.18);color:#e0aa6f;"><i class="bi bi-geo-alt-fill"></i></div>
       <div><div class="summary-label">Health Rate</div><div class="summary-value">{{ pcts.Healthy }}%</div></div>
     </div>
   </div>
@@ -38,10 +42,71 @@
   <a href="{% url 'export_excel' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-excel-fill me-1"></i>Export Excel</a>
 </div>
 
-<!-- Disease Cases by Location -->
+<!-- Key Insights -->
 <div class="report-chart-card mb-3">
-  <div class="card-header-rg"><i class="bi bi-pin-map-fill"></i> Disease Cases by Location</div>
-  <div id="report-map" class="report-map"></div>
+  <div class="card-header-rg"><i class="bi bi-lightbulb-fill"></i> Key Insights</div>
+  <div class="card-body-rg">
+    <ul class="insight-list">
+      {% for point in key_insights %}
+      <li>{{ point }}</li>
+      {% empty %}
+      <li class="text-muted">No data yet.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <!-- Block Summary -->
+  <div class="col-12 col-md-7">
+    <div class="report-chart-card h-100">
+      <div class="card-header-rg"><i class="bi bi-grid-3x3-gap-fill"></i> Block Summary</div>
+      <div class="table-responsive-rg">
+        <table class="table-rg">
+          <thead>
+            <tr>
+              <th>BLOCK</th><th>TOTAL</th>
+              <th class="text-healthy">HEALTHY</th>
+              <th class="text-pink">INFECTED</th>
+              <th>INFECTION RATE</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for b in block_summary %}
+            <tr>
+              <td class="fw-bold">{{ b.block }}</td>
+              <td>{{ b.total }}</td>
+              <td class="text-healthy fw-semibold">{{ b.healthy }}</td>
+              <td class="text-pink fw-semibold">{{ b.infected }}</td>
+              <td>
+                <div class="conf-bar" style="width:80px;"><div class="conf-fill" style="width:{{ b.infected_pct }}%;background:var(--pink);"></div></div>
+                <div style="font-size:11px;margin-top:2px;">{{ b.infected_pct }}%</div>
+              </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="text-center text-muted py-4">No blocks recorded yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recommendations -->
+  <div class="col-12 col-md-5">
+    <div class="report-chart-card h-100">
+      <div class="card-header-rg"><i class="bi bi-clipboard2-check-fill"></i> Recommendations</div>
+      <div class="card-body-rg">
+        <ul class="insight-list">
+          {% for rec in recommendations %}
+          <li>{{ rec }}</li>
+          {% empty %}
+          <li class="text-muted">No recommendations at this time.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="row g-3 mb-3">
@@ -112,6 +177,35 @@
   </div>
 </div>
 
+<!-- Intervention Effectiveness -->
+{% if effectiveness %}
+<div class="card-rg mb-3">
+  <div class="card-header-rg"><i class="bi bi-clipboard2-pulse-fill"></i> Intervention Effectiveness</div>
+  <div class="table-responsive-rg">
+    <table class="table-rg">
+      <thead>
+        <tr>
+          <th>INTERVENTION</th><th>TREES TREATED</th><th>NOW HEALTHY</th><th>RECOVERY RATE</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in effectiveness %}
+        <tr>
+          <td class="fw-semibold">{{ e.action }}</td>
+          <td>{{ e.treated }}</td>
+          <td class="text-healthy fw-semibold">{{ e.recovered }}</td>
+          <td>
+            <div class="conf-bar" style="width:80px;"><div class="conf-fill" style="width:{{ e.recovery_pct }}%;background:var(--healthy);"></div></div>
+            <div style="font-size:11px;margin-top:2px;">{{ e.recovery_pct }}%</div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
 <!-- Per-Farm Breakdown -->
 {% if not selected_farm and farm_summaries %}
 <div class="card-rg mb-3">
@@ -152,6 +246,11 @@
   </div>
 </div>
 {% endif %}
+
+<!-- Report metadata -->
+<div class="report-meta-footer">
+  AI Model: {{ ai_model_version }} &nbsp;·&nbsp; Report Version: {{ report_version }} &nbsp;·&nbsp; Generated {{ generated_at|date:"M j, Y g:i A" }}
+</div>
 {% endblock %}
 
 {% block extra_scripts %}
@@ -169,15 +268,7 @@
       {% for m in monthly %}
       { month: '{{ m.month }}', healthy: {{ m.healthy }}, pink: {{ m.pink }}, white_root: {{ m.white_root }}, stem: {{ m.stem }} },
       {% endfor %}
-    ],
-    trees: {{ markers_json|safe }},
-    mapBounds: {{ map_bounds|safe }},
-    mapFarmBoundary: {{ map_farm_boundary|safe }},
-    mapFarm: {
-      farmId: '{{ map_farm.farm_id|default:"" }}',
-      farmName: '{{ map_farm.name|escapejs|default:"" }}',
-      farmOwner: '{{ map_farm.owner_name|escapejs|default:"" }}'
-    }
+    ]
   };
 </script>
 {% load static %}
