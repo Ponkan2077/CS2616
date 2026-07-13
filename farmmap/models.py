@@ -206,6 +206,7 @@ class RubberTree(models.Model):
             "lng": self.lng,
             "disease": self.disease,
             "confidence": self.confidence,
+            "severity_score": self.severity_score,
             "color": self.color,
             "block": self.block,
         }
