@@ -97,12 +97,21 @@
   </div>
 
   <!-- Legend: heatmap view (severity gradient, hidden by default) -->
-  <div id="legend-heatmap" class="p-3 border-top d-flex flex-wrap align-items-center gap-2" style="font-size:12px;display:none;">
+  <div id="legend-heatmap" class="p-3 border-top d-flex flex-wrap align-items-center gap-3" style="font-size:12px;display:none;">
     <strong>Heatmap:</strong>
     <span id="heatmap-disease-label" style="font-weight:600;">Pink Disease</span>
-    <span class="text-muted ms-2">Low intensity</span>
-    <span class="heatmap-gradient-bar"></span>
-    <span class="text-muted">High intensity</span>
+    <div class="heatmap-scale">
+      <div class="heatmap-gradient-bar">
+        <span class="tick"></span>
+        <span class="tick"></span>
+      </div>
+      <div class="heatmap-scale-labels">
+        <span>Mild</span>
+        <span>Moderate</span>
+        <span>Severe</span>
+      </div>
+    </div>
+    <span class="text-muted">Intensity reflects detection confidence — denser, redder clusters mean higher-confidence, more severe cases.</span>
   </div>
 </div>
 {% endif %}
