@@ -195,6 +195,59 @@ def _get_recommendations(block_rows, effectiveness):
     return recs[:6]
 
 
+def _get_scan_activity(request, farm=None, days=14):
+    # Compares the most recent `days`-day window of scan activity against
+    # the equal-length window before it, so the dashboard can show real
+    # per-scan trends (volume and outcome up/down) instead of only static
+    # totals. Uses the latest scan date in the data as "today" rather than
+    # the server clock, so demo/seeded data (which stops at a fixed date)
+    # still shows a meaningful recent window instead of an empty one.
+    import datetime
+    qs = ScanHistory.objects.filter(tree__farm__owner=request.user)
+    if farm:
+        qs = qs.filter(tree__farm=farm)
+
+    reference_date = qs.aggregate(Max("date"))["date__max"]
+    if not reference_date:
+        return None
+
+    window_start = reference_date - datetime.timedelta(days=days)
+    prev_start = window_start - datetime.timedelta(days=days)
+
+    window_qs = qs.filter(date__gt=window_start, date__lte=reference_date)
+    prev_qs = qs.filter(date__gt=prev_start, date__lte=window_start)
+
+    scans_count = window_qs.count()
+    healthy_scans = window_qs.filter(disease="Healthy").count()
+    diseased_scans = scans_count - healthy_scans
+    trees_scanned = window_qs.values("tree").distinct().count()
+
+    prev_count = prev_qs.count()
+    prev_healthy = prev_qs.filter(disease="Healthy").count()
+
+    health_rate = round(healthy_scans / scans_count * 100, 1) if scans_count else None
+    prev_health_rate = round(prev_healthy / prev_count * 100, 1) if prev_count else None
+    health_rate_delta = round(health_rate - prev_health_rate, 1) if (health_rate is not None and prev_health_rate is not None) else None
+    scans_delta = scans_count - prev_count
+
+    # Trees whose record was first created inside this window — a proxy
+    # for "newly added" trees, since new trees are only ever created via
+    # a fresh Disease Detection save (see disease_detection view).
+    tree_qs = RubberTree.objects.filter(farm__owner=request.user)
+    if farm:
+        tree_qs = tree_qs.filter(farm=farm)
+    new_trees = tree_qs.filter(date_scanned__gt=window_start, date_scanned__lte=reference_date).count()
+
+    return {
+        "days": days, "reference_date": reference_date, "window_start": window_start,
+        "scans_count": scans_count, "scans_delta": scans_delta, "prev_scans_count": prev_count,
+        "trees_scanned": trees_scanned,
+        "healthy_scans": healthy_scans, "diseased_scans": diseased_scans,
+        "health_rate": health_rate, "prev_health_rate": prev_health_rate, "health_rate_delta": health_rate_delta,
+        "new_trees": new_trees,
+    }
+
+
 def _get_most_affected_farms(request, limit=8):
     # Returns farms ranked by diseased tree count, with a pre-computed bar
     # percentage relative to the worst-affected farm, for the "Most
@@ -399,6 +452,9 @@ def dashboard(request):
 
     farm_count = Farm.objects.filter(owner=request.user).count()
     block_summary = _get_block_summary(request, farm)
+    scan_activity = _get_scan_activity(request, farm)
+    effectiveness, recent_interventions = _get_intervention_effectiveness(request, farm)
+    top_interventions = [e for e in effectiveness if e["treated"] > 0][:3]
 
     ctx = _base_context(request, farm)
     ctx.update({
@@ -412,6 +468,9 @@ def dashboard(request):
         "farm_count": farm_count,
         "recent": recent,
         "block_summary": block_summary,
+        "scan_activity": scan_activity,
+        "recent_interventions": recent_interventions[:6],
+        "top_interventions": top_interventions,
         "latest_scan": recent[0]["date_scanned"] if recent else "—",
     })
     return render(request, "dashboard.html", ctx)
@@ -1119,21 +1178,28 @@ def export_pdf(request):
         elements.append(block_table)
         elements.append(Spacer(1, 14))
 
-    # Charts row — pie and trend, wrapped in KeepInFrame so they can never
-    # overflow their allotted space regardless of label length.
-    chart_h = 2.2 * inch
-    pie_w = content_width * 0.32
-    trend_w = content_width * 0.64
-    pie_drawing = _build_pie_chart(counts, pie_w, chart_h)
-    trend_drawing = _build_trend_chart(monthly, trend_w, chart_h)
-    pie_frame = KeepInFrame(pie_w, chart_h, [pie_drawing])
-    trend_frame = KeepInFrame(trend_w, chart_h, [trend_drawing])
-    chart_row = Table([[pie_frame, trend_frame]], colWidths=[content_width * 0.34, content_width * 0.66])
-    chart_row.setStyle(TableStyle([
+    # Severity pie — centered, full width available since the trend bar
+    # chart (previously squeezed beside it) now gets its own full-width
+    # row below with much more room to breathe.
+    pie_h = 2.0 * inch
+    pie_w = content_width * 0.55
+    pie_drawing = _build_pie_chart(counts, pie_w, pie_h)
+    pie_frame = KeepInFrame(pie_w, pie_h, [pie_drawing])
+    pie_row = Table([[pie_frame]], colWidths=[content_width])
+    pie_row.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
     ]))
-    elements.append(chart_row)
+    elements.append(pie_row)
+    elements.append(Spacer(1, 10))
+
+    # Monthly detection trend — a grouped bar chart, given the full report
+    # width and taller height so month labels and the 4-series legend
+    # aren't cramped the way they were when sharing a row with the pie.
+    trend_h = 2.6 * inch
+    trend_drawing = _build_trend_chart(monthly, content_width, trend_h)
+    trend_frame = KeepInFrame(content_width, trend_h, [trend_drawing])
+    elements.append(trend_frame)
     elements.append(Spacer(1, 14))
 
     # Per-farm breakdown (only when viewing all farms)
