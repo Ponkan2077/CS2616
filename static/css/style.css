@@ -527,6 +527,17 @@ body {
 .summary-label { font-size: 11px; font-weight: 600; color: var(--text-muted); }
 .summary-value { font-size: 22px; font-weight: 700; line-height: 1.2; }
 
+/* Small up/down/flat delta line shown under a KPI value or stat */
+.trend-delta { font-size: 10.5px; font-weight: 600; color: var(--text-muted); margin-top: 2px; display: flex; align-items: center; }
+.trend-delta i { font-size: 13px; line-height: 1; }
+.trend-up { color: var(--healthy); }
+.trend-down { color: var(--pink); }
+.trend-flat { color: var(--text-faint); }
+
+/* Recent Scan Activity card stat blocks */
+.scan-stat-value { font-size: 22px; font-weight: 700; line-height: 1.2; }
+.scan-stat-label { font-size: 11px; color: var(--text-muted); font-weight: 600; margin-top: 2px; }
+
 /* ============================================================
    REPORTS PAGE — chart cards, most-affected bars, insight lists
    ============================================================ */
