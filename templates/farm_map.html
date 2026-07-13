@@ -2,6 +2,11 @@
 {% block title %}Interactive Farm Map{% endblock %}
 {% block page_title %}Interactive Farm Map{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+{% endblock %}
+
 {% block content %}
 {% if no_farms %}
 <div class="card-rg card-body-rg text-center text-muted">
@@ -93,7 +98,8 @@
     <span><span class="legend-dot" style="background:var(--white-root);"></span>White Root Rot</span>
     <span><span class="legend-dot" style="background:var(--stem);"></span>Stem Bleeding</span>
     <span><span class="legend-dot-farm"></span>Farm Boundary</span>
-    <span class="text-muted ms-auto"><i class="bi bi-cursor-fill"></i> Tap a marker to load its details</span>
+    <span class="text-muted"><i class="bi bi-circle"></i> Numbered bubbles are clusters — tap one to zoom in; individual trees appear as you zoom.</span>
+    <span class="text-muted ms-auto"><i class="bi bi-cursor-fill"></i> Tap a tree marker to load its details</span>
   </div>
 
   <!-- Legend: heatmap view (severity gradient, hidden by default) -->
@@ -130,6 +136,7 @@
   };
 </script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 {% load static %}
 <script src="{% static 'js/farm_map.js' %}"></script>
 {% endif %}
