@@ -15,9 +15,10 @@ document.addEventListener("DOMContentLoaded", () => {
     attribution: "© OpenStreetMap", maxZoom: 19,
   }).addTo(map);
 
+  const markerList = [];
   trees.forEach(tree => {
-    L.circleMarker([tree.lat, tree.lng], {
-      radius: 9, color: "#fff", weight: 2, fillColor: "#166534", fillOpacity: 0.9,
+    const marker = L.marker([tree.lat, tree.lng], {
+      icon: rgPinIcon("#166534", 22),
     }).bindPopup(`
       <div style="font-weight:700;font-size:14px;">${tree.tree_id}</div>
       <div style="font-size:11px;color:#666;margin-bottom:4px;">${tree.farm_id} — ${tree.farm_name}</div>
@@ -29,7 +30,11 @@ document.addEventListener("DOMContentLoaded", () => {
       <a href="/inventory/${tree.tree_id}/" style="display:inline-block;margin-top:8px;padding:4px 10px;
         background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;font-size:11px;">View Details</a>
     `, { maxWidth: 260 }).addTo(map);
+    markerList.push({ el: marker, tree: { color: "#166534" } });
   });
 
-  setTimeout(() => map.invalidateSize(), 150);
+  setTimeout(() => {
+    map.invalidateSize();
+    rgAttachPinScaling(map, markerList);
+  }, 150);
 });

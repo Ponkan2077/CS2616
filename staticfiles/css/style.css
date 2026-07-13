@@ -1,29 +1,38 @@
+/* ============================================================
+   RubberGuard Design System
+   Single stylesheet for all templates. Mobile-first, with
+   breakpoints layered on top of base (mobile) styles.
+   ============================================================ */
+
 /* ── Design tokens ───────────────────────────────────────── */
 :root {
-  --primary:        #2563eb;
-  --primary-dark:   #1e40af;
-  --surface:        #f4f6f9;
-  --card-bg:        #ffffff;
-  --border:         #e5e7eb;
-  --text-main:      #1f2937;
-  --text-muted:     #6b7280;
-  --text-faint:     #9ca3af;
+  --primary:        #3b82f6;
+  --primary-dark:   #2563eb;
+  --accent:         #4ade80;
 
-  --healthy:        #28a745;
-  --pink:           #dc3545;
-  --white-root:     #8b5a2b;
-  --stem:           #8b0000;
+  --surface:        #0f1722;
+  --card-bg:        #1a2535;
+  --card-bg-alt:    #212e42;
+  --border:         rgba(255,255,255,.09);
+  --text-main:      #e7eaf0;
+  --text-muted:     #96a3b8;
+  --text-faint:     #6b7a90;
 
-  --healthy-bg:     #dcfce7;  --healthy-text:    #166534;
-  --pink-bg:        #fee2e2;  --pink-text:       #991b1b;
-  --white-root-bg:  #fef3c7;  --white-root-text: #92400e;
-  --stem-bg:        #fce7f3;  --stem-text:       #9d174d;
+  --healthy:        #34d399;
+  --pink:           #f87171;
+  --white-root:     #d0995f;
+  --stem:           #fb7185;
+
+  --healthy-bg:     rgba(52,211,153,.14);   --healthy-text:    #4ade80;
+  --pink-bg:        rgba(248,113,113,.14);  --pink-text:       #f87171;
+  --white-root-bg:  rgba(208,153,95,.16);   --white-root-text: #e0aa6f;
+  --stem-bg:        rgba(251,113,133,.14);  --stem-text:       #fda4af;
 
   --sidebar-bg:     #1a2535;
   --sidebar-w:      260px;
   --topbar-h:       56px;
   --radius:         12px;
-  --shadow-sm:      0 1px 4px rgba(0,0,0,.06);
+  --shadow-sm:      0 1px 4px rgba(0,0,0,.28);
 }
 
 /* ── Reset ────────────────────────────────────────────────── */
@@ -103,8 +112,8 @@ body {
 
 /* Farm selector dropdown inside sidebar */
 .select-rg {
-  border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 10px;
-  font-size: 12px; background: #fff; color: #374151; outline: none; width: 100%;
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  font-size: 12px; background: var(--card-bg-alt); color: var(--text-main); outline: none; width: 100%;
 }
 
 /* ============================================================
@@ -156,8 +165,8 @@ body {
   text-align: left; cursor: pointer; transition: background .12s;
   box-sizing: border-box;
 }
-.farm-option:hover { background: #f3f4f6; }
-.farm-option.active { background: #eff6ff; }
+.farm-option:hover { background: rgba(255,255,255,.06); }
+.farm-option.active { background: rgba(59,130,246,.16); }
 
 .farm-option-dot {
   width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0;
@@ -178,7 +187,7 @@ body {
    TOPBAR
    ============================================================ */
 #topbar {
-  position: sticky; top: 0; height: var(--topbar-h); background: #fff;
+  position: sticky; top: 0; height: var(--topbar-h); background: var(--card-bg);
   border-bottom: 1px solid var(--border); display: flex; align-items: center;
   justify-content: space-between; padding: 0 16px; z-index: 100;
   box-shadow: var(--shadow-sm);
@@ -192,16 +201,16 @@ body {
 
 #hamburger {
   background: none; border: none; font-size: 22px; cursor: pointer;
-  color: #374151; padding: 4px; line-height: 1;
+  color: var(--text-main); padding: 4px; line-height: 1;
 }
 .topbar-btn {
   background: none; border: 1px solid var(--border); border-radius: 8px;
   width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: #374151; position: relative; font-size: 16px;
+  cursor: pointer; color: var(--text-main); position: relative; font-size: 16px;
 }
 .badge-dot {
   position: absolute; top: 6px; right: 6px; width: 7px; height: 7px;
-  background: #ef4444; border-radius: 50%; border: 1px solid #fff;
+  background: #ef4444; border-radius: 50%; border: 1px solid var(--card-bg);
 }
 .avatar {
   width: 34px; height: 34px; border-radius: 50%; background: var(--sidebar-bg);
@@ -211,13 +220,13 @@ body {
 
 /* Notification dropdown */
 .notif-dropdown { width: min(340px, 92vw); padding: 0; border-radius: var(--radius); box-shadow: 0 8px 30px rgba(0,0,0,.12); max-height: 400px; overflow-y: auto; }
-.notif-header { padding: 12px 16px; font-weight: 600; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+.notif-header { padding: 12px 16px; font-weight: 600; font-size: 13px; border-bottom: 1px solid var(--border); }
 .notif-item {
   display: flex; align-items: flex-start; gap: 10px; padding: 10px 16px;
-  font-size: 12px; border-bottom: 1px solid #f8fafc; color: var(--text-main);
+  font-size: 12px; border-bottom: 1px solid var(--border); color: var(--text-main);
   text-decoration: none; transition: background .12s;
 }
-.notif-item:hover { background: #f9fafb; color: var(--text-main); }
+.notif-item:hover { background: rgba(255,255,255,.05); color: var(--text-main); }
 .notif-time { font-size: 10px; color: var(--text-faint); }
 .notif-chevron { font-size: 11px; color: var(--text-faint); margin-top: 4px; flex-shrink: 0; }
 .notif-empty {
@@ -273,10 +282,10 @@ body {
    ============================================================ */
 .table-responsive-rg { overflow-x: auto; }
 .table-rg { width: 100%; border-collapse: collapse; font-size: 13px; }
-.table-rg thead tr { background: #f9fafb; border-bottom: 1px solid var(--border); }
+.table-rg thead tr { background: var(--card-bg-alt); border-bottom: 1px solid var(--border); }
 .table-rg th { padding: 10px 12px; text-align: left; font-size: 11px; color: var(--text-muted); font-weight: 600; }
-.table-rg td { padding: 10px 12px; border-top: 1px solid #f1f5f9; }
-.table-rg tbody tr:hover { background: #f9fafb; }
+.table-rg td { padding: 10px 12px; border-top: 1px solid var(--border); }
+.table-rg tbody tr:hover { background: rgba(255,255,255,.04); }
 
 /* ============================================================
    BADGES — disease status pills
@@ -288,7 +297,7 @@ body {
 .badge-stem       { background: var(--stem-bg);       color: var(--stem-text); }
 
 /* Farm ID pill (blue) */
-.badge-farm { background: #dbeafe; color: #1e40af; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.badge-farm { background: rgba(59,130,246,.18); color: #93c5fd; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
 
 /* ============================================================
    CONFIDENCE BAR
@@ -302,7 +311,7 @@ body {
    ============================================================ */
 .form-control-rg, .select-filter-rg {
   border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
-  font-size: 13px; background: #fff; outline: none;
+  font-size: 13px; background: var(--card-bg-alt); color: var(--text-main); outline: none;
 }
 .form-control-rg { width: 100%; }
 .search-wrap { position: relative; flex: 1; min-width: 160px; }
@@ -326,18 +335,35 @@ body {
   overflow: hidden;
 }
 .view-toggle-btn {
-  background: #fff; border: none; padding: 7px 12px; font-size: 12px;
+  background: var(--card-bg); border: none; padding: 7px 12px; font-size: 12px;
   font-weight: 600; color: var(--text-muted); cursor: pointer;
   display: flex; align-items: center; gap: 5px; transition: background .15s, color .15s;
 }
 .view-toggle-btn + .view-toggle-btn { border-left: 1px solid var(--border); }
 .view-toggle-btn.active { background: var(--primary); color: #fff; }
-.view-toggle-btn:hover:not(.active) { background: #f3f4f6; }
+.view-toggle-btn:hover:not(.active) { background: rgba(255,255,255,.06); }
 
+.heatmap-scale { display: flex; flex-direction: column; gap: 3px; }
 .heatmap-gradient-bar {
-  display: inline-block; width: 140px; height: 10px; border-radius: 5px;
-  background: var(--heatmap-gradient, linear-gradient(to right, #fecaca, #f87171, #b91c1c));
+  position: relative;
+  display: block; width: 180px; height: 16px; border-radius: 5px;
+  background: linear-gradient(to right, #fde047, #fbbf24, #fb923c, #f87171, #dc2626);
+  border: 1px solid rgba(255,255,255,.25);
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
 }
+.heatmap-gradient-bar .tick {
+  position: absolute; top: -2px; bottom: -2px; width: 1px;
+  background: rgba(255,255,255,.55);
+}
+.heatmap-gradient-bar .tick:nth-child(1) { left: 33.333%; }
+.heatmap-gradient-bar .tick:nth-child(2) { left: 66.666%; }
+.heatmap-scale-labels {
+  display: flex; justify-content: space-between; width: 180px;
+  font-size: 10px; font-weight: 600; color: var(--text-muted);
+}
+.heatmap-scale-labels span:nth-child(1) { color: #fbbf24; }
+.heatmap-scale-labels span:nth-child(2) { color: #fb923c; }
+.heatmap-scale-labels span:nth-child(3) { color: #f87171; }
 
 /* ============================================================
    MAP CONTAINERS
@@ -373,30 +399,29 @@ body {
    desktop layout at ≥992px and adjusts spacing below that.
    ============================================================ */
 @media (min-width: 992px) {
-  #sidebar { transform: translateX(0); }
-  #main-wrapper { margin-left: var(--sidebar-w); transition: margin-left .2s ease; }
+  #sidebar { transform: translateX(0); transition: transform .2s ease; }
+  #main-wrapper {
+    margin-left: var(--sidebar-w); width: auto; max-width: calc(100vw - var(--sidebar-w));
+    transition: margin-left .2s ease, max-width .2s ease;
+  }
   #hamburger { display: none; }
-  #sidebar-overlay { display: none; }
+  #sidebar-overlay { display: none !important; }
   #sidebar-close { display: none; }
   #desktop-sidebar-toggle { display: flex; }
 
-  /* Mobile-preview mode: desktop sidebar temporarily behaves like the
-     mobile overlay sidebar — hidden by default, slides in as an overlay
-     over content (not pushing it), with a dimmed backdrop that closes it
-     on outside click. Toggled by #desktop-sidebar-toggle. */
-  body.mobile-preview #sidebar { transform: translateX(-100%); transition: transform .25s ease; }
-  body.mobile-preview #sidebar.open { transform: translateX(0); }
-  body.mobile-preview #main-wrapper { margin-left: 0; }
-  body.mobile-preview #sidebar-overlay.show { display: block; }
-  body.mobile-preview #sidebar-close { display: flex; }
+  /* Desktop sidebar is visible by default. Toggling #desktop-sidebar-toggle
+     simply hides it off-screen and lets content expand to fill the space,
+     with no overlay/backdrop involved — a plain collapsible sidebar. */
+  #sidebar.desktop-hidden { transform: translateX(-100%); }
+  #main-wrapper.sidebar-hidden { margin-left: 0; max-width: 100vw; }
 }
 
 #desktop-sidebar-toggle {
   display: none; background: none; border: 1px solid var(--border); border-radius: 8px;
   width: 36px; height: 36px; align-items: center; justify-content: center;
-  cursor: pointer; color: #374151; font-size: 16px; flex-shrink: 0;
+  cursor: pointer; color: var(--text-main); font-size: 16px; flex-shrink: 0;
 }
-#desktop-sidebar-toggle:hover { background: #f3f4f6; }
+#desktop-sidebar-toggle:hover { background: rgba(255,255,255,.06); }
 
 @media (max-width: 768px) {
   #content { padding: 14px; }
@@ -419,7 +444,8 @@ body {
 }
 
 .auth-card {
-  width: 100%; max-width: 380px; background: #fff;
+  width: 100%; max-width: 380px; background: var(--card-bg);
+  border: 1px solid var(--border);
   border-radius: 16px; padding: 32px 28px;
   box-shadow: 0 20px 60px rgba(0,0,0,.3);
 }
@@ -458,7 +484,7 @@ body {
   display: flex; align-items: center; gap: 5px; padding: 5px 10px;
   border-radius: 16px; color: var(--text-faint); font-weight: 600;
 }
-.workflow-step.active { background: #eff6ff; color: var(--primary); }
+.workflow-step.active { background: rgba(59,130,246,.16); color: var(--primary); }
 .workflow-step.done { background: var(--healthy-bg); color: var(--healthy-text); }
 .workflow-arrow { color: var(--text-faint); font-size: 14px; }
 
@@ -467,7 +493,7 @@ body {
   text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
   position: relative; min-height: 180px; display: flex; align-items: center; justify-content: center;
 }
-.drop-zone:hover, .drop-zone.dragover { border-color: var(--primary); background: #f8faff; }
+.drop-zone:hover, .drop-zone.dragover { border-color: var(--primary); background: rgba(59,130,246,.06); }
 .drop-zone-icon { font-size: 34px; color: var(--text-faint); margin-bottom: 8px; }
 .drop-zone img#preview-img { display: none; max-width: 100%; max-height: 260px; border-radius: 8px; }
 .drop-zone.has-image #upload-placeholder { display: none; }
@@ -478,13 +504,13 @@ body {
   border-radius: 14px; font-size: 11px; font-weight: 600;
 }
 .threshold-confirmed { background: var(--healthy-bg); color: var(--healthy-text); }
-.threshold-review { background: #fef3c7; color: #92400e; }
+.threshold-review { background: rgba(208,153,95,.18); color: #e0aa6f; }
 
-.ref-card { border-left: 4px solid var(--border); background: var(--surface); padding: 16px 18px !important; line-height: 1.5; }
-.ref-healthy { border-left-color: var(--healthy); background: #f8fff8; }
-.ref-pink { border-left-color: var(--pink); background: #fff8f8; }
-.ref-white-root { border-left-color: var(--white-root); background: #fdf8f4; }
-.ref-stem { border-left-color: var(--stem); background: #fff5f5; }
+.ref-card { border-left: 4px solid var(--border); background: var(--card-bg-alt); padding: 16px 18px !important; line-height: 1.5; }
+.ref-healthy { border-left-color: var(--healthy); background: rgba(52,211,153,.07); }
+.ref-pink { border-left-color: var(--pink); background: rgba(248,113,113,.07); }
+.ref-white-root { border-left-color: var(--white-root); background: rgba(208,153,95,.08); }
+.ref-stem { border-left-color: var(--stem); background: rgba(251,113,133,.07); }
 
 /* ============================================================
    DASHBOARD — summary cards and compact map
@@ -501,19 +527,57 @@ body {
 .summary-label { font-size: 11px; font-weight: 600; color: var(--text-muted); }
 .summary-value { font-size: 22px; font-weight: 700; line-height: 1.2; }
 
-.dashboard-map { height: 280px; width: 100%; }
+/* Small up/down/flat delta line shown under a KPI value or stat */
+.trend-delta { font-size: 10.5px; font-weight: 600; color: var(--text-muted); margin-top: 2px; display: flex; align-items: center; }
+.trend-delta i { font-size: 13px; line-height: 1; }
+.trend-up { color: var(--healthy); }
+.trend-down { color: var(--pink); }
+.trend-flat { color: var(--text-faint); }
+
+/* Recent Scan Activity card stat blocks */
+.scan-stat-value { font-size: 22px; font-weight: 700; line-height: 1.2; }
+.scan-stat-label { font-size: 11px; color: var(--text-muted); font-weight: 600; margin-top: 2px; }
 
 /* ============================================================
-   REPORTS PAGE — chart cards and most-affected bars
+   REPORTS PAGE — chart cards, most-affected bars, insight lists
    ============================================================ */
 .report-chart-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); height: 100%; }
-.report-map { height: 320px; width: 100%; }
 
 .affected-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
 .affected-label { flex: 0 0 120px; font-size: 12px; font-weight: 600; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.affected-bar-track { flex: 1; height: 10px; border-radius: 5px; background: #f1f5f9; overflow: hidden; }
+.affected-bar-track { flex: 1; height: 10px; border-radius: 5px; background: rgba(255,255,255,.06); overflow: hidden; }
 .affected-bar-fill { height: 100%; background: var(--pink); border-radius: 5px; }
 .affected-count { flex: 0 0 28px; font-size: 12px; font-weight: 700; text-align: right; }
+
+/* Key Insights / Recommendations bullet lists */
+.insight-list { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.7; color: var(--text-main); }
+.insight-list li { margin-bottom: 4px; }
+.insight-list li::marker { color: var(--accent); }
+
+/* Report metadata footer on the Reports & Analytics page */
+.report-meta-footer {
+  font-size: 11px; color: var(--text-faint); text-align: center;
+  padding: 10px 0 18px; border-top: 1px solid var(--border); margin-top: 6px;
+}
+
+/* ============================================================
+   MARKER CLUSTERS — farm map cluster bubbles (Leaflet.markercluster).
+   iconCreateFunction supplies this markup directly; these rules just
+   style it to match the app's dark theme instead of the plugin's
+   default yellow/orange circles.
+   ============================================================ */
+.marker-cluster-custom { background: transparent; border: none; }
+.cluster-bubble {
+  width: 100%; height: 100%; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  color: #0f1722; font-weight: 800; font-family: inherit;
+  border: 3px solid rgba(15,23,34,.55);
+  box-shadow: 0 2px 8px rgba(0,0,0,.45);
+  cursor: pointer;
+}
+.cluster-bubble.cluster-sm { font-size: 12px; }
+.cluster-bubble.cluster-md { font-size: 14px; border-width: 4px; }
+.cluster-bubble.cluster-lg { font-size: 16px; border-width: 5px; }
 
 /* ============================================================
    FARM BOUNDARY LABEL — permanent tooltip on the farm map
@@ -536,5 +600,60 @@ body {
   display: flex; align-items: center; gap: 8px; padding: 6px 8px;
   border-radius: 6px; cursor: pointer; font-size: 12px;
 }
-.tree-checklist-item:hover { background: #f3f4f6; }
+.tree-checklist-item:hover { background: rgba(255,255,255,.06); }
 .tree-checklist-item input { flex-shrink: 0; }
+
+/* ============================================================
+   PAGINATION — shared across tree inventory and interventions log
+   ============================================================ */
+.pagination-rg {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  padding: 12px; flex-wrap: wrap;
+}
+.pagination-rg a, .pagination-rg span {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 32px; height: 32px; padding: 0 8px; border-radius: 7px;
+  font-size: 12px; font-weight: 600; text-decoration: none;
+  color: var(--text-main); border: 1px solid var(--border);
+}
+.pagination-rg a:hover { background: rgba(255,255,255,.06); }
+.pagination-rg .active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.pagination-rg .disabled { color: var(--text-faint); pointer-events: none; }
+.pagination-rg .ellipsis { border: none; color: var(--text-faint); }
+
+/* ============================================================
+   BOOTSTRAP OVERRIDES — dropdowns, buttons, inputs, tables so
+   Bootstrap's own light defaults follow the app's dark theme.
+   ============================================================ */
+.dropdown-menu {
+  background-color: var(--card-bg); border: 1px solid var(--border);
+  box-shadow: 0 10px 35px rgba(0,0,0,.35); color: var(--text-main);
+}
+.dropdown-item, .dropdown-item-text { color: var(--text-main); }
+.dropdown-item:hover, .dropdown-item:focus { background-color: rgba(255,255,255,.06); color: var(--text-main); }
+.dropdown-divider { border-color: var(--border); }
+.form-control, .form-select {
+  background-color: var(--card-bg-alt); border-color: var(--border); color: var(--text-main);
+}
+.form-control:focus, .form-select:focus {
+  background-color: var(--card-bg-alt); border-color: var(--primary); color: var(--text-main);
+  box-shadow: 0 0 0 .2rem rgba(59,130,246,.2);
+}
+.form-control::placeholder { color: var(--text-faint); }
+.btn-outline-secondary { color: var(--text-main); border-color: var(--border); }
+.btn-outline-secondary:hover { background-color: rgba(255,255,255,.08); color: var(--text-main); border-color: var(--border); }
+.border-top { border-color: var(--border) !important; }
+.text-muted { color: var(--text-muted) !important; }
+
+/* Bootstrap modals (Add Farm, Log Intervention) default to a white panel —
+   override so they match the rest of the dark UI instead of flashing a
+   bright white card on open. */
+.modal-content {
+  background-color: var(--card-bg); color: var(--text-main);
+  border: 1px solid var(--border);
+}
+.modal-header, .modal-footer { border-color: var(--border); }
+.modal-backdrop.show { opacity: .65; }
+.btn-close { filter: invert(1) grayscale(1) brightness(1.8); opacity: .8; }
+.btn-close:hover { opacity: 1; }
+.form-label { color: var(--text-main); }
