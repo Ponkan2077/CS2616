@@ -29,7 +29,9 @@
 
     {% if messages %}
       {% for message in messages %}
-      <div class="auth-success"><i class="bi bi-check-circle-fill"></i> {{ message }}</div>
+      <div class="{% if message.tags == 'error' %}auth-error{% else %}auth-success{% endif %}">
+        <i class="bi {% if message.tags == 'error' %}bi-exclamation-circle-fill{% else %}bi-check-circle-fill{% endif %}"></i> {{ message }}
+      </div>
       {% endfor %}
     {% endif %}
 
