@@ -25,12 +25,27 @@ BLOCKS = ["A", "B", "C", "D", "E", "F"]
 INSPECTORS = ["J. Reyes", "M. Santos", "P. Cruz", "A. Lopez"]
 ACTIONS = [a for a, _ in Intervention.ACTION_CHOICES]
 
-RECOMMENDED_ACTIONS = {
-    "Healthy": "No action needed. Continue regular monitoring every 30 days.",
-    "Pink Disease": "Apply fungicide (Mancozeb 80% WP) immediately. Remove infected bark.",
-    "White Root Rot": "Uproot and destroy infected roots. Treat soil with Trichoderma biocontrol.",
-    "Stem Bleeding": "Scrape off infected bark. Apply Metalaxyl paste. Avoid tapping 60 days.",
-}
+RECOMMENDED_ACTIONS = RubberTree.SEVERITY_RECOMMENDATIONS
+
+
+def severity_label(disease, score):
+    # Mirrors RubberTree.severity_label, since bulk_create skips the model's
+    # property-driven logic entirely.
+    if disease == "Healthy" or score == 0:
+        return "Healthy"
+    if score < 34:
+        return "Mild"
+    if score < 67:
+        return "Moderate"
+    return "Severe"
+
+
+def recommended_action_for(disease, score):
+    # Severity-tiered lookup (comment 2 fix), falling back to the Moderate
+    # tier if a disease/severity combination is ever missing.
+    tiers = RECOMMENDED_ACTIONS.get(disease, {})
+    label = severity_label(disease, score)
+    return tiers.get(label) or tiers.get("Moderate", "")
 
 
 def weighted_disease():
@@ -41,10 +56,9 @@ def weighted_disease():
 
 def compute_severity_score(disease, confidence):
     # Mirrors RubberTree._compute_severity_score, since bulk_create skips save().
-    base = SEVERITY_MAP.get(disease, 0)
-    if base == 0:
+    if disease == "Healthy":
         return 0.0
-    return round((base / 3) * confidence, 1)
+    return round(confidence, 1)
 
 
 def random_date(start, end):
@@ -161,6 +175,7 @@ for farm_id, farm in farms.items():
         confidence = round(random.uniform(75, 99.5), 1)
         date_scanned = random_date(SCAN_WINDOW_START, SCAN_WINDOW_END)
         lat, lng = positions[i - 1]
+        score = compute_severity_score(disease, confidence)
         tree_objs.append(RubberTree(
             farm=farm,
             tree_id=f"{farm_id}-RT-{i:04d}",
@@ -168,10 +183,10 @@ for farm_id, farm in farms.items():
             lng=lng,
             disease=disease,
             confidence=confidence,
-            severity_score=compute_severity_score(disease, confidence),
+            severity_score=score,
             date_scanned=date_scanned,
             block=random.choice(BLOCKS),
-            recommended_action=RECOMMENDED_ACTIONS[disease],
+            recommended_action=recommended_action_for(disease, score),
             notes="",
         ))
 
