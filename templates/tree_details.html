@@ -117,7 +117,19 @@
 
     <!-- Disease History Table -->
     <div class="card-rg mb-3">
-      <div class="card-header-rg"><i class="bi bi-clock-history"></i> Disease History</div>
+      <div class="card-header-rg d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-clock-history"></i> Disease History</span>
+        {% if progression.trend == "Improving" %}
+        <span class="trend-delta trend-up"><i class="bi bi-arrow-down-circle-fill"></i> Improving</span>
+        {% elif progression.trend == "Worsening" %}
+        <span class="trend-delta trend-down"><i class="bi bi-arrow-up-circle-fill"></i> Worsening</span>
+        {% elif progression.trend == "Stable" %}
+        <span class="trend-delta trend-flat"><i class="bi bi-dash-circle-fill"></i> Stable</span>
+        {% endif %}
+      </div>
+      {% if progression.detail and progression.trend != "Insufficient data" %}
+      <div class="px-3 pt-2 text-muted" style="font-size:11.5px;">{{ progression.detail }}</div>
+      {% endif %}
       <div class="table-responsive-rg">
         <table class="table-rg">
           <thead>
