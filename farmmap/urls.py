@@ -1,5 +1,6 @@
 from django.urls import path
 from django.contrib.auth import views as auth_views
+from django.views.decorators.cache import never_cache
 from . import views
 
 urlpatterns = [
@@ -30,7 +31,7 @@ urlpatterns = [
     path('select-farm/', views.select_farm, name='select_farm'),
 
     # Authentication
-    path('login/', auth_views.LoginView.as_view(template_name='login.html'), name='login'),
+    path('login/', never_cache(auth_views.LoginView.as_view(template_name='login.html')), name='login'),
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('register/', views.register, name='register'),
 ]
