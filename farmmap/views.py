@@ -597,19 +597,13 @@ def save_detection(request):
         messages.error(request, f"Tree ID '{tree_id}' already exists.")
         return redirect("disease_detection")
 
-    action_map = {
-        "Healthy": "No action needed. Continue regular monitoring every 30 days.",
-        "Pink Disease": "Apply fungicide (Mancozeb 80% WP) immediately. Remove infected bark.",
-        "White Root Rot": "Uproot and destroy infected roots. Treat soil with Trichoderma biocontrol.",
-        "Stem Bleeding": "Scrape off infected bark. Apply Metalaxyl paste. Avoid tapping 60 days.",
-    }
-
     tree = RubberTree.objects.create(
         farm=farm, tree_id=tree_id,
         lat=farm.center_lat, lng=farm.center_lng,
         disease=disease, confidence=float(confidence),
         date_scanned=datetime.date.today(), block=block,
-        recommended_action=action_map.get(disease, ""),
+        # recommended_action is left blank here so RubberTree.save() derives
+        # it from disease + severity_label (see SEVERITY_RECOMMENDATIONS).
     )
     ScanHistory.objects.create(
         tree=tree, date=datetime.date.today(),
@@ -671,6 +665,7 @@ def tree_details(request, tree_id):
         "page": "tree_inventory",
         "tree": tree,
         "history": history,
+        "progression": tree.get_progression_trend(),
         "tree_farm_boundary": json.dumps(tree.farm.get_boundary_polygon()),
     })
     return render(request, "tree_details.html", ctx)
@@ -1302,3 +1297,13 @@ def export_pdf(request):
 
     doc.build(elements)
     return response
+
+
+def csrf_failure(request, reason=""):
+    # A CSRF mismatch on /login/ is usually a dropped mobile connection that
+    # prevented the csrftoken cookie from being set before the form was
+    # submitted (see server error log: "OSError: write error" immediately
+    # preceding these). Instead of showing Django's raw 403 page, send the
+    # user back to a fresh login form with a friendly explanation.
+    messages.error(request, "Your session expired or the connection dropped. Please log in again.")
+    return redirect("login")
