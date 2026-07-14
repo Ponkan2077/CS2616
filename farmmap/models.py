@@ -131,6 +131,28 @@ class RubberTree(models.Model):
         "White Root Rot": 2,
         "Stem Bleeding": 3,
     }
+    # Recommendations now vary by severity tier, not just disease. Block/farm
+    # "spread" recommendations are handled separately in views._get_recommendations().
+    SEVERITY_RECOMMENDATIONS = {
+        "Healthy": {
+            "Healthy": "No action needed. Continue regular monitoring every 30 days.",
+        },
+        "Pink Disease": {
+            "Mild": "Early-stage Pink Disease. Apply a copper-based fungicide preventively and monitor weekly.",
+            "Moderate": "Apply fungicide (Mancozeb 80% WP) and remove infected bark. Recheck in 2 weeks.",
+            "Severe": "Advanced spread — remove and destroy severely affected bark/branches, apply systemic fungicide immediately, and suspend tapping on this tree.",
+        },
+        "White Root Rot": {
+            "Mild": "Early signs of White Root Rot. Improve soil drainage and apply Trichoderma biocontrol preventively.",
+            "Moderate": "Uproot and destroy infected roots. Treat soil with Trichoderma biocontrol.",
+            "Severe": "High risk of spread to neighboring trees — uproot and destroy the tree and connected root system, quarantine the block, treat soil, and inspect adjacent trees.",
+        },
+        "Stem Bleeding": {
+            "Mild": "Minor bark lesions. Scrape and apply Metalaxyl paste; resume tapping after 30 days.",
+            "Moderate": "Scrape off infected bark. Apply Metalaxyl paste. Avoid tapping for 60 days.",
+            "Severe": "Severe stem bleeding — halt tapping entirely, apply systemic fungicide, and consult an agricultural technician about possible removal.",
+        },
+    }
 
     farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name="trees")
     tree_id = models.CharField(max_length=40, unique=True)
@@ -152,15 +174,33 @@ class RubberTree(models.Model):
         # unless it was already set explicitly (e.g. by a future ML pipeline).
         if not self.severity_score:
             self.severity_score = self._compute_severity_score()
+        if not self.recommended_action:
+            self.recommended_action = self.get_recommended_action()
         super().save(*args, **kwargs)
 
+    def get_recommended_action(self):
+        # Looks up a recommendation tied to both the disease AND its severity
+        # tier (Mild/Moderate/Severe), rather than one generic action per
+        # disease. Falls back to the Moderate tier text if severity_label
+        # ever produces an unexpected value.
+        tiers = self.SEVERITY_RECOMMENDATIONS.get(self.disease, {})
+        return tiers.get(self.severity_label) or tiers.get("Moderate", "")
+
     def _compute_severity_score(self):
-        # Combines disease severity tier (0-3) with detection confidence to
-        # produce a single 0-100 score used for severity_label and reports.
-        base = self.SEVERITY_MAP.get(self.disease, 0)
-        if base == 0:
+        # Severity tier is driven by detection confidence, not disease type.
+        # (Disease-type danger ranking is separate — see the `severity`
+        # property below, used only for heatmap/marker intensity.)
+        #
+        # NOTE: the previous formula was `(base/3) * confidence`, where base
+        # is the disease's 0-3 danger rank. That mathematically capped Pink
+        # Disease (base=1) at a max score of 33.3 — always "Mild" — and
+        # White Root Rot (base=2) at max 66.7 — never "Severe" — no matter
+        # how high the confidence. This also silently affected the Reports
+        # page's severity distribution chart/table and the PDF export,
+        # which both filter on this same field.
+        if self.disease == "Healthy":
             return 0.0
-        return round((base / 3) * self.confidence, 1)
+        return round(self.confidence, 1)
 
     def __str__(self):
         # Returns a readable string representation of the tree.
@@ -192,6 +232,40 @@ class RubberTree(models.Model):
         if score < 67:
             return "Moderate"
         return "Severe"
+
+    def get_progression_trend(self):
+        # Compares this tree's two most recent ScanHistory entries and
+        # labels the trend (comment 9). ScanHistory has no stored severity,
+        # so it's recomputed here the same way _compute_severity_score()
+        # does, keeping both in sync with a single source of truth
+        # (SEVERITY_MAP) rather than duplicating tier thresholds.
+        recent = list(self.history.all()[:2])
+        if len(recent) < 2:
+            return {"trend": "Insufficient data", "detail": "Needs at least 2 scans to compare."}
+
+        current, previous = recent[0], recent[1]
+
+        def score_of(scan):
+            base = self.SEVERITY_MAP.get(scan.disease, 0)
+            return round((base / 3) * scan.confidence, 1) if base else 0.0
+
+        current_score, previous_score = score_of(current), score_of(previous)
+
+        if current_score < previous_score:
+            trend = "Improving"
+        elif current_score > previous_score:
+            trend = "Worsening"
+        else:
+            trend = "Stable"
+
+        return {
+            "trend": trend,
+            "current_disease": current.disease,
+            "previous_disease": previous.disease,
+            "current_date": current.date,
+            "previous_date": previous.date,
+            "detail": f"{previous.disease} ({previous.date}) \u2192 {current.disease} ({current.date})",
+        }
 
     def to_marker_dict(self):
         # Returns the bare minimum needed to place and filter a marker on
