@@ -15,6 +15,10 @@ CSRF_TRUSTED_ORIGINS = [
     'https://reyursus.pythonanywhere.com',
 ]
 
+# On a CSRF mismatch (commonly a dropped mobile connection during /login/),
+# redirect to a fresh login form instead of showing Django's raw 403 page.
+CSRF_FAILURE_VIEW = 'farmmap.views.csrf_failure'
+
 INSTALLED_APPS = [
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -30,6 +34,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'farmmap.middleware.NoCacheForAuthenticatedUsersMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
