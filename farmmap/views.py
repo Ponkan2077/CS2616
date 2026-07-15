@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.core.paginator import Paginator
 from django.db.models import Count, Q, Prefetch, Min, Max
 from .models import Farm, RubberTree, ScanHistory, Intervention
+from .imaging import resize_for_storage
 
 # Icon and color shown in the notification bell for each disease type.
 NOTIFICATION_STYLE = {
@@ -570,7 +571,11 @@ def disease_detection(request):
 
 @login_required
 def save_detection(request):
-    # Saves a simulated (or future real) CNN detection result as a new tree.
+    # Saves a simulated (or future real) CNN detection result. Creates a
+    # new tree, or — if tree_id matches an existing tree on this farm —
+    # appends a new ScanHistory entry and updates that tree's current
+    # state instead. The latter is what makes progression tracking
+    # (comment 9) reachable through real usage, not just seeded demo data.
     import datetime
 
     if request.method != "POST":
@@ -581,8 +586,28 @@ def save_detection(request):
     confidence = request.POST.get("confidence", "0")
     tree_id = request.POST.get("tree_id", "").strip()
     block = request.POST.get("block", "").strip()
+    root_condition = request.POST.get("root_condition", "").strip()
+
+    # Prefer the device's actual captured GPS position (Chapter 3: "Mobile
+    # GPS module - Auto the capture coordinates"); fall back to the farm's
+    # center point if geolocation was denied/unavailable, so a scan never
+    # fails just because of a GPS permission prompt.
+    try:
+        tree_lat = float(request.POST.get("lat") or "")
+        tree_lng = float(request.POST.get("lng") or "")
+    except ValueError:
+        tree_lat = tree_lng = None
 
     farm = get_object_or_404(Farm, pk=farm_pk, owner=request.user)
+
+    root_image_resized = None
+    trunk_image_resized = None
+    if request.FILES.get("root_image"):
+        f = request.FILES["root_image"]
+        root_image_resized = resize_for_storage(f, f.name)
+    if request.FILES.get("trunk_image"):
+        f = request.FILES["trunk_image"]
+        trunk_image_resized = resize_for_storage(f, f.name)
 
     if not tree_id:
         existing = farm.trees.count()
@@ -593,23 +618,51 @@ def save_detection(request):
         # at the database level but URLs/lookups treat it as the sole key.
         tree_id = f"{farm.farm_id}-{tree_id}"
 
-    if RubberTree.objects.filter(tree_id=tree_id).exists():
-        messages.error(request, f"Tree ID '{tree_id}' already exists.")
+    existing_tree = RubberTree.objects.filter(tree_id=tree_id).first()
+
+    if existing_tree and existing_tree.farm_id != farm.id:
+        messages.error(request, f"Tree ID '{tree_id}' already exists on a different farm.")
         return redirect("disease_detection")
 
-    tree = RubberTree.objects.create(
-        farm=farm, tree_id=tree_id,
-        lat=farm.center_lat, lng=farm.center_lng,
-        disease=disease, confidence=float(confidence),
-        date_scanned=datetime.date.today(), block=block,
-        # recommended_action is left blank here so RubberTree.save() derives
-        # it from disease + severity_label (see SEVERITY_RECOMMENDATIONS).
-    )
+    if existing_tree:
+        # Rescan: update the tree's current snapshot and blank out
+        # recommended_action so save() re-derives it for the new
+        # disease/severity combination.
+        tree = existing_tree
+        tree.disease = disease
+        tree.confidence = float(confidence)
+        tree.root_condition = root_condition
+        tree.severity_score = 0.0
+        tree.recommended_action = ""
+        tree.date_scanned = datetime.date.today()
+        if block:
+            tree.block = block
+        if root_image_resized:
+            tree.root_image = root_image_resized
+        if trunk_image_resized:
+            tree.trunk_image = trunk_image_resized
+        tree.save()
+    else:
+        tree = RubberTree.objects.create(
+            farm=farm, tree_id=tree_id,
+            lat=tree_lat if tree_lat is not None else farm.center_lat,
+            lng=tree_lng if tree_lng is not None else farm.center_lng,
+            disease=disease, confidence=float(confidence),
+            root_condition=root_condition,
+            date_scanned=datetime.date.today(), block=block,
+            root_image=root_image_resized, trunk_image=trunk_image_resized,
+            # recommended_action is left blank here so RubberTree.save() derives
+            # it from disease + severity_label (see SEVERITY_RECOMMENDATIONS).
+        )
+
     ScanHistory.objects.create(
         tree=tree, date=datetime.date.today(),
         disease=disease, confidence=float(confidence), inspector=request.user.username,
+        root_condition=root_condition,
+        root_image=root_image_resized, trunk_image=trunk_image_resized,
     )
-    messages.success(request, f"Detection saved as tree '{tree_id}'.")
+    verb = "updated" if existing_tree else "saved"
+    messages.success(request, f"Detection {verb} for tree '{tree_id}'.")
     return redirect("tree_details", tree_id=tree_id)
 
 
