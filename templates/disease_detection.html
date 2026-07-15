@@ -14,9 +14,9 @@
 <!-- Workflow strip -->
 <div class="card-rg mb-3">
   <div class="card-body-rg d-flex flex-wrap gap-1 align-items-center justify-content-center" style="font-size:12px;">
-    <div class="workflow-step active" id="step-0"><i class="bi bi-upload"></i> Upload</div>
+    <div class="workflow-step active" id="step-0"><i class="bi bi-tree-fill"></i> Root</div>
     <span class="workflow-arrow">›</span>
-    <div class="workflow-step" id="step-1"><i class="bi bi-image"></i> Preview</div>
+    <div class="workflow-step" id="step-1"><i class="bi bi-image"></i> Trunk</div>
     <span class="workflow-arrow">›</span>
     <div class="workflow-step" id="step-2"><i class="bi bi-cpu"></i> Analyzing</div>
     <span class="workflow-arrow">›</span>
@@ -29,25 +29,42 @@
 <div class="row g-3">
   <!-- Left: Upload + Preview -->
   <div class="col-12 col-lg-5">
-    <div class="card-rg">
-      <div class="card-header-rg"><i class="bi bi-cloud-upload-fill"></i> Upload Trunk Image</div>
+    <div class="card-rg mb-3">
+      <div class="card-header-rg"><i class="bi bi-cloud-upload-fill"></i> Step 1 — Capture Root Image</div>
       <div class="card-body-rg">
-        <div class="drop-zone mb-3" id="drop-zone">
-          <div id="upload-placeholder">
-            <div class="drop-zone-icon"><i class="bi bi-cloud-arrow-up-fill"></i></div>
-            <div class="fw-semibold mb-1">Drag &amp; drop image here</div>
-            <div class="text-muted" style="font-size:12px;">Supports JPG, PNG, WEBP</div>
+        <div class="drop-zone mb-3" id="root-drop-zone">
+          <div id="root-upload-placeholder">
+            <div class="drop-zone-icon"><i class="bi bi-tree-fill"></i></div>
+            <div class="fw-semibold mb-1">Photo of exposed roots</div>
+            <div class="text-muted" style="font-size:12px;">Supports JPG, PNG, WEBP — resized to 1080px on upload</div>
           </div>
-          <img id="preview-img" src="" alt="Preview">
+          <img id="root-preview-img" src="" alt="Root preview">
         </div>
+        <label class="btn btn-outline-secondary btn-sm w-100 text-center" style="cursor:pointer;">
+          <i class="bi bi-folder2-open"></i> Browse Root Photo
+          <input type="file" id="root-file-input" accept="image/*" class="d-none">
+        </label>
+      </div>
+    </div>
 
+    <div class="card-rg step-locked" id="trunk-zone-wrapper">
+      <div class="card-header-rg"><i class="bi bi-cloud-upload-fill"></i> Step 2 — Capture Trunk Image</div>
+      <div class="card-body-rg">
+        <div class="drop-zone mb-3" id="trunk-drop-zone">
+          <div id="trunk-upload-placeholder">
+            <div class="drop-zone-icon"><i class="bi bi-cloud-arrow-up-fill"></i></div>
+            <div class="fw-semibold mb-1">Capture the root image first</div>
+            <div class="text-muted" style="font-size:12px;">Supports JPG, PNG, WEBP — resized to 1080px on upload</div>
+          </div>
+          <img id="trunk-preview-img" src="" alt="Trunk preview">
+        </div>
         <div class="d-flex gap-2">
           <label class="btn btn-outline-secondary btn-sm flex-grow-1 text-center" style="cursor:pointer;">
-            <i class="bi bi-folder2-open"></i> Browse File
-            <input type="file" id="file-input" accept="image/*" class="d-none">
+            <i class="bi bi-folder2-open"></i> Browse Trunk Photo
+            <input type="file" id="trunk-file-input" accept="image/*" class="d-none">
           </label>
           <button id="analyze-btn" class="btn btn-primary btn-sm flex-grow-1" disabled>
-            <i class="bi bi-cpu"></i> Analyze Image
+            <i class="bi bi-cpu"></i> Analyze Images
           </button>
         </div>
 
@@ -74,9 +91,15 @@
         <div class="row g-2 mb-3">
           <div class="col-12">
             <div class="p-3 rounded-3" style="background:var(--surface);border:1px solid var(--border);">
-              <div class="text-muted" style="font-size:11px;font-weight:600;letter-spacing:.6px;">DETECTED DISEASE CLASS</div>
+              <div class="text-muted" style="font-size:11px;font-weight:600;letter-spacing:.6px;">DETECTED DISEASE CLASS (TRUNK)</div>
               <div id="result-disease" class="fw-bold mt-1" style="font-size:24px;">—</div>
               <div class="mt-2" id="threshold-badge-result"></div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="p-3 rounded-3 h-100" style="background:var(--surface);border:1px solid var(--border);">
+              <div class="text-muted" style="font-size:11px;font-weight:600;letter-spacing:.6px;">ROOT CONDITION</div>
+              <div id="result-root-condition" class="fw-bold mt-1" style="font-size:14px;">—</div>
             </div>
           </div>
           <div class="col-6">
@@ -88,13 +111,6 @@
               </div>
             </div>
           </div>
-          <div class="col-6">
-            <div class="p-3 rounded-3 h-100" style="background:var(--surface);border:1px solid var(--border);">
-              <div class="text-muted" style="font-size:11px;font-weight:600;letter-spacing:.6px;">CNN MODEL</div>
-              <div class="fw-bold mt-1" style="font-size:13px;">MobileNetV3</div>
-              <div class="text-muted" style="font-size:11px;">Transfer Learning · 4 Classes</div>
-            </div>
-          </div>
         </div>
 
         <div class="mb-3">
@@ -102,11 +118,16 @@
           <div id="result-action" class="p-3 rounded-3" style="font-size:13px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.35);color:#4ade80;"></div>
         </div>
 
-        <!-- Save form: posts the simulated detection as a new tree -->
-        <form method="POST" action="{% url 'save_detection' %}" id="save-form">
+        <!-- Save form: posts the simulated detection, plus both resized images -->
+        <form method="POST" action="{% url 'save_detection' %}" id="save-form" enctype="multipart/form-data">
           {% csrf_token %}
           <input type="hidden" name="disease" id="save-disease">
           <input type="hidden" name="confidence" id="save-confidence">
+          <input type="hidden" name="root_condition" id="save-root-condition">
+          <input type="hidden" name="lat" id="save-lat">
+          <input type="hidden" name="lng" id="save-lng">
+          <input type="file" name="root_image" id="save-root-image" class="d-none">
+          <input type="file" name="trunk_image" id="save-trunk-image" class="d-none">
           <div class="row g-2 mb-2">
             <div class="col-6">
               <select name="farm_pk" class="form-control-rg" required>
