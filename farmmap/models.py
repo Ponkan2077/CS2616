@@ -1,5 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.core.cache import cache
+from django.db.models.signals import post_save, post_delete
+from django.dispatch import receiver
 
 
 def _convex_hull(points):
@@ -106,60 +109,102 @@ class Farm(models.Model):
         return _expand_polygon(hull, self.center_lat, self.center_lng, factor=1.06)
 
 
+class DiseaseClass(models.Model):
+    """
+    Dynamic disease catalog. What used to be hardcoded dicts (colors, danger
+    ranks, per-severity recommendations) on RubberTree now lives here and is
+    editable through the Django admin — since the real disease list depends
+    on whatever the trained CNN model ends up covering, which depends on
+    dataset/field availability, not something fixed at development time.
+    Add, edit, or remove a disease here and every part of the app (badges,
+    heatmap, recommendations, the scan simulator) picks it up automatically.
+    """
+    name = models.CharField(max_length=50, unique=True, help_text="Must match the CNN model's class label exactly.")
+    description = models.TextField(
+        blank=True, help_text="Shown in the Disease Class Reference card, e.g. causal pathogen + visible symptoms."
+    )
+    display_order = models.PositiveIntegerField(default=0)
+    color_hex = models.CharField(max_length=7, default="#6c757d", help_text="e.g. #dc3545")
+    marker_key = models.SlugField(max_length=30, help_text="URL-safe key used in templates/JS, e.g. 'pink_disease'")
+    danger_rank = models.PositiveSmallIntegerField(
+        default=1, help_text="0=healthy. Used only for heatmap/marker intensity, not severity tiering."
+    )
+    is_healthy = models.BooleanField(default=False, help_text="Exactly one disease class should be marked Healthy.")
+    recommendation_mild = models.TextField(blank=True)
+    recommendation_moderate = models.TextField(blank=True)
+    recommendation_severe = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["display_order", "name"]
+        verbose_name_plural = "Disease classes"
+
+    def __str__(self):
+        return self.name
+
+    def recommendation_for(self, severity_label):
+        if self.is_healthy:
+            return self.recommendation_mild or "No action needed. Continue regular monitoring every 30 days."
+        return {
+            "Mild": self.recommendation_mild,
+            "Moderate": self.recommendation_moderate,
+            "Severe": self.recommendation_severe,
+        }.get(severity_label) or self.recommendation_moderate or self.recommendation_mild or ""
+
+
+_DISEASE_CACHE_KEY = "disease_class_lookup_v1"
+
+
+def get_disease_lookup():
+    # Cached {name: DiseaseClass} dict, invalidated automatically whenever a
+    # DiseaseClass is saved/deleted (see the signal handlers below). This
+    # avoids a DB query per tree when rendering lists of hundreds of trees
+    # (heatmap, dashboard, reports) while still reflecting admin edits
+    # immediately.
+    lookup = cache.get(_DISEASE_CACHE_KEY)
+    if lookup is None:
+        lookup = {d.name: d for d in DiseaseClass.objects.all()}
+        cache.set(_DISEASE_CACHE_KEY, lookup, timeout=None)
+    return lookup
+
+
+def get_disease_choices():
+    # Callable choices (Django 5.0+): evaluated lazily each time, so newly
+    # added/removed DiseaseClass rows show up in forms/admin without a
+    # migration or code change. Wrapped in try/except because Django's
+    # system checks evaluate this against the CURRENT database state —
+    # which means it can run before this table exists yet (a fresh install,
+    # or while makemigrations itself is being generated).
+    try:
+        return [(d.name, d.name) for d in DiseaseClass.objects.all().order_by("display_order", "name")]
+    except Exception:
+        return []
+
+
+@receiver([post_save, post_delete], sender=DiseaseClass)
+def _clear_disease_cache(sender, **kwargs):
+    cache.delete(_DISEASE_CACHE_KEY)
+
+
 class RubberTree(models.Model):
-    DISEASE_CHOICES = [
-        ("Healthy", "Healthy"),
-        ("Pink Disease", "Pink Disease"),
-        ("White Root Rot", "White Root Rot"),
-        ("Stem Bleeding", "Stem Bleeding"),
+
+    ROOT_CONDITION_CHOICES = [
+        ("Healthy Roots", "Healthy Roots"),
+        ("Exposed Roots Detected", "Exposed Roots Detected"),
     ]
-    COLOR_MAP = {
-        "Healthy": "#28a745",
-        "Pink Disease": "#dc3545",
-        "White Root Rot": "#8b5a2b",
-        "Stem Bleeding": "#8b0000",
-    }
-    DISEASE_KEY_MAP = {
-        "Healthy": "healthy",
-        "Pink Disease": "pink",
-        "White Root Rot": "white_root",
-        "Stem Bleeding": "stem_bleeding",
-    }
-    SEVERITY_MAP = {
-        "Healthy": 0,
-        "Pink Disease": 1,
-        "White Root Rot": 2,
-        "Stem Bleeding": 3,
-    }
-    # Recommendations now vary by severity tier, not just disease. Block/farm
-    # "spread" recommendations are handled separately in views._get_recommendations().
-    SEVERITY_RECOMMENDATIONS = {
-        "Healthy": {
-            "Healthy": "No action needed. Continue regular monitoring every 30 days.",
-        },
-        "Pink Disease": {
-            "Mild": "Early-stage Pink Disease. Apply a copper-based fungicide preventively and monitor weekly.",
-            "Moderate": "Apply fungicide (Mancozeb 80% WP) and remove infected bark. Recheck in 2 weeks.",
-            "Severe": "Advanced spread — remove and destroy severely affected bark/branches, apply systemic fungicide immediately, and suspend tapping on this tree.",
-        },
-        "White Root Rot": {
-            "Mild": "Early signs of White Root Rot. Improve soil drainage and apply Trichoderma biocontrol preventively.",
-            "Moderate": "Uproot and destroy infected roots. Treat soil with Trichoderma biocontrol.",
-            "Severe": "High risk of spread to neighboring trees — uproot and destroy the tree and connected root system, quarantine the block, treat soil, and inspect adjacent trees.",
-        },
-        "Stem Bleeding": {
-            "Mild": "Minor bark lesions. Scrape and apply Metalaxyl paste; resume tapping after 30 days.",
-            "Moderate": "Scrape off infected bark. Apply Metalaxyl paste. Avoid tapping for 60 days.",
-            "Severe": "Severe stem bleeding — halt tapping entirely, apply systemic fungicide, and consult an agricultural technician about possible removal.",
-        },
-    }
 
     farm = models.ForeignKey(Farm, on_delete=models.CASCADE, related_name="trees")
     tree_id = models.CharField(max_length=40, unique=True)
     lat = models.FloatField()
     lng = models.FloatField()
-    disease = models.CharField(max_length=30, choices=DISEASE_CHOICES, default="Healthy")
+    disease = models.CharField(max_length=50, choices=get_disease_choices, default="Healthy")
     confidence = models.FloatField(default=0.0)
+    # Root condition is captured and assessed separately from the trunk
+    # disease classification (comment 1/4: exposed roots aren't yet one of
+    # the 4 trained CNN disease classes, so this is a lightweight flag
+    # rather than a full root-disease classifier).
+    root_condition = models.CharField(max_length=30, choices=ROOT_CONDITION_CHOICES, blank=True)
+    root_image = models.ImageField(upload_to="scans/roots/%Y/%m/", blank=True, null=True)
+    trunk_image = models.ImageField(upload_to="scans/trunks/%Y/%m/", blank=True, null=True)
     # Stored severity score (0-100). Auto-derived from disease + confidence
     # today; a future detection model can write to this field directly
     # instead of relying on the derived property.
@@ -180,25 +225,21 @@ class RubberTree(models.Model):
 
     def get_recommended_action(self):
         # Looks up a recommendation tied to both the disease AND its severity
-        # tier (Mild/Moderate/Severe), rather than one generic action per
-        # disease. Falls back to the Moderate tier text if severity_label
-        # ever produces an unexpected value.
-        tiers = self.SEVERITY_RECOMMENDATIONS.get(self.disease, {})
-        return tiers.get(self.severity_label) or tiers.get("Moderate", "")
+        # tier (Mild/Moderate/Severe), via the dynamic DiseaseClass catalog
+        # rather than a hardcoded dict. Returns "" if the disease name isn't
+        # found in the catalog (e.g. it was renamed/removed after this scan
+        # was recorded).
+        disease_class = get_disease_lookup().get(self.disease)
+        if not disease_class:
+            return ""
+        return disease_class.recommendation_for(self.severity_label)
 
     def _compute_severity_score(self):
         # Severity tier is driven by detection confidence, not disease type.
         # (Disease-type danger ranking is separate — see the `severity`
         # property below, used only for heatmap/marker intensity.)
-        #
-        # NOTE: the previous formula was `(base/3) * confidence`, where base
-        # is the disease's 0-3 danger rank. That mathematically capped Pink
-        # Disease (base=1) at a max score of 33.3 — always "Mild" — and
-        # White Root Rot (base=2) at max 66.7 — never "Severe" — no matter
-        # how high the confidence. This also silently affected the Reports
-        # page's severity distribution chart/table and the PDF export,
-        # which both filter on this same field.
-        if self.disease == "Healthy":
+        disease_class = get_disease_lookup().get(self.disease)
+        if disease_class and disease_class.is_healthy:
             return 0.0
         return round(self.confidence, 1)
 
@@ -209,23 +250,28 @@ class RubberTree(models.Model):
     @property
     def color(self):
         # Returns the hex color code corresponding to the tree's disease status.
-        return self.COLOR_MAP.get(self.disease, "#28a745")
+        disease_class = get_disease_lookup().get(self.disease)
+        return disease_class.color_hex if disease_class else "#6c757d"
 
     @property
     def disease_key(self):
         # Returns a URL-safe key for the disease, used in templates and JS.
-        return self.DISEASE_KEY_MAP.get(self.disease, "healthy")
+        disease_class = get_disease_lookup().get(self.disease)
+        return disease_class.marker_key if disease_class else "unknown"
 
     @property
     def severity(self):
-        # Returns a 0-3 severity score used for heatmap intensity (0=healthy, 3=most severe).
-        return self.SEVERITY_MAP.get(self.disease, 0)
+        # Returns the disease's danger rank, used for heatmap intensity only
+        # (NOT the same as severity_label, which is confidence-driven).
+        disease_class = get_disease_lookup().get(self.disease)
+        return disease_class.danger_rank if disease_class else 0
 
     @property
     def severity_label(self):
         # Converts severity_score (0-100) into a Healthy/Mild/Moderate/Severe tier.
+        disease_class = get_disease_lookup().get(self.disease)
         score = self.severity_score
-        if self.disease == "Healthy" or score == 0:
+        if (disease_class and disease_class.is_healthy) or score == 0:
             return "Healthy"
         if score < 34:
             return "Mild"
@@ -237,17 +283,20 @@ class RubberTree(models.Model):
         # Compares this tree's two most recent ScanHistory entries and
         # labels the trend (comment 9). ScanHistory has no stored severity,
         # so it's recomputed here the same way _compute_severity_score()
-        # does, keeping both in sync with a single source of truth
-        # (SEVERITY_MAP) rather than duplicating tier thresholds.
+        # does, keeping both in sync with a single source of truth (the
+        # DiseaseClass catalog) rather than duplicating tier thresholds.
         recent = list(self.history.all()[:2])
         if len(recent) < 2:
             return {"trend": "Insufficient data", "detail": "Needs at least 2 scans to compare."}
 
         current, previous = recent[0], recent[1]
+        lookup = get_disease_lookup()
 
         def score_of(scan):
-            base = self.SEVERITY_MAP.get(scan.disease, 0)
-            return round((base / 3) * scan.confidence, 1) if base else 0.0
+            disease_class = lookup.get(scan.disease)
+            if disease_class and disease_class.is_healthy:
+                return 0.0
+            return round(scan.confidence, 1)
 
         current_score, previous_score = score_of(current), score_of(previous)
 
@@ -334,12 +383,19 @@ class RubberTree(models.Model):
 class ScanHistory(models.Model):
     tree = models.ForeignKey(RubberTree, on_delete=models.CASCADE, related_name="history")
     date = models.DateField()
-    disease = models.CharField(max_length=30)
+    # Multiple scans can land on the same calendar date during testing/demo
+    # sessions; date alone can't break ties, so progression tracking
+    # (get_progression_trend) orders by this instead.
+    created_at = models.DateTimeField(auto_now_add=True)
+    disease = models.CharField(max_length=50)
     confidence = models.FloatField()
     inspector = models.CharField(max_length=100, blank=True)
+    root_condition = models.CharField(max_length=30, blank=True)
+    root_image = models.ImageField(upload_to="scans/roots/%Y/%m/", blank=True, null=True)
+    trunk_image = models.ImageField(upload_to="scans/trunks/%Y/%m/", blank=True, null=True)
 
     class Meta:
-        ordering = ["-date"]
+        ordering = ["-created_at"]
 
     def __str__(self):
         # Returns a readable string showing the tree, scan date, and detected disease.
