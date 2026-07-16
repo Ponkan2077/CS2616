@@ -4,12 +4,11 @@
    populates the save form -- including the two resized image files --
    ready for a normal multipart form submission. */
 
-const DISEASE_INFO = {
-  "Healthy": { action: "No action needed. Continue regular monitoring every 30 days.", confirmed: true },
-  "Pink Disease": { action: "Apply fungicide (Mancozeb 80% WP) immediately. Remove infected bark.", confirmed: true },
-  "White Root Rot": { action: "Uproot and destroy infected roots. Treat soil with Trichoderma biocontrol.", confirmed: true },
-  "Stem Bleeding": { action: "Scrape off infected bark. Apply Metalaxyl paste. Avoid tapping 60 days.", confirmed: true },
-};
+// Populated from window.DISEASE_CATALOG, which is rendered server-side
+// from the dynamic DiseaseClass catalog (see views.disease_detection) --
+// NOT a hardcoded list, since the real disease set depends on the trained
+// CNN model's actual classes, which depends on dataset/field availability.
+const DISEASE_INFO = window.DISEASE_CATALOG || {};
 
 // Images are stored at up to this size on the longest edge -- separate
 // from whatever input size a future trained CNN normalizes to (e.g.
@@ -52,7 +51,7 @@ function setWorkflowStep(index) {
 
 // Resizes an image file so its longest edge is at most STORAGE_MAX_DIMENSION,
 // respecting camera EXIF orientation via the browser's own decode, and
-// returns a Promise<File> (JPEG). Smaller source images are left as-is.
+// returns a Promise<File> (WebP). Smaller source images are left as-is.
 function resizeImageFile(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -112,15 +111,20 @@ function handleCapture(file, { previewImgId, dropZoneId, kind }) {
 // Runs a simulated CNN analysis (random pick among trunk disease classes)
 // plus a simulated root-condition check, since a trained model isn't
 // wired into this Django app yet. Root condition is assessed separately
-// from trunk disease -- exposed roots aren't one of the 4 trained classes.
+// from trunk disease -- exposed roots aren't one of the trained trunk
+// disease classes (see the dynamic DiseaseClass catalog for what those are).
 function runAnalysis() {
+  const classes = Object.keys(DISEASE_INFO);
+  if (classes.length === 0) {
+    alert("No disease classes are configured yet. Add at least one in the admin panel.");
+    return;
+  }
   setWorkflowStep(2);
   const analyzeBtn = document.getElementById("analyze-btn");
   analyzeBtn.disabled = true;
   analyzeBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Analyzing...';
 
   setTimeout(() => {
-    const classes = Object.keys(DISEASE_INFO);
     const disease = classes[Math.floor(Math.random() * classes.length)];
     const confidence = Math.round((70 + Math.random() * 29) * 10) / 10;
     const rootCondition = Math.random() < 0.75 ? "Healthy Roots" : "Exposed Roots Detected";
