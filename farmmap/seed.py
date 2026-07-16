@@ -14,24 +14,45 @@ import random
 import math
 import datetime
 from django.contrib.auth.models import User
-from farmmap.models import Farm, RubberTree, ScanHistory, Intervention
+from farmmap.models import Farm, RubberTree, ScanHistory, Intervention, DiseaseClass
 
 random.seed(42)  # reproducible seed data across runs
 
 TREES_PER_FARM = 1500
-DISEASE_WEIGHTS = [("Healthy", 70), ("Pink Disease", 12), ("White Root Rot", 10), ("Stem Bleeding", 8)]
-SEVERITY_MAP = {"Healthy": 0, "Pink Disease": 1, "White Root Rot": 2, "Stem Bleeding": 3}
 BLOCKS = ["A", "B", "C", "D", "E", "F"]
 INSPECTORS = ["J. Reyes", "M. Santos", "P. Cruz", "A. Lopez"]
 ACTIONS = [a for a, _ in Intervention.ACTION_CHOICES]
 
-RECOMMENDED_ACTIONS = RubberTree.SEVERITY_RECOMMENDATIONS
+# Reads the disease catalog fresh each run, rather than a hardcoded list --
+# if you've added/removed disease classes via the admin since the last
+# reseed, this picks that up automatically. Healthy trees are weighted at
+# ~70% of all scans; the remaining ~30% is split evenly across whatever
+# non-healthy diseases currently exist (falls back to a flat split if no
+# disease is explicitly marked Healthy).
+_DISEASE_CLASSES = list(DiseaseClass.objects.all())
+if not _DISEASE_CLASSES:
+    raise RuntimeError(
+        "No DiseaseClass rows found. Run migrations first "
+        "(python manage.py migrate) so the initial disease catalog is seeded."
+    )
+_HEALTHY_NAMES = [d.name for d in _DISEASE_CLASSES if d.is_healthy]
+_DISEASED_NAMES = [d.name for d in _DISEASE_CLASSES if not d.is_healthy]
+_DISEASE_LOOKUP = {d.name: d for d in _DISEASE_CLASSES}
+
+if _HEALTHY_NAMES and _DISEASED_NAMES:
+    DISEASE_WEIGHTS = (
+        [(name, 70 / len(_HEALTHY_NAMES)) for name in _HEALTHY_NAMES]
+        + [(name, 30 / len(_DISEASED_NAMES)) for name in _DISEASED_NAMES]
+    )
+else:
+    DISEASE_WEIGHTS = [(d.name, 1) for d in _DISEASE_CLASSES]
 
 
 def severity_label(disease, score):
     # Mirrors RubberTree.severity_label, since bulk_create skips the model's
     # property-driven logic entirely.
-    if disease == "Healthy" or score == 0:
+    disease_class = _DISEASE_LOOKUP.get(disease)
+    if (disease_class and disease_class.is_healthy) or score == 0:
         return "Healthy"
     if score < 34:
         return "Mild"
@@ -41,11 +62,13 @@ def severity_label(disease, score):
 
 
 def recommended_action_for(disease, score):
-    # Severity-tiered lookup (comment 2 fix), falling back to the Moderate
-    # tier if a disease/severity combination is ever missing.
-    tiers = RECOMMENDED_ACTIONS.get(disease, {})
-    label = severity_label(disease, score)
-    return tiers.get(label) or tiers.get("Moderate", "")
+    # Severity-tiered lookup (comment 2 fix) via the dynamic DiseaseClass
+    # catalog, falling back to "" if the disease was removed from the
+    # catalog after this row was originally generated.
+    disease_class = _DISEASE_LOOKUP.get(disease)
+    if not disease_class:
+        return ""
+    return disease_class.recommendation_for(severity_label(disease, score))
 
 
 def weighted_disease():
@@ -56,7 +79,8 @@ def weighted_disease():
 
 def compute_severity_score(disease, confidence):
     # Mirrors RubberTree._compute_severity_score, since bulk_create skips save().
-    if disease == "Healthy":
+    disease_class = _DISEASE_LOOKUP.get(disease)
+    if disease_class and disease_class.is_healthy:
         return 0.0
     return round(confidence, 1)
 
