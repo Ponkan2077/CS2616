@@ -160,30 +160,16 @@
     <div id="class-reference" class="card-rg">
       <div class="card-header-rg"><i class="bi bi-journal-text"></i> Disease Class Reference</div>
       <div class="card-body-rg row g-3">
+        {% for d in disease_classes %}
         <div class="col-12 col-sm-6">
-          <div class="p-3 rounded-3 h-100 ref-card ref-healthy">
-            <div class="fw-bold text-healthy mb-1">Healthy</div>
-            <div class="text-muted" style="font-size:12px;">Normal bark appearance, no lesions or fungal growth. Routine monitoring only.</div>
+          <div class="p-3 rounded-3 h-100 ref-card" style="border-left-color:{{ d.color_hex }};background:color-mix(in srgb, {{ d.color_hex }} 8%, var(--card-bg-alt));">
+            <div class="fw-bold mb-1" style="color:{{ d.color_hex }};">{{ d.name }}</div>
+            <div class="text-muted" style="font-size:12px;">{{ d.description }}</div>
           </div>
         </div>
-        <div class="col-12 col-sm-6">
-          <div class="p-3 rounded-3 h-100 ref-card ref-pink">
-            <div class="fw-bold text-pink mb-1">Pink Disease</div>
-            <div class="text-muted" style="font-size:12px;">Caused by <em>Erythricium salmonicolor</em>. Pink corticioid fungal crust on bark.</div>
-          </div>
-        </div>
-        <div class="col-12 col-sm-6">
-          <div class="p-3 rounded-3 h-100 ref-card ref-white-root">
-            <div class="fw-bold text-white-root mb-1">White Root Rot</div>
-            <div class="text-muted" style="font-size:12px;">Caused by <em>Rigidoporus lignosus</em>. White mycelial fans at root collar.</div>
-          </div>
-        </div>
-        <div class="col-12 col-sm-6">
-          <div class="p-3 rounded-3 h-100 ref-card ref-stem">
-            <div class="fw-bold text-stem mb-1">Stem Bleeding</div>
-            <div class="text-muted" style="font-size:12px;">Caused by <em>Phytophthora palmivora</em>. Dark exudate on trunk.</div>
-          </div>
-        </div>
+        {% empty %}
+        <div class="col-12 text-muted">No disease classes configured yet. Add some in the admin panel.</div>
+        {% endfor %}
       </div>
     </div>
   </div>
@@ -192,5 +178,11 @@
 
 {% block extra_scripts %}
 {% load static %}
+<script>
+  // Rendered server-side from the dynamic DiseaseClass catalog (see
+  // views.disease_detection) -- adding/removing a disease via the admin
+  // changes what the simulator picks from here, with no JS/template edit.
+  window.DISEASE_CATALOG = {{ disease_catalog_json|safe }};
+</script>
 <script src="{% static 'js/disease_detection.js' %}"></script>
 {% endblock %}
