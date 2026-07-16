@@ -29,6 +29,7 @@ urlpatterns = [
 
     # Farm selection
     path('select-farm/', views.select_farm, name='select_farm'),
+    path('admin-dashboard/', views.admin_dashboard, name='admin_dashboard'),
 
     # Authentication
     path('login/', never_cache(auth_views.LoginView.as_view(template_name='login.html')), name='login'),
