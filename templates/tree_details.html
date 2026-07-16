@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load disease_extras %}
 {% block title %}{{ tree.tree_id }} Details{% endblock %}
 {% block page_title %}Tree Details — {{ tree.tree_id }}{% endblock %}
 
@@ -26,11 +27,7 @@
           </div>
           <div>
             <div class="fw-bold" style="font-size:20px;">{{ tree.tree_id }}</div>
-            <span class="badge-disease
-              {% if tree.disease == 'Healthy' %}badge-healthy
-              {% elif tree.disease == 'Pink Disease' %}badge-pink
-              {% elif tree.disease == 'White Root Rot' %}badge-white-root
-              {% else %}badge-stem{% endif %}">
+            <span class="badge-disease" style="background:color-mix(in srgb, {{ tree.disease|disease_color }} 20%, white); color:{{ tree.disease|disease_color }};">
               {{ tree.disease }}
             </span>
           </div>
@@ -60,11 +57,44 @@
           <span class="detail-label">Block</span>
           <span>Block {{ tree.block }}</span>
 
+          {% if tree.root_condition %}
+          <span class="detail-label">Root Condition</span>
+          <span class="fw-semibold {% if tree.root_condition == 'Exposed Roots Detected' %}text-pink{% else %}text-healthy{% endif %}">
+            {{ tree.root_condition }}
+          </span>
+          {% endif %}
+
           <span class="detail-label">Notes</span>
           <span style="font-size:12px;color:var(--text-main);">{{ tree.notes }}</span>
         </div>
       </div>
     </div>
+
+    {% if tree.root_image or tree.trunk_image %}
+    <div class="card-rg mb-3">
+      <div class="card-header-rg"><i class="bi bi-images"></i> Captured Photos</div>
+      <div class="card-body-rg">
+        <div class="row g-2">
+          {% if tree.root_image %}
+          <div class="col-6">
+            <div class="text-muted mb-1" style="font-size:11px;font-weight:600;letter-spacing:.6px;">ROOT</div>
+            <a href="{{ tree.root_image.url }}" target="_blank">
+              <img src="{{ tree.root_image.url }}" alt="Root photo" style="width:100%;border-radius:8px;border:1px solid var(--border);">
+            </a>
+          </div>
+          {% endif %}
+          {% if tree.trunk_image %}
+          <div class="col-6">
+            <div class="text-muted mb-1" style="font-size:11px;font-weight:600;letter-spacing:.6px;">TRUNK</div>
+            <a href="{{ tree.trunk_image.url }}" target="_blank">
+              <img src="{{ tree.trunk_image.url }}" alt="Trunk photo" style="width:100%;border-radius:8px;border:1px solid var(--border);">
+            </a>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
 
     <!-- Treatment -->
     <div class="card-rg">
@@ -145,11 +175,7 @@
             <tr>
               <td style="font-size:12px;">{{ h.date }}</td>
               <td>
-                <span class="badge-disease
-                  {% if h.disease == 'Healthy' %}badge-healthy
-                  {% elif h.disease == 'Pink Disease' %}badge-pink
-                  {% elif h.disease == 'White Root Rot' %}badge-white-root
-                  {% else %}badge-stem{% endif %}">
+                <span class="badge-disease" style="background:color-mix(in srgb, {{ h.disease|disease_color }} 20%, white); color:{{ h.disease|disease_color }};">
                   {{ h.disease }}
                 </span>
               </td>
