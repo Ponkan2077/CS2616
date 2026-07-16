@@ -1,15 +1,18 @@
 import json
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib import messages
 from django.urls import reverse
 from django.utils import timezone
 from django.core.paginator import Paginator
-from django.db.models import Count, Q, Prefetch, Min, Max
-from .models import Farm, RubberTree, ScanHistory, Intervention
+from django.db.models import Count, Q, Prefetch, Min, Max, Avg
+from .models import Farm, RubberTree, ScanHistory, Intervention, DiseaseClass
 from .imaging import resize_for_storage
+from . import ai_inference
+from . import storage_stats
 
 # Icon and color shown in the notification bell for each disease type.
 NOTIFICATION_STYLE = {
@@ -565,7 +568,21 @@ def disease_detection(request):
     # Renders the disease detection upload page.
     farm = _get_farm_or_none(request)
     ctx = _base_context(request, farm)
-    ctx.update({"page": "disease_detection"})
+    # The simulated inference step (no trained model wired in yet) needs to
+    # pick from and describe whatever diseases currently exist in the
+    # DiseaseClass catalog -- not a hardcoded JS list -- so adding/removing
+    # a disease via the admin is reflected here immediately.
+    disease_catalog = {
+        d.name: {
+            "action": d.recommendation_for("Moderate") or d.recommendation_for("Mild"),
+        }
+        for d in DiseaseClass.objects.all()
+    }
+    ctx.update({
+        "page": "disease_detection",
+        "disease_catalog_json": json.dumps(disease_catalog),
+        "disease_classes": DiseaseClass.objects.all().order_by("display_order", "name"),
+    })
     return render(request, "disease_detection.html", ctx)
 
 
@@ -602,12 +619,34 @@ def save_detection(request):
 
     root_image_resized = None
     trunk_image_resized = None
+    root_file_bytes = None
+    trunk_file_bytes = None
     if request.FILES.get("root_image"):
         f = request.FILES["root_image"]
+        root_file_bytes = f.read()
+        f.seek(0)
         root_image_resized = resize_for_storage(f, f.name)
     if request.FILES.get("trunk_image"):
         f = request.FILES["trunk_image"]
+        trunk_file_bytes = f.read()
+        f.seek(0)
         trunk_image_resized = resize_for_storage(f, f.name)
+
+    # If a real model endpoint is configured (AI_MODEL_ENDPOINT_URL), use it
+    # instead of trusting the client-submitted disease/confidence -- which
+    # otherwise come from the JS simulator in disease_detection.js. Falls
+    # back to the client-submitted (simulated) values if the endpoint call
+    # fails, so a flaky or cold-starting model host never blocks saving a
+    # scan outright.
+    if ai_inference.AI_MODEL_ENABLED and root_file_bytes and trunk_file_bytes:
+        try:
+            result = ai_inference.classify_images(root_file_bytes, trunk_file_bytes)
+            disease = result["disease"]
+            confidence = result["confidence"]
+            if result.get("root_condition"):
+                root_condition = result["root_condition"]
+        except ai_inference.InferenceError:
+            pass
 
     if not tree_id:
         existing = farm.trees.count()
@@ -1360,3 +1399,60 @@ def csrf_failure(request, reason=""):
     # user back to a fresh login form with a friendly explanation.
     messages.error(request, "Your session expired or the connection dropped. Please log in again.")
     return redirect("login")
+
+
+@staff_member_required
+def admin_dashboard(request):
+    # A single operational dashboard: add disease classes without leaving
+    # the app's own UI (full edit of an existing one still goes through
+    # /admin/ for all the fields), plus storage and AI-model status at a
+    # glance. Restricted to staff accounts (create one via
+    # `manage.py createsuperuser` or the /admin/ Users page).
+    if request.method == "POST":
+        name = request.POST.get("name", "").strip()
+        if not name:
+            messages.error(request, "Disease name is required.")
+        elif DiseaseClass.objects.filter(name__iexact=name).exists():
+            messages.error(request, f'"{name}" already exists.')
+        else:
+            DiseaseClass.objects.create(
+                name=name,
+                description=request.POST.get("description", "").strip(),
+                display_order=DiseaseClass.objects.count(),
+                color_hex=request.POST.get("color_hex", "#6c757d").strip(),
+                marker_key=request.POST.get("marker_key", "").strip() or name.lower().replace(" ", "_"),
+                danger_rank=int(request.POST.get("danger_rank") or 1),
+                is_healthy=request.POST.get("is_healthy") == "on",
+                recommendation_mild=request.POST.get("recommendation_mild", "").strip(),
+                recommendation_moderate=request.POST.get("recommendation_moderate", "").strip(),
+                recommendation_severe=request.POST.get("recommendation_severe", "").strip(),
+            )
+            messages.success(request, f'Added disease class "{name}".')
+        return redirect("admin_dashboard")
+
+    diseases = DiseaseClass.objects.all().order_by("display_order", "name")
+
+    # AI model analytics are necessarily a stub until real per-inference
+    # logging exists -- there's no trained model wired in yet for most
+    # deployments of this app. What's shown is what can be known today:
+    # whether an endpoint is configured, and aggregate counts as a rough
+    # proxy for "how much scanning has happened."
+    ai_status = {
+        "enabled": ai_inference.AI_MODEL_ENABLED,
+        "endpoint_host": (
+            ai_inference.AI_MODEL_ENDPOINT_URL.split("//")[-1].split("/")[0]
+            if ai_inference.AI_MODEL_ENABLED else None
+        ),
+        "total_scans": ScanHistory.objects.count(),
+        "total_trees": RubberTree.objects.count(),
+        "avg_confidence": round(RubberTree.objects.aggregate(avg=Avg("confidence"))["avg"] or 0, 1),
+    }
+
+    ctx = _base_context(request, _get_farm_or_none(request))
+    ctx.update({
+        "page": "admin_dashboard",
+        "diseases": diseases,
+        "storage_summary": storage_stats.get_storage_summary(),
+        "ai_status": ai_status,
+    })
+    return render(request, "admin_dashboard.html", ctx)
