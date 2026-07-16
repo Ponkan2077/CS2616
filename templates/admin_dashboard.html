@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% load disease_extras %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block page_title %}Admin Dashboard{% endblock %}
+
+{% block content %}
+{% if messages %}
+  {% for message in messages %}
+  <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} py-2" style="font-size:13px;">
+    {{ message }}
+  </div>
+  {% endfor %}
+{% endif %}
+
+<div class="row g-3 mb-3">
+  <!-- Storage analytics -->
+  <div class="col-12 col-lg-6">
+    <div class="card-rg h-100">
+      <div class="card-header-rg"><i class="bi bi-cloud-fill"></i> Web Storage Analytics</div>
+      <div class="card-body-rg">
+        <div class="row g-3 text-center mb-2">
+          <div class="col-4">
+            <div class="fw-bold" style="font-size:20px;">{{ storage_summary.total_image_count }}</div>
+            <div class="text-muted" style="font-size:11px;">Images stored</div>
+          </div>
+          <div class="col-4">
+            <div class="fw-bold" style="font-size:20px;">{{ storage_summary.estimated_total_mb }} MB</div>
+            <div class="text-muted" style="font-size:11px;">{% if storage_summary.is_estimate %}Estimated size{% else %}Total size{% endif %}</div>
+          </div>
+          <div class="col-4">
+            <div class="fw-bold" style="font-size:20px;">{{ storage_summary.total_trees_with_images }}</div>
+            <div class="text-muted" style="font-size:11px;">Trees w/ photos</div>
+          </div>
+        </div>
+        <div class="p-2 rounded-3" style="background:var(--card-bg-alt);font-size:12px;">
+          <div><strong>Active backend:</strong> {{ storage_summary.backend_label }}</div>
+          {% if storage_summary.bucket_label != "—" %}
+          <div><strong>Bucket:</strong> {{ storage_summary.bucket_label }}</div>
+          {% endif %}
+          {% if storage_summary.is_estimate %}
+          <div class="text-muted mt-1" style="font-size:11px;">Size estimated from the {{ storage_summary.sample_size }} most recently uploaded images, to avoid a slow per-file lookup against every image on every page load.</div>
+          {% endif %}
+        </div>
+        <div class="text-muted mt-2" style="font-size:11px;">
+          To switch cloud storage providers (Cloudflare R2, Backblaze B2, Supabase Storage, or AWS S3 all work unmodified), set <code>STORAGE_ENDPOINT_URL</code>, <code>STORAGE_ACCESS_KEY</code>, <code>STORAGE_SECRET_KEY</code>, and <code>STORAGE_BUCKET_NAME</code> as environment variables. See <code>project/storage_config.py</code>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI model analytics -->
+  <div class="col-12 col-lg-6">
+    <div class="card-rg h-100">
+      <div class="card-header-rg"><i class="bi bi-cpu-fill"></i> AI Model Analytics</div>
+      <div class="card-body-rg">
+        {% if ai_status.enabled %}
+        <div class="p-2 rounded-3 mb-2" style="background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.35);color:#4ade80;font-size:12.5px;">
+          <i class="bi bi-check-circle-fill me-1"></i> Connected to <strong>{{ ai_status.endpoint_host }}</strong>
+        </div>
+        {% else %}
+        <div class="p-2 rounded-3 mb-2" style="background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);color:#fbbf24;font-size:12.5px;">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i> No model connected — using the client-side simulator
+        </div>
+        {% endif %}
+        <div class="row g-3 text-center mb-2">
+          <div class="col-6">
+            <div class="fw-bold" style="font-size:20px;">{{ ai_status.total_scans }}</div>
+            <div class="text-muted" style="font-size:11px;">Total scans logged</div>
+          </div>
+          <div class="col-6">
+            <div class="fw-bold" style="font-size:20px;">{{ ai_status.avg_confidence }}%</div>
+            <div class="text-muted" style="font-size:11px;">Avg. confidence</div>
+          </div>
+        </div>
+        <div class="text-muted" style="font-size:11px;">
+          To connect your trained model, set <code>AI_MODEL_ENDPOINT_URL</code> to your hosted inference endpoint (e.g. a Hugging Face Space). See <code>farmmap/ai_inference.py</code> for the expected request/response format and free GPU-hosting notes.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Disease management -->
+<div class="card-rg mb-3">
+  <div class="card-header-rg"><i class="bi bi-bug-fill"></i> Disease Classes ({{ diseases|length }})</div>
+  <div class="table-responsive-rg">
+    <table class="table-rg">
+      <thead>
+        <tr>
+          <th>NAME</th>
+          <th>COLOR</th>
+          <th>DANGER RANK</th>
+          <th>HEALTHY?</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in diseases %}
+        <tr>
+          <td class="fw-semibold">{{ d.name }}</td>
+          <td><span style="display:inline-block;width:14px;height:14px;border-radius:4px;background:{{ d.color_hex }};vertical-align:middle;"></span> {{ d.color_hex }}</td>
+          <td>{{ d.danger_rank }}</td>
+          <td>{% if d.is_healthy %}<i class="bi bi-check-lg text-healthy"></i>{% else %}—{% endif %}</td>
+          <td class="text-end">
+            <a href="/admin/farmmap/diseaseclass/{{ d.id }}/change/" class="text-decoration-none" style="font-size:12px;color:var(--primary);">Edit full details →</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="text-center text-muted py-3">No disease classes yet — add one below.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card-rg">
+  <div class="card-header-rg"><i class="bi bi-plus-circle-fill"></i> Add Disease Class</div>
+  <div class="card-body-rg">
+    <form method="POST">
+      {% csrf_token %}
+      <div class="row g-3">
+        <div class="col-12 col-md-6">
+          <label class="form-label" style="font-size:12px;">Name *</label>
+          <input type="text" name="name" class="form-control form-control-sm" required placeholder="e.g. Leaf Blight">
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label" style="font-size:12px;">Color</label>
+          <input type="color" name="color_hex" class="form-control form-control-sm form-control-color" value="#6c757d">
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label" style="font-size:12px;">Danger rank (0-3+)</label>
+          <input type="number" name="danger_rank" class="form-control form-control-sm" value="1" min="0">
+        </div>
+        <div class="col-12">
+          <label class="form-label" style="font-size:12px;">Description</label>
+          <input type="text" name="description" class="form-control form-control-sm" placeholder="Causal pathogen + visible symptoms, shown in the detection reference card">
+        </div>
+        <div class="col-12 col-md-4">
+          <label class="form-label" style="font-size:12px;">Recommendation — Mild</label>
+          <textarea name="recommendation_mild" class="form-control form-control-sm" rows="2"></textarea>
+        </div>
+        <div class="col-12 col-md-4">
+          <label class="form-label" style="font-size:12px;">Recommendation — Moderate</label>
+          <textarea name="recommendation_moderate" class="form-control form-control-sm" rows="2"></textarea>
+        </div>
+        <div class="col-12 col-md-4">
+          <label class="form-label" style="font-size:12px;">Recommendation — Severe</label>
+          <textarea name="recommendation_severe" class="form-control form-control-sm" rows="2"></textarea>
+        </div>
+        <div class="col-12 form-check ps-4">
+          <input type="checkbox" name="is_healthy" id="is_healthy" class="form-check-input">
+          <label for="is_healthy" class="form-check-label" style="font-size:12px;">This class represents a healthy (disease-free) tree</label>
+        </div>
+        <div class="col-12">
+          <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> Add Disease Class</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
