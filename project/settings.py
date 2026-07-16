@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,6 +21,7 @@ CSRF_TRUSTED_ORIGINS = [
 CSRF_FAILURE_VIEW = 'farmmap.views.csrf_failure'
 
 INSTALLED_APPS = [
+    'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.staticfiles',
@@ -83,5 +85,20 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'  # for PythonAnywhere collectstatic
+
+# Local storage by default; switches to cloud storage automatically if
+# configured. See project/storage_config.py for provider setup and
+# recommendations -- kept in its own module so switching cloud storage
+# providers never requires touching this settings file.
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+from .storage_config import get_storages_setting, CLOUD_STORAGE_ENABLED
+
+if CLOUD_STORAGE_ENABLED:
+    STORAGES = {
+        'default': get_storages_setting(),
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
