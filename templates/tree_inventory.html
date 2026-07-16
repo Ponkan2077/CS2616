@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load disease_extras %}
 {% block title %}Tree Inventory{% endblock %}
 {% block page_title %}Tree Inventory{% endblock %}
 
@@ -86,11 +87,7 @@
             </a>
           </td>
           <td>
-            <span class="badge-disease
-              {% if t.disease == 'Healthy' %}badge-healthy
-              {% elif t.disease == 'Pink Disease' %}badge-pink
-              {% elif t.disease == 'White Root Rot' %}badge-white-root
-              {% else %}badge-stem{% endif %}">
+            <span class="badge-disease" style="background:color-mix(in srgb, {{ t.disease|disease_color }} 20%, white); color:{{ t.disease|disease_color }};">
               {{ t.disease }}
             </span>
           </td>
