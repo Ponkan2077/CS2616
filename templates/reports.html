@@ -140,7 +140,9 @@
   <div class="card-header-rg"><i class="bi bi-graph-up"></i> Disease Reports Over Time</div>
   <div class="card-body-rg">
     {% if monthly %}
-    <canvas id="reportTrend" height="160"></canvas>
+    <div style="height:320px;">
+      <canvas id="reportTrend"></canvas>
+    </div>
     {% else %}
     <div class="text-center text-muted py-4" style="font-size:13px;">Not enough scan history yet to show a trend.</div>
     {% endif %}
