@@ -359,6 +359,11 @@ class RubberTree(models.Model):
             "severity_score": self.severity_score,
             "color": self.color,
             "block": self.block,
+            # Only meaningful when the view annotates it with an Exists
+            # subquery (see farm_map view) -- False here is just a safe
+            # default for any other caller of to_marker_dict() that
+            # doesn't need intervention status.
+            "has_intervention": getattr(self, "has_intervention", False),
         }
 
     def to_map_dict(self):
@@ -466,3 +471,31 @@ class Intervention(models.Model):
             "notes": self.notes,
             "performed_by": self.performed_by.username if self.performed_by else "Unknown",
         }
+
+
+class UserSettings(models.Model):
+    """Per-user preferences, currently just notification-bell tuning.
+    Created lazily (get_or_create) the first time a user's settings are
+    read or saved, so existing users never need a data migration."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="settings")
+    notify_lookback_days = models.PositiveIntegerField(
+        default=7,
+        help_text="Only scans within this many days show up as a notification.",
+    )
+    notify_pink_disease = models.BooleanField(default=True)
+    notify_white_root_rot = models.BooleanField(default=True)
+    notify_stem_bleeding = models.BooleanField(default=True)
+
+    def __str__(self):
+        # Returns a readable string identifying whose settings these are.
+        return f"Settings for {self.user.username}"
+
+    def enabled_diseases(self):
+        # Returns the list of disease names this user wants notifications
+        # for, based on their toggles.
+        mapping = {
+            "Pink Disease": self.notify_pink_disease,
+            "White Root Rot": self.notify_white_root_rot,
+            "Stem Bleeding": self.notify_stem_bleeding,
+        }
+        return [name for name, enabled in mapping.items() if enabled]
