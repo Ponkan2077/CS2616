@@ -8,16 +8,20 @@ function renderFarmPie(counts) {
   const canvas = document.getElementById("farmPie");
   if (!canvas) return;
   new Chart(canvas, {
-    type: "pie",
+    type: "doughnut",
     data: {
       labels: ["Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"],
       datasets: [{
         data: [counts.healthy, counts.pink, counts.white_root, counts.stem],
         backgroundColor: [DISEASE_COLORS.healthy, DISEASE_COLORS.pink, DISEASE_COLORS.white_root, DISEASE_COLORS.stem],
-        borderWidth: 2, borderColor: "#fff",
+        borderWidth: 2, borderColor: "#1a2535",
       }]
     },
-    options: { responsive: true, plugins: { legend: { position: "bottom" } } }
+    options: {
+      responsive: true,
+      cutout: "60%",
+      plugins: { legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } } },
+    }
   });
 }
 
