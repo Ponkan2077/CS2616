@@ -108,6 +108,33 @@ class Farm(models.Model):
         # outside the outermost trees rather than clipping through them.
         return _expand_polygon(hull, self.center_lat, self.center_lng, factor=1.06)
 
+    def get_block_polygons(self):
+        # Returns {block_name: [[lat, lng], ...]} boundary polygons for
+        # every labeled block in this farm, using the same convex-hull
+        # approach as get_boundary_polygon() above but grouped per block
+        # instead of over the whole farm. A block needs at least 3 trees
+        # to form a hull -- blocks with fewer still show up as markers,
+        # just without a drawn outline, since 1-2 points can't describe
+        # an area.
+        from collections import defaultdict
+        by_block = defaultdict(list)
+        for lat, lng, block in self.trees.exclude(block="").values_list("lat", "lng", "block"):
+            by_block[block].append((lat, lng))
+
+        polygons = {}
+        for block, points in by_block.items():
+            unique_points = list(set(points))
+            if len(unique_points) < 3:
+                continue
+            block_center_lat = sum(p[0] for p in unique_points) / len(unique_points)
+            block_center_lng = sum(p[1] for p in unique_points) / len(unique_points)
+            hull = _convex_hull(unique_points)
+            # Slightly larger expansion factor than the farm boundary
+            # since blocks are smaller -- a tight hull reads as clipping
+            # through the outermost trees at this scale.
+            polygons[block] = _expand_polygon(hull, block_center_lat, block_center_lng, factor=1.12)
+        return polygons
+
 
 class DiseaseClass(models.Model):
     """
