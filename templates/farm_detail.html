@@ -135,6 +135,31 @@
       </tbody>
     </table>
   </div>
+  {% if trees.paginator.num_pages > 1 %}
+  <div class="pagination-rg border-top">
+    {% if trees.has_previous %}
+      <a href="?page={{ trees.previous_page_number }}"><i class="bi bi-chevron-left"></i></a>
+    {% else %}
+      <span class="disabled"><i class="bi bi-chevron-left"></i></span>
+    {% endif %}
+
+    {% for num in trees.paginator.page_range %}
+      {% if num == trees.number %}
+        <span class="active">{{ num }}</span>
+      {% elif num == 1 or num == trees.paginator.num_pages or num|add:"-3" < trees.number and num|add:"3" > trees.number %}
+        <a href="?page={{ num }}">{{ num }}</a>
+      {% elif num == 2 or num == trees.paginator.num_pages|add:"-1" %}
+        <span class="ellipsis">…</span>
+      {% endif %}
+    {% endfor %}
+
+    {% if trees.has_next %}
+      <a href="?page={{ trees.next_page_number }}"><i class="bi bi-chevron-right"></i></a>
+    {% else %}
+      <span class="disabled"><i class="bi bi-chevron-right"></i></span>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 
@@ -148,5 +173,5 @@
   };
 </script>
 {% load static %}
-<script src="{% static 'js/farm_detail.js' %}"></script>
+<script src="{% static 'js/farm_detail.js' %}?v={{ STATIC_VERSION }}"></script>
 {% endblock %}
