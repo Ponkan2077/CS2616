@@ -6,35 +6,23 @@ code -- only this module changes.
 Currently, actual classification happens client-side as a JS simulation
 (see static/js/disease_detection.js) since no trained model is wired in
 yet. This module is the seam for when that changes: once you deploy your
-trained model behind an HTTP endpoint, set AI_MODEL_ENDPOINT_URL and
-classify_images() below will call it for real, with the simulated
-fallback removed automatically.
+trained model behind an HTTP endpoint, set AI_MODEL_ENDPOINT_URL (in
+ai_config.py / your environment) and classify_images() below will call it
+for real, with the simulated fallback removed automatically.
 
-Recommended free hosting for testing your pipeline (as of mid-2026):
-Hugging Face Spaces, CPU Basic tier -- genuinely free with no daily time
-limit (unlike ZeroGPU's 3.5-minutes/day free quota), and MobileNetV3 /
-EfficientNet-B0 / ResNet-50 sized models run inference in well under a
-second on CPU, so GPU isn't actually needed for serving single-image
-classification requests. Package your trained model behind a small
-FastAPI or Gradio app in a Space, and its URL
-(https://<user>-<space>.hf.space/predict) is what goes in
-AI_MODEL_ENDPOINT_URL below -- hf.space is on PythonAnywhere's free-account
-outbound allowlist (pythonanywhere.com/whitelist/), so this works
-unmodified on a free PythonAnywhere account.
-
-If you specifically need GPU to validate inference speed/behavior before
-going live, Hugging Face's ZeroGPU (free, H200-backed, 3.5 min/day quota,
-Gradio SDK only) is also usable from PythonAnywhere for that kind of
-occasional testing -- just not for serving continuous production traffic
-on the free quota.
+All configuration -- the endpoint URL, timeout, optional API key, and
+hosting recommendations -- lives in ai_config.py, not here, so changing
+where the model is hosted never means touching this file. This module
+only contains the request/response handling logic.
 """
 
-import os
 import requests
 
-AI_MODEL_ENDPOINT_URL = os.environ.get("AI_MODEL_ENDPOINT_URL", "")
-AI_MODEL_TIMEOUT_SECONDS = float(os.environ.get("AI_MODEL_TIMEOUT_SECONDS", "15"))
-AI_MODEL_ENABLED = bool(AI_MODEL_ENDPOINT_URL)
+from . import ai_config
+
+AI_MODEL_ENDPOINT_URL = ai_config.AI_MODEL_ENDPOINT_URL
+AI_MODEL_TIMEOUT_SECONDS = ai_config.AI_MODEL_TIMEOUT_SECONDS
+AI_MODEL_ENABLED = ai_config.AI_MODEL_ENABLED
 
 
 class InferenceError(Exception):
@@ -68,6 +56,7 @@ def classify_images(root_image_bytes, trunk_image_bytes):
                 "root_image": ("root.webp", root_image_bytes, "image/webp"),
                 "trunk_image": ("trunk.webp", trunk_image_bytes, "image/webp"),
             },
+            headers=ai_config.get_request_headers(),
             timeout=AI_MODEL_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
