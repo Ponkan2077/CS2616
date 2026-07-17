@@ -47,6 +47,44 @@ function buildTreeCircleMarker(tree, detailCache) {
   return marker;
 }
 
+// Builds one canvas-rendered circle marker colored by intervention status
+// instead of disease -- used only in Interventions mode, and only for
+// diseased trees (healthy trees have nothing to intervene on). Shares the
+// same lazy-loaded popup as the regular marker.
+function buildInterventionCircleMarker(tree, detailCache) {
+  const marker = L.circleMarker([tree.lat, tree.lng], {
+    renderer: FARM_MAP_CANVAS,
+    radius: 6,
+    weight: 2,
+    color: '#1a2535',
+    opacity: 1,
+    fillColor: tree.has_intervention ? '#22c55e' : '#ef4444',
+    fillOpacity: 0.92,
+  });
+  marker.treeId = tree.tree_id;
+  marker.diseaseKey = tree.disease;
+  marker.needsAction = !tree.has_intervention;
+
+  marker.bindPopup('<div style="font-size:12px;padding:4px;">Loading…</div>', { maxWidth: 270 });
+  marker.on('popupopen', async () => {
+    if (detailCache[tree.tree_id]) {
+      marker.setPopupContent(buildPopupHtml(detailCache[tree.tree_id]));
+      return;
+    }
+    try {
+      const res = await fetch(`/map/marker/${tree.tree_id}/`);
+      if (!res.ok) throw new Error('fetch failed');
+      const detail = await res.json();
+      detailCache[tree.tree_id] = detail;
+      marker.setPopupContent(buildPopupHtml(detail));
+    } catch (err) {
+      marker.setPopupContent('<div style="font-size:12px;color:#dc3545;padding:4px;">Failed to load details. Try again.</div>');
+    }
+  });
+
+  return marker;
+}
+
 // Builds the popup HTML from a full tree detail payload fetched on demand.
 function buildPopupHtml(tree) {
   return `
@@ -79,8 +117,18 @@ function makeClusterIcon(cluster) {
 
   const tally = {};
   children.forEach(m => { tally[m.diseaseKey] = (tally[m.diseaseKey] || 0) + 1; });
+
+  // A cluster that's mostly healthy but has even a handful of diseased
+  // trees should still read as "needs attention", not blend into the
+  // healthy-green background just because Healthy happens to be the
+  // single largest category. So any disease category present outranks
+  // Healthy when picking the bubble color -- Healthy only wins when
+  // it's the ONLY category in the cluster. Among multiple disease
+  // categories, the largest one still decides the color.
+  const diseaseKeys = Object.keys(tally).filter(k => k !== 'Healthy');
   let dominant = 'Healthy', max = -1;
-  Object.keys(tally).forEach(k => { if (tally[k] > max) { max = tally[k]; dominant = k; } });
+  const contenders = diseaseKeys.length > 0 ? diseaseKeys : ['Healthy'];
+  contenders.forEach(k => { if (tally[k] > max) { max = tally[k]; dominant = k; } });
   const color = DISEASE_COLOR_MAP[dominant] || '#4ade80';
   const mixed = Object.keys(tally).length > 1;
 
@@ -90,6 +138,27 @@ function makeClusterIcon(cluster) {
 
   return L.divIcon({
     html: `<div class="cluster-bubble ${sizeClass}" style="background:${color};${mixed ? 'border-style:dashed;' : ''}">${count}</div>`,
+    className: 'marker-cluster-custom',
+    iconSize: L.point(px, px),
+  });
+}
+
+// Cluster bubble icon for Interventions mode — red/needs-action outranks
+// green/treated the same way a disease outranks Healthy above: a cluster
+// is only "all clear" green when every diseased tree inside it has a
+// logged intervention.
+function makeInterventionClusterIcon(cluster) {
+  const children = cluster.getAllChildMarkers();
+  const count = children.length;
+  const anyNeedsAction = children.some(m => m.needsAction);
+  const color = anyNeedsAction ? '#ef4444' : '#22c55e';
+
+  let sizeClass = 'cluster-sm', px = 36;
+  if (count >= 250) { sizeClass = 'cluster-lg'; px = 58; }
+  else if (count >= 40) { sizeClass = 'cluster-md'; px = 46; }
+
+  return L.divIcon({
+    html: `<div class="cluster-bubble ${sizeClass}" style="background:${color};">${count}</div>`,
     className: 'marker-cluster-custom',
     iconSize: L.point(px, px),
   });
@@ -191,7 +260,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!poly || poly.length < 3) return;
       const color = BLOCK_BOUNDARY_COLORS[i % BLOCK_BOUNDARY_COLORS.length];
       L.polygon(poly, {
-        color, weight: 1.5, dashArray: '6,4', fillColor: color, fillOpacity: 0.05,
+        color, weight: 2, opacity: 0.85, dashArray: '8,5', fillColor: color, fillOpacity: 0.08,
       })
         .bindTooltip(`Block ${blockName}`, { direction: 'center', className: 'block-boundary-label' })
         .bindPopup(`<b>Block ${blockName}</b>`)
@@ -213,7 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const detailCache = {};
   let activeClusterGroup = null;
 
-  function buildClusterGroup() {
+  function buildClusterGroup(iconFn) {
     return L.markerClusterGroup({
       maxClusterRadius: 60,
       disableClusteringAtZoom: 19,   // matches basemap maxZoom — individual trees always show once fully zoomed in
@@ -221,18 +290,20 @@ document.addEventListener('DOMContentLoaded', () => {
       showCoverageOnHover: false,
       zoomToBoundsOnClick: true,
       chunkedLoading: true,
-      iconCreateFunction: makeClusterIcon,
+      iconCreateFunction: iconFn || makeClusterIcon,
     });
   }
 
   // Rebuilds the on-map cluster group from just the given subset of
   // trees — used for every filter/search change so picking a category,
   // or "All Diseases", never has to render all 1,500 markers to show a
-  // filtered handful.
-  function rebuildClusterGroup(subsetTrees) {
+  // filtered handful. markerFn/iconFn default to the disease-colored
+  // versions; Interventions mode passes the intervention-status versions.
+  function rebuildClusterGroup(subsetTrees, markerFn, iconFn) {
     if (activeClusterGroup) map.removeLayer(activeClusterGroup);
-    activeClusterGroup = buildClusterGroup();
-    const layers = subsetTrees.map(tree => buildTreeCircleMarker(tree, detailCache));
+    activeClusterGroup = buildClusterGroup(iconFn);
+    const build = markerFn || buildTreeCircleMarker;
+    const layers = subsetTrees.map(tree => build(tree, detailCache));
     activeClusterGroup.addLayers(layers);
     return activeClusterGroup;
   }
@@ -245,8 +316,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const resetBtn = document.getElementById('map-reset');
   const markersBtn = document.getElementById('view-markers-btn');
   const heatmapBtn = document.getElementById('view-heatmap-btn');
+  const interventionsBtn = document.getElementById('view-interventions-btn');
   const legendMarkers = document.getElementById('legend-markers');
   const legendHeatmap = document.getElementById('legend-heatmap');
+  const legendInterventions = document.getElementById('legend-interventions');
   const allDiseasesOption = filterSelect ? filterSelect.querySelector('option[value=""]') : null;
   const diseaseOptions = ['Pink Disease', 'White Root Rot', 'Stem Bleeding'];
 
@@ -259,6 +332,13 @@ document.addEventListener('DOMContentLoaded', () => {
     return markers.filter(t => (!d || t.disease === d) && (!q || t.tree_id.toLowerCase().includes(q)));
   }
 
+  // Same search+filter logic as currentSubset(), further limited to
+  // diseased trees only -- Interventions mode has nothing meaningful to
+  // show for a healthy tree.
+  function interventionSubset() {
+    return currentSubset().filter(t => t.disease !== 'Healthy');
+  }
+
   // Rebuilds the cluster group for the current search+filter state. If
   // the search box narrows things down to exactly one tree, zoom/spiderfy
   // straight to it and open its popup — clustering means a matching tree
@@ -267,6 +347,23 @@ document.addEventListener('DOMContentLoaded', () => {
     if (activeView !== 'markers') return;
     const subset = currentSubset();
     rebuildClusterGroup(subset);
+    activeClusterGroup.addTo(map);
+
+    const q = (searchInput && searchInput.value ? searchInput.value : '').trim();
+    if (q && subset.length === 1) {
+      const [only] = activeClusterGroup.getLayers();
+      if (only) activeClusterGroup.zoomToShowLayer(only, () => only.openPopup());
+    }
+  }
+
+  // Same shape as applyMarkerFilters(), but for Interventions mode: builds
+  // the cluster group from interventionSubset() using the red/green
+  // intervention-status marker and cluster-icon builders instead of the
+  // disease-colored ones.
+  function applyInterventionFilters() {
+    if (activeView !== 'interventions') return;
+    const subset = interventionSubset();
+    rebuildClusterGroup(subset, buildInterventionCircleMarker, makeInterventionClusterIcon);
     activeClusterGroup.addTo(map);
 
     const q = (searchInput && searchInput.value ? searchInput.value : '').trim();
@@ -302,8 +399,10 @@ document.addEventListener('DOMContentLoaded', () => {
     applyMarkerFilters();
     markersBtn.classList.add('active');
     heatmapBtn.classList.remove('active');
+    interventionsBtn.classList.remove('active');
     legendMarkers.style.display = '';
     legendHeatmap.style.display = 'none';
+    legendInterventions.style.display = 'none';
   }
 
   function showHeatmap() {
@@ -316,15 +415,34 @@ document.addEventListener('DOMContentLoaded', () => {
     drawHeatForCurrentDisease();
     heatmapBtn.classList.add('active');
     markersBtn.classList.remove('active');
+    interventionsBtn.classList.remove('active');
     legendMarkers.style.display = 'none';
     legendHeatmap.style.display = '';
+    legendInterventions.style.display = 'none';
+  }
+
+  function showInterventions() {
+    activeView = 'interventions';
+    clearHeatLayer();
+    if (map.hasLayer(grayBasemap)) map.removeLayer(grayBasemap);
+    if (!map.hasLayer(colorBasemap)) colorBasemap.addTo(map);
+    if (allDiseasesOption) allDiseasesOption.hidden = false;
+    applyInterventionFilters();
+    interventionsBtn.classList.add('active');
+    markersBtn.classList.remove('active');
+    heatmapBtn.classList.remove('active');
+    legendMarkers.style.display = 'none';
+    legendHeatmap.style.display = 'none';
+    legendInterventions.style.display = '';
   }
 
   if (markersBtn) markersBtn.addEventListener('click', showMarkers);
   if (heatmapBtn) heatmapBtn.addEventListener('click', showHeatmap);
+  if (interventionsBtn) interventionsBtn.addEventListener('click', showInterventions);
 
   if (filterSelect) filterSelect.addEventListener('change', () => {
     if (activeView === 'heatmap') drawHeatForCurrentDisease();
+    else if (activeView === 'interventions') applyInterventionFilters();
     else applyMarkerFilters();
   });
 
@@ -332,15 +450,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // keystroke while typing a tree ID.
   let searchDebounce = null;
   if (searchInput) searchInput.addEventListener('input', () => {
-    if (activeView !== 'markers') return;
+    if (activeView === 'heatmap') return;
     clearTimeout(searchDebounce);
-    searchDebounce = setTimeout(applyMarkerFilters, 180);
+    searchDebounce = setTimeout(() => {
+      if (activeView === 'interventions') applyInterventionFilters();
+      else applyMarkerFilters();
+    }, 180);
   });
 
   if (resetBtn) resetBtn.addEventListener('click', () => {
     if (searchInput) searchInput.value = '';
     if (filterSelect) filterSelect.value = '';
     if (activeView === 'heatmap') drawHeatForCurrentDisease();
+    else if (activeView === 'interventions') applyInterventionFilters();
     else applyMarkerFilters();
     map.fitBounds(leafletBounds);
   });

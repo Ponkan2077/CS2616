@@ -606,6 +606,18 @@ body {
 .block-boundary-label::before { display: none; }
 
 /* ============================================================
+   RECOMMENDATION BOX — colored by the tree's severity tier so a
+   "High risk, uproot the tree" recommendation reads as urgent
+   (red), not reassuring (green). Healthy is the only tier that
+   keeps the green/positive treatment.
+   ============================================================ */
+.recommendation-box { font-size: 13px; }
+.recommendation-box.healthy  { background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.35); color: #4ade80; }
+.recommendation-box.mild     { background: rgba(250,204,21,.12); border: 1px solid rgba(250,204,21,.35); color: #fbbf24; }
+.recommendation-box.moderate { background: rgba(251,146,60,.14); border: 1px solid rgba(251,146,60,.4); color: #fb923c; }
+.recommendation-box.severe   { background: rgba(220,38,38,.16); border: 1px solid rgba(220,38,38,.5); color: #f87171; }
+
+/* ============================================================
    INTERVENTIONS — tree checklist selector
    ============================================================ */
 .tree-checklist {
