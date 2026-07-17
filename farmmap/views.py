@@ -525,6 +525,7 @@ def farm_map(request):
     markers_json = json.dumps([t.to_marker_dict() for t in trees_qs])
     bounds = _farm_map_bounds(map_farm)
     boundary_polygon = json.dumps(map_farm.get_boundary_polygon())
+    block_boundaries = json.dumps(map_farm.get_block_polygons())
 
     # Uses the sidebar's own selected_farm (not map_farm) for shared
     # context, so the sidebar dropdown never appears to change just from
@@ -537,6 +538,7 @@ def farm_map(request):
         "markers_json": markers_json,
         "map_bounds": json.dumps(bounds),
         "map_farm_boundary": boundary_polygon,
+        "map_block_boundaries": block_boundaries,
         "total": total, "counts": counts, "diseased": diseased,
     })
     return render(request, "farm_map.html", ctx)
