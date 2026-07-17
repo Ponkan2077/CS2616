@@ -190,5 +190,5 @@
   // changes what the simulator picks from here, with no JS/template edit.
   window.DISEASE_CATALOG = {{ disease_catalog_json|safe }};
 </script>
-<script src="{% static 'js/disease_detection.js' %}"></script>
+<script src="{% static 'js/disease_detection.js' %}?v={{ STATIC_VERSION }}"></script>
 {% endblock %}
