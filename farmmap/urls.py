@@ -29,6 +29,7 @@ urlpatterns = [
 
     # Farm selection
     path('select-farm/', views.select_farm, name='select_farm'),
+    path('settings/', views.settings_view, name='settings'),
     path('admin-dashboard/', views.admin_dashboard, name='admin_dashboard'),
 
     # Authentication
