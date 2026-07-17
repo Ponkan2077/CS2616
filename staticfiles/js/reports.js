@@ -16,7 +16,7 @@ function renderSeverityPie(severity) {
       datasets: [{
         data: [severity.healthy, severity.mild, severity.moderate, severity.severe],
         backgroundColor: [SEVERITY_COLORS.healthy, SEVERITY_COLORS.mild, SEVERITY_COLORS.moderate, SEVERITY_COLORS.severe],
-        borderWidth: 2, borderColor: "#fff",
+        borderWidth: 2, borderColor: "#1a2535",
       }]
     },
     options: { responsive: true, cutout: "65%", plugins: { legend: { display: false } } }
@@ -104,7 +104,7 @@ function renderTrend(monthly) {
     },
     options: {
       responsive: true,
-      maintainAspectRatio: true,
+      maintainAspectRatio: false,
       plugins: { legend: { position: "bottom", labels: { font: { size: 11 }, boxWidth: 12 } } },
       scales: {
         x: { grid: { display: false }, ticks: { font: { size: 11 } } },

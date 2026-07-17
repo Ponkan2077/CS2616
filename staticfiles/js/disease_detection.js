@@ -93,6 +93,7 @@ function handleCapture(file, { previewImgId, dropZoneId, kind }) {
       trunkImageFile = resizedFile;
     }
     previewImg.src = URL.createObjectURL(resizedFile);
+    previewImg.style.display = "block";
     dropZone.classList.add("has-image");
 
     if (kind === "root") {
@@ -199,7 +200,37 @@ function wireCaptureZone({ dropZoneId, fileInputId, previewImgId, kind }) {
 
 document.addEventListener("DOMContentLoaded", () => {
   captureDeviceGPS();
+  document.getElementById("root-preview-img").style.display = "none";
+  document.getElementById("trunk-preview-img").style.display = "none";
   wireCaptureZone({ dropZoneId: "root-drop-zone", fileInputId: "root-file-input", previewImgId: "root-preview-img", kind: "root" });
   wireCaptureZone({ dropZoneId: "trunk-drop-zone", fileInputId: "trunk-file-input", previewImgId: "trunk-preview-img", kind: "trunk" });
   document.getElementById("analyze-btn").addEventListener("click", runAnalysis);
+  wireTreeIdPreview();
 });
+
+// Shows the farmer what their typed tree code will actually be saved as
+// (farm ID prefix + their code), matching the server-side prefixing in
+// save_detection() -- so there's no surprise about why "T1" shows up in
+// the inventory as "FARM-001-T1". Mirrors the server logic only for
+// display; the server remains the source of truth for the real prefixing
+// and uniqueness check.
+function wireTreeIdPreview() {
+  const farmSelect = document.getElementById("save-farm-pk");
+  const treeIdInput = document.getElementById("save-tree-id");
+  const previewEl = document.getElementById("tree-id-preview");
+  if (!farmSelect || !treeIdInput || !previewEl) return;
+
+  function update() {
+    const farmId = farmSelect.selectedOptions[0]?.dataset.farmId || "";
+    const code = treeIdInput.value.trim();
+    if (!farmId || !code) {
+      previewEl.textContent = "";
+      return;
+    }
+    const finalId = code.startsWith(`${farmId}-`) ? code : `${farmId}-${code}`;
+    previewEl.textContent = ` — will be saved as "${finalId}"`;
+  }
+
+  farmSelect.addEventListener("change", update);
+  treeIdInput.addEventListener("input", update);
+}

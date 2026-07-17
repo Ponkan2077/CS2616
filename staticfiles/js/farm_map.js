@@ -98,10 +98,13 @@ function makeClusterIcon(cluster) {
 // Severity gradient aligned to the same Mild < 34, Moderate < 67, Severe
 // >= 67 tier boundaries used everywhere else in the app (severity_label),
 // so a hotspot's color lines up with what "Mild/Moderate/Severe" means
-// elsewhere: yellow for mild, orange through the moderate range, red for
-// severe.
+// elsewhere: yellow for mild, orange through the moderate range, dark red
+// for severe. The severe end runs through two darker red stops (red-600
+// -> red-700 -> red-900) instead of stopping at a lighter red-500, so the
+// most severe cases read as unmistakably dark red/maroon on the map
+// rather than blending with the moderate-orange range.
 const SEVERITY_HEAT_GRADIENT = {
-  0.05: '#fde047', 0.34: '#fb923c', 0.55: '#f97316', 0.67: '#ef4444', 1.0: '#b91c1c',
+  0.05: '#fde047', 0.34: '#fb923c', 0.55: '#f97316', 0.67: '#dc2626', 0.85: '#b91c1c', 1.0: '#7f1d1d',
 };
 
 // Builds a heat layer for a single disease type only, using each tree's
@@ -133,8 +136,13 @@ function updateHeatmapLegendLabel(disease) {
   if (label) label.textContent = disease;
 }
 
+// Fixed palette for block outlines, cycled by index -- deliberately not
+// reusing any disease color (red/orange/yellow/gray) so a block outline
+// is never mistaken for a heatmap or marker color at a glance.
+const BLOCK_BOUNDARY_COLORS = ['#8b5cf6', '#06b6d4', '#f59e0b', '#84cc16', '#ec4899', '#14b8a6', '#f472b6', '#0ea5e9'];
+
 document.addEventListener('DOMContentLoaded', () => {
-  const { markers, bounds, boundaryPolygon, farmId, farmName, farmOwner } = FARM_MAP_DATA;
+  const { markers, bounds, boundaryPolygon, blockBoundaries, farmId, farmName, farmOwner } = FARM_MAP_DATA;
 
   const leafletBounds = [
     [bounds.min_lat, bounds.min_lng],
@@ -169,6 +177,26 @@ document.addEventListener('DOMContentLoaded', () => {
       .bindTooltip(farmName || farmId, { permanent: true, direction: 'center', className: 'farm-boundary-label' })
       .bindPopup(`<b>${farmId}</b><br>${farmName}<br><i>${farmOwner}</i>`)
       .addTo(map);
+  }
+
+  // Block boundaries — one convex-hull outline per labeled block, nested
+  // inside the farm boundary. Dashed and lightly filled so they read as
+  // sub-divisions of the farm rather than competing with it; labels only
+  // show on hover/tap (not permanent like the farm label) since a farm
+  // can have many blocks and permanent labels for all of them would
+  // clutter the view.
+  if (blockBoundaries) {
+    Object.keys(blockBoundaries).sort().forEach((blockName, i) => {
+      const poly = blockBoundaries[blockName];
+      if (!poly || poly.length < 3) return;
+      const color = BLOCK_BOUNDARY_COLORS[i % BLOCK_BOUNDARY_COLORS.length];
+      L.polygon(poly, {
+        color, weight: 1.5, dashArray: '6,4', fillColor: color, fillOpacity: 0.05,
+      })
+        .bindTooltip(`Block ${blockName}`, { direction: 'center', className: 'block-boundary-label' })
+        .bindPopup(`<b>Block ${blockName}</b>`)
+        .addTo(map);
+    });
   }
 
   const colorBasemap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
