@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+{% if messages %}
+  {% for message in messages %}
+  <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} py-2" style="font-size:13px;">
+    {{ message }}
+  </div>
+  {% endfor %}
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+
+    <!-- Account info -->
+    <div class="card-rg mb-3">
+      <div class="card-header-rg"><i class="bi bi-person-fill"></i> Account Info</div>
+      <div class="card-body-rg">
+        <form method="POST">
+          {% csrf_token %}
+          <input type="hidden" name="form_name" value="account">
+          <div class="mb-2">
+            <label class="form-label small text-muted mb-1">Username</label>
+            <input type="text" class="form-control-rg" value="{{ user.username }}" disabled>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small text-muted mb-1">Email</label>
+            <input type="email" name="email" class="form-control-rg" value="{{ user.email }}">
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small text-muted mb-1">First Name</label>
+              <input type="text" name="first_name" class="form-control-rg" value="{{ user.first_name }}">
+            </div>
+            <div class="col-6">
+              <label class="form-label small text-muted mb-1">Last Name</label>
+              <input type="text" name="last_name" class="form-control-rg" value="{{ user.last_name }}">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm mt-1">Save Account Info</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Change password -->
+    <div class="card-rg mb-3">
+      <div class="card-header-rg"><i class="bi bi-key-fill"></i> Change Password</div>
+      <div class="card-body-rg">
+        {% if password_form.errors %}
+        <div class="alert alert-danger py-2" style="font-size:12px;">
+          {% for field in password_form %}{% for error in field.errors %}{{ error }} {% endfor %}{% endfor %}
+          {% for error in password_form.non_field_errors %}{{ error }} {% endfor %}
+        </div>
+        {% endif %}
+        <form method="POST">
+          {% csrf_token %}
+          <input type="hidden" name="form_name" value="password">
+          <div class="mb-2">
+            <label class="form-label small text-muted mb-1">Current Password</label>
+            <input type="password" name="old_password" class="form-control-rg" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small text-muted mb-1">New Password</label>
+            <input type="password" name="new_password1" class="form-control-rg" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small text-muted mb-1">Confirm New Password</label>
+            <input type="password" name="new_password2" class="form-control-rg" required>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm mt-1">Change Password</button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="col-12 col-lg-6">
+
+    <!-- Notification preferences -->
+    <div class="card-rg mb-3">
+      <div class="card-header-rg"><i class="bi bi-bell-fill"></i> Notification Preferences</div>
+      <div class="card-body-rg">
+        <form method="POST">
+          {% csrf_token %}
+          <input type="hidden" name="form_name" value="notifications">
+
+          <div class="mb-3">
+            <label class="form-label small text-muted mb-1">Only notify me about scans from the last</label>
+            <div class="d-flex align-items-center gap-2">
+              <input type="number" name="notify_lookback_days" class="form-control-rg" style="max-width:90px;"
+                     min="1" value="{{ user_settings.notify_lookback_days }}">
+              <span class="text-muted small">day(s)</span>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small text-muted mb-2 d-block">Alert me for:</label>
+            <div class="form-check mb-1">
+              <input type="checkbox" class="form-check-input" id="notify_pink" name="notify_pink_disease"
+                     {% if user_settings.notify_pink_disease %}checked{% endif %}>
+              <label class="form-check-label small" for="notify_pink">Pink Disease</label>
+            </div>
+            <div class="form-check mb-1">
+              <input type="checkbox" class="form-check-input" id="notify_wrr" name="notify_white_root_rot"
+                     {% if user_settings.notify_white_root_rot %}checked{% endif %}>
+              <label class="form-check-label small" for="notify_wrr">White Root Rot</label>
+            </div>
+            <div class="form-check mb-1">
+              <input type="checkbox" class="form-check-input" id="notify_stem" name="notify_stem_bleeding"
+                     {% if user_settings.notify_stem_bleeding %}checked{% endif %}>
+              <label class="form-check-label small" for="notify_stem">Stem Bleeding</label>
+            </div>
+          </div>
+
+          <div class="text-muted mb-2" style="font-size:11px;">
+            <i class="bi bi-info-circle"></i> Turning everything off empties the notification bell — the dot only shows up when there's something to alert on.
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-sm mt-1">Save Preferences</button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
