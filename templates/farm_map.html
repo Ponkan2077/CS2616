@@ -81,6 +81,9 @@
       <button type="button" id="view-heatmap-btn" class="view-toggle-btn">
         <i class="bi bi-fire"></i> Heatmap
       </button>
+      <button type="button" id="view-interventions-btn" class="view-toggle-btn">
+        <i class="bi bi-clipboard2-pulse-fill"></i> Interventions
+      </button>
     </div>
     <button id="map-reset" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-arrow-counterclockwise"></i> Reset
@@ -120,6 +123,15 @@
     </div>
     <span class="text-muted">Color reflects each tree's severity score, not how many diseased trees are nearby — yellow patches are mild cases, red patches are severe ones.</span>
   </div>
+
+  <!-- Legend: interventions view (only diseased trees shown, colored by
+       whether an intervention has been logged; hidden by default) -->
+  <div id="legend-interventions" class="p-3 border-top d-flex flex-wrap gap-3 align-items-center" style="font-size:12px;display:none;">
+    <strong>Interventions:</strong>
+    <span><span class="legend-dot" style="background:#22c55e;"></span>Action Taken</span>
+    <span><span class="legend-dot" style="background:#ef4444;"></span>Needs Action</span>
+    <span class="text-muted">Only diseased trees are shown in this view — healthy trees don't need an intervention.</span>
+  </div>
 </div>
 {% endif %}
 {% endblock %}
@@ -140,6 +152,6 @@
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 {% load static %}
-<script src="{% static 'js/farm_map.js' %}"></script>
+<script src="{% static 'js/farm_map.js' %}?v={{ STATIC_VERSION }}"></script>
 {% endif %}
 {% endblock %}
