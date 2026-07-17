@@ -100,7 +100,7 @@
     <div class="card-rg">
       <div class="card-header-rg"><i class="bi bi-prescription2"></i> Recommended Treatment</div>
       <div class="card-body-rg">
-        <div class="p-3 rounded-3" style="background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.35);color:#4ade80;font-size:13px;">
+        <div class="p-3 rounded-3 recommendation-box {{ tree.severity_label|lower }}">
           <i class="bi bi-lightbulb-fill me-2"></i>{{ tree.recommended_action }}
         </div>
         <div class="mt-2" style="font-size:11px;color:var(--text-faint);">
@@ -188,6 +188,31 @@
           </tbody>
         </table>
       </div>
+      {% if history.paginator.num_pages > 1 %}
+      <div class="pagination-rg border-top">
+        {% if history.has_previous %}
+          <a href="?page={{ history.previous_page_number }}"><i class="bi bi-chevron-left"></i></a>
+        {% else %}
+          <span class="disabled"><i class="bi bi-chevron-left"></i></span>
+        {% endif %}
+
+        {% for num in history.paginator.page_range %}
+          {% if num == history.number %}
+            <span class="active">{{ num }}</span>
+          {% elif num == 1 or num == history.paginator.num_pages or num|add:"-3" < history.number and num|add:"3" > history.number %}
+            <a href="?page={{ num }}">{{ num }}</a>
+          {% elif num == 2 or num == history.paginator.num_pages|add:"-1" %}
+            <span class="ellipsis">…</span>
+          {% endif %}
+        {% endfor %}
+
+        {% if history.has_next %}
+          <a href="?page={{ history.next_page_number }}"><i class="bi bi-chevron-right"></i></a>
+        {% else %}
+          <span class="disabled"><i class="bi bi-chevron-right"></i></span>
+        {% endif %}
+      </div>
+      {% endif %}
     </div>
 
     <!-- Inspection summary -->
@@ -195,7 +220,7 @@
       <div class="card-header-rg"><i class="bi bi-clipboard2-check-fill"></i> Inspection Summary</div>
       <div class="card-body-rg d-flex flex-wrap gap-3">
         <div class="stat-box flex-fill">
-          <div class="stat-value">{{ history|length }}</div>
+          <div class="stat-value">{{ history.paginator.count }}</div>
           <div class="stat-label" style="margin-top:4px;">Total Inspections</div>
         </div>
         <div class="stat-box flex-fill">
@@ -227,13 +252,9 @@
       farm_name: '{{ tree.farm.name|escapejs }}'
     },
     farmBoundary: {{ tree_farm_boundary|safe }},
-    history: [
-      {% for h in history %}
-      { date: '{{ h.date }}', confidence: {{ h.confidence }}, disease: '{{ h.disease }}' },
-      {% endfor %}
-    ]
+    history: {{ history_chart_json|safe }}
   };
 </script>
 {% load static %}
-<script src="{% static 'js/tree_details.js' %}"></script>
+<script src="{% static 'js/tree_details.js' %}?v={{ STATIC_VERSION }}"></script>
 {% endblock %}
