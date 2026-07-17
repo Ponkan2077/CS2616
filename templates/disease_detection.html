@@ -130,10 +130,10 @@
           <input type="file" name="trunk_image" id="save-trunk-image" class="d-none">
           <div class="row g-2 mb-2">
             <div class="col-6">
-              <select name="farm_pk" class="form-control-rg" required>
+              <select name="farm_pk" id="save-farm-pk" class="form-control-rg" required>
                 <option value="">Select Farm</option>
                 {% for farm in all_farms %}
-                <option value="{{ farm.pk }}" {% if selected_farm.pk == farm.pk %}selected{% endif %}>{{ farm.farm_id }} — {{ farm.name }}</option>
+                <option value="{{ farm.pk }}" data-farm-id="{{ farm.farm_id }}" {% if selected_farm.pk == farm.pk %}selected{% endif %}>{{ farm.farm_id }} — {{ farm.name }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -141,8 +141,14 @@
               <input type="text" name="block" class="form-control-rg" placeholder="Block">
             </div>
             <div class="col-3">
-              <input type="text" name="tree_id" class="form-control-rg" placeholder="Tree ID">
+              <input type="text" name="tree_id" id="save-tree-id" class="form-control-rg" placeholder="Tree ID (optional)">
             </div>
+          </div>
+          <div class="text-muted mb-2" style="font-size:11px;">
+            <i class="bi bi-info-circle"></i>
+            Already tag your trees your own way? Type your own code here (e.g. <code>T1</code> or <code>Row3-12</code>)
+            — we'll prefix it with the farm ID to keep it unique<span id="tree-id-preview"></span>.
+            Leave blank to auto-generate one.
           </div>
           <div class="d-flex gap-2">
             <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
