@@ -54,6 +54,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'farmmap.context_processors.static_version',
             ],
         },
     },
@@ -85,6 +86,14 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'  # for PythonAnywhere collectstatic
+
+# Cache-busting suffix appended to every static JS/CSS <script>/<link> tag
+# as ?v=<STATIC_VERSION> (see farmmap/context_processors.py). Computed once
+# when this process starts, so it changes on its own every time the app is
+# reloaded on PythonAnywhere -- no manual version bump needed, and no more
+# "I updated the file but the browser is still running the old one."
+import time as _time
+STATIC_VERSION = str(int(_time.time()))
 
 # Local storage by default; switches to cloud storage automatically if
 # configured. See project/storage_config.py for provider setup and
