@@ -8,8 +8,8 @@ from django.contrib import messages
 from django.urls import reverse
 from django.utils import timezone
 from django.core.paginator import Paginator
-from django.db.models import Count, Q, Prefetch, Min, Max, Avg
-from .models import Farm, RubberTree, ScanHistory, Intervention, DiseaseClass
+from django.db.models import Count, Q, Prefetch, Min, Max, Avg, Exists, OuterRef
+from .models import Farm, RubberTree, ScanHistory, Intervention, DiseaseClass, UserSettings
 from .imaging import resize_for_storage
 from . import ai_inference
 from . import storage_stats
@@ -281,14 +281,22 @@ def _humanize_days_ago(days):
 
 
 def _build_notifications(request):
-    # Builds clickable notifications from the user's most recently scanned diseased trees.
+    # Builds clickable notifications from the user's most recently scanned
+    # diseased trees, filtered by their notification preferences (which
+    # disease types, and how many days back counts as "recent") from
+    # UserSettings -- see the Settings page.
+    user_settings, _ = UserSettings.objects.get_or_create(user=request.user)
+    enabled_diseases = user_settings.enabled_diseases()
+    if not enabled_diseases:
+        return []
+
+    today = timezone.localdate()
+    cutoff = today - timezone.timedelta(days=user_settings.notify_lookback_days)
     diseased_trees = (
         RubberTree.objects.select_related("farm")
-        .filter(farm__owner=request.user)
-        .exclude(disease="Healthy")
+        .filter(farm__owner=request.user, disease__in=enabled_diseases, date_scanned__gte=cutoff)
         .order_by("-date_scanned")[:6]
     )
-    today = timezone.localdate()
     notifications = []
     for t in diseased_trees:
         style = NOTIFICATION_STYLE.get(t.disease, {"icon": "bi-info-circle-fill", "color": "text-success"})
@@ -378,9 +386,64 @@ def select_farm(request):
 
 
 @login_required
+def settings_view(request):
+    # Account info, password change, and notification preferences, each
+    # submitted as its own form (distinguished by the "form_name" field)
+    # so saving one section never touches the others.
+    from django.contrib.auth.forms import PasswordChangeForm
+    from django.contrib.auth import update_session_auth_hash
+
+    user_settings, _ = UserSettings.objects.get_or_create(user=request.user)
+    password_form = PasswordChangeForm(request.user)
+
+    if request.method == "POST":
+        form_name = request.POST.get("form_name")
+
+        if form_name == "account":
+            request.user.email = request.POST.get("email", "").strip()
+            request.user.first_name = request.POST.get("first_name", "").strip()
+            request.user.last_name = request.POST.get("last_name", "").strip()
+            request.user.save()
+            messages.success(request, "Account info updated.")
+            return redirect("settings")
+
+        elif form_name == "password":
+            password_form = PasswordChangeForm(request.user, request.POST)
+            if password_form.is_valid():
+                user = password_form.save()
+                update_session_auth_hash(request, user)  # keeps the user logged in
+                messages.success(request, "Password changed.")
+                return redirect("settings")
+            messages.error(request, "Please fix the errors below.")
+
+        elif form_name == "notifications":
+            try:
+                user_settings.notify_lookback_days = max(1, int(request.POST.get("notify_lookback_days", 7)))
+            except ValueError:
+                user_settings.notify_lookback_days = 7
+            user_settings.notify_pink_disease = bool(request.POST.get("notify_pink_disease"))
+            user_settings.notify_white_root_rot = bool(request.POST.get("notify_white_root_rot"))
+            user_settings.notify_stem_bleeding = bool(request.POST.get("notify_stem_bleeding"))
+            user_settings.save()
+            messages.success(request, "Notification preferences updated.")
+            return redirect("settings")
+
+    ctx = _base_context(request)
+    ctx.update({
+        "page": "settings",
+        "password_form": password_form,
+        "user_settings": user_settings,
+    })
+    return render(request, "settings.html", ctx)
+
+
+@login_required
 def farm_list(request):
     # Displays a list of all farms owned by the logged-in user.
-    farms = Farm.objects.filter(owner=request.user).order_by("farm_id")
+    farms_qs = Farm.objects.filter(owner=request.user).order_by("farm_id")
+    paginator = Paginator(farms_qs, 25)
+    page_number = request.GET.get("page", 1)
+    farms = paginator.get_page(page_number)
     ctx = _base_context(request)
     ctx.update({"page": "farm_list", "farms": farms})
     return render(request, "farm_list.html", ctx)
@@ -427,12 +490,15 @@ def farm_detail(request, farm_id):
     # Displays details, stats, and trees for a single farm owned by the user.
     farm = get_object_or_404(Farm, farm_id=farm_id, owner=request.user)
     total, counts, pcts, diseased = farm.get_stats()
-    trees = farm.trees.all().order_by("tree_id")
+    trees_qs = farm.trees.all().order_by("tree_id")
+    paginator = Paginator(trees_qs, 25)
+    page_number = request.GET.get("page", 1)
+    trees_page = paginator.get_page(page_number)
     ctx = _base_context(request)
     ctx.update({
         "page": "farm_list",
         "farm": farm,
-        "trees": trees,
+        "trees": trees_page,
         "total": total, "counts": counts, "pcts": pcts, "diseased": diseased,
     })
     return render(request, "farm_detail.html", ctx)
@@ -521,7 +587,9 @@ def farm_map(request):
         return render(request, "farm_map.html", ctx)
 
     total, counts, pcts, diseased = map_farm.get_stats()
-    trees_qs = map_farm.trees.all()
+    trees_qs = map_farm.trees.annotate(
+        has_intervention=Exists(Intervention.objects.filter(tree=OuterRef("pk")))
+    )
     markers_json = json.dumps([t.to_marker_dict() for t in trees_qs])
     bounds = _farm_map_bounds(map_farm)
     boundary_polygon = json.dumps(map_farm.get_boundary_polygon())
@@ -727,7 +795,7 @@ def tree_inventory(request):
     if farm_filter:
         trees_qs = trees_qs.filter(farm__farm_id=farm_filter)
 
-    paginator = Paginator(trees_qs, 50)
+    paginator = Paginator(trees_qs, 25)
     page_number = request.GET.get("page", 1)
     trees_page = paginator.get_page(page_number)
 
@@ -752,13 +820,20 @@ def tree_details(request, tree_id):
     )
     if not tree:
         raise Http404("Tree not found")
-    history = tree.history.all()
+    history_qs = tree.history.all()
+    paginator = Paginator(history_qs, 25)
+    page_number = request.GET.get("page", 1)
+    history_page = paginator.get_page(page_number)
     farm = _get_farm_or_none(request)
     ctx = _base_context(request, farm)
     ctx.update({
         "page": "tree_inventory",
         "tree": tree,
-        "history": history,
+        "history": history_page,
+        # Chart needs every scan to plot an accurate trend, not just the
+        # current table page -- kept separate from the paginated "history"
+        # context var used for the table below.
+        "history_chart_json": json.dumps(list(history_qs.values("date", "confidence", "disease")), default=str),
         "progression": tree.get_progression_trend(),
         "tree_farm_boundary": json.dumps(tree.farm.get_boundary_polygon()),
     })
@@ -845,7 +920,7 @@ def interventions_log(request):
         qs = qs.filter(tree__farm=farm)
     qs = qs.order_by("-date_performed", "-created_at")
 
-    paginator = Paginator(qs, 50)
+    paginator = Paginator(qs, 25)
     page_number = request.GET.get("page", 1)
     interventions_page = paginator.get_page(page_number)
 
