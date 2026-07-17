@@ -93,6 +93,7 @@ function handleCapture(file, { previewImgId, dropZoneId, kind }) {
       trunkImageFile = resizedFile;
     }
     previewImg.src = URL.createObjectURL(resizedFile);
+    previewImg.style.display = "block";
     dropZone.classList.add("has-image");
 
     if (kind === "root") {
@@ -199,6 +200,8 @@ function wireCaptureZone({ dropZoneId, fileInputId, previewImgId, kind }) {
 
 document.addEventListener("DOMContentLoaded", () => {
   captureDeviceGPS();
+  document.getElementById("root-preview-img").style.display = "none";
+  document.getElementById("trunk-preview-img").style.display = "none";
   wireCaptureZone({ dropZoneId: "root-drop-zone", fileInputId: "root-file-input", previewImgId: "root-preview-img", kind: "root" });
   wireCaptureZone({ dropZoneId: "trunk-drop-zone", fileInputId: "trunk-file-input", previewImgId: "trunk-preview-img", kind: "trunk" });
   document.getElementById("analyze-btn").addEventListener("click", runAnalysis);
