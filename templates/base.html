@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
   {% load static %}
-  <link href="{% static 'css/style.css' %}" rel="stylesheet">
+  <link href="{% static 'css/style.css' %}?v={{ STATIC_VERSION }}" rel="stylesheet">
   {% block extra_head %}{% endblock %}
 </head>
 <body>
@@ -169,7 +169,7 @@
       <div class="dropdown">
         <button class="topbar-btn" data-bs-toggle="dropdown" aria-label="Notifications">
           <i class="bi bi-bell-fill"></i>
-          <span class="badge-dot"></span>
+          {% if notifications %}<span class="badge-dot"></span>{% endif %}
         </button>
         <div class="dropdown-menu dropdown-menu-end notif-dropdown">
           <div class="notif-header d-flex justify-content-between align-items-center">
@@ -199,7 +199,7 @@
           <li><span class="dropdown-item-text fw-bold small">{{ user.username }}</span></li>
           <li><span class="dropdown-item-text text-muted small">DA Field Office IX · PRRI</span></li>
           <li><hr class="dropdown-divider"></li>
-          <li><a class="dropdown-item small" href="#"><i class="bi bi-gear me-2"></i>Settings</a></li>
+          <li><a class="dropdown-item small" href="{% url 'settings' %}"><i class="bi bi-gear me-2"></i>Settings</a></li>
           <li>
             <form method="POST" action="{% url 'logout' %}">
               {% csrf_token %}
@@ -224,7 +224,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 {% load static %}
-<script src="{% static 'js/main.js' %}"></script>
+<script src="{% static 'js/main.js' %}?v={{ STATIC_VERSION }}"></script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>
