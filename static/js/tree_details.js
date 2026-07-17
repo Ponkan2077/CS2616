@@ -59,50 +59,69 @@ function renderMiniMap(tree, farmBoundary) {
     }).bindTooltip(tree.farm_name || tree.farm_id, { permanent: false, direction: 'center', className: 'farm-boundary-label' }).addTo(miniMap);
   }
 
-  L.marker([tree.lat, tree.lng], {
-    icon: rgPinIcon(tree.color, 26),
+  L.circleMarker([tree.lat, tree.lng], {
+    radius: 9,
+    weight: 2,
+    color: '#1a2535',       // dark border, same as the main farm map's circle markers
+    opacity: 1,
+    fillColor: tree.color,
+    fillOpacity: 0.92,
   }).bindPopup(`<b>${tree.tree_id}</b><br>${tree.disease}<br><i style="font-size:11px;color:#666;">Managed by ${tree.farm_owner}</i>`).addTo(miniMap).openPopup();
 }
 
-// Renders a line chart of confidence scores across scan history, with each
-// point and line segment colored by that scan's own detected disease
-// rather than the tree's current disease.
+// Renders a combo bar+line chart of confidence scores across scan
+// history: one bar per scan (colored by that scan's own detected disease,
+// same as before) so individual results are easy to compare at a glance,
+// plus a plain trend line on top connecting the same values -- the line
+// has no point markers of its own (pointRadius: 0), it's just the trend,
+// so it doesn't visually compete with the bars underneath it.
 function renderHistoryChart(tree, history) {
   if (!history.length) return;
   const points = [...history].reverse();
-  const dates = points.map(h => h.date);
+  const dates = points.map(h => new Date(h.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
   const confidences = points.map(h => h.confidence);
-  const pointColors = points.map(h => DISEASE_COLOR_MAP[h.disease] || tree.color);
+  const barColors = points.map(h => DISEASE_COLOR_MAP[h.disease] || tree.color);
 
   new Chart(document.getElementById('historyChart'), {
-    type: 'line',
     data: {
       labels: dates,
-      datasets: [{
-        label: 'Confidence %',
-        data: confidences,
-        borderColor: '#9ca3af',
-        backgroundColor: 'rgba(156, 163, 175, 0.12)',
-        pointBackgroundColor: pointColors,
-        pointBorderColor: '#fff',
-        pointBorderWidth: 2,
-        segment: {
-          borderColor: ctx => pointColors[ctx.p0DataIndex] || '#9ca3af',
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Confidence %',
+          data: confidences,
+          backgroundColor: barColors,
+          borderRadius: 3,
+          maxBarThickness: 34,
+          order: 2,
         },
-        tension: .3, fill: true, pointRadius: 6, pointHoverRadius: 8,
-      }]
+        {
+          type: 'line',
+          label: 'Trend',
+          data: confidences,
+          borderColor: '#9ca3af',
+          borderWidth: 2,
+          pointRadius: 0,       // no circle markers on the line itself
+          pointHoverRadius: 0,
+          tension: 0.3,
+          fill: false,
+          order: 1,
+        },
+      ],
     },
     options: {
       responsive: true,
       layout: {
-        // Reserves room above/below the plot area so points sitting
-        // exactly at 0 or 100 render as full circles instead of having
-        // half their radius clipped by the canvas edge.
         padding: { top: 10, bottom: 4, left: 4, right: 10 },
       },
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
         tooltip: {
+          // Only the bar (one tooltip line per scan) shows in the
+          // tooltip -- the trend line duplicates the same values, so
+          // showing both would just repeat every number twice.
+          filter: item => item.dataset.type === 'bar',
           callbacks: {
             label: ctx => {
               const h = points[ctx.dataIndex];
