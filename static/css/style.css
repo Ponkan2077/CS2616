@@ -347,7 +347,7 @@ body {
 .heatmap-gradient-bar {
   position: relative;
   display: block; width: 180px; height: 16px; border-radius: 5px;
-  background: linear-gradient(to right, #fde047, #fb923c, #f97316, #ef4444, #b91c1c);
+  background: linear-gradient(to right, #fde047, #fb923c, #f97316, #dc2626, #b91c1c, #7f1d1d);
   border: 1px solid rgba(255,255,255,.25);
   box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
 }
@@ -363,7 +363,7 @@ body {
 }
 .heatmap-scale-labels span:nth-child(1) { color: #fbbf24; }
 .heatmap-scale-labels span:nth-child(2) { color: #fb923c; }
-.heatmap-scale-labels span:nth-child(3) { color: #f87171; }
+.heatmap-scale-labels span:nth-child(3) { color: #dc2626; }
 
 /* ============================================================
    MAP CONTAINERS
@@ -390,6 +390,10 @@ body {
 .legend-dot-farm {
   display: inline-block; width: 12px; height: 12px; border-radius: 3px;
   background: #0d6efd44; border: 2px solid #0d6efd; margin-right: 4px;
+}
+.legend-dot-block {
+  display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+  background: #8b5cf644; border: 2px dashed #8b5cf6; margin-right: 4px;
 }
 
 /* ============================================================
@@ -593,6 +597,13 @@ body {
   box-shadow: none;
 }
 .farm-boundary-label::before { display: none; }
+
+.block-boundary-label {
+  background: rgba(26,37,53,.75); color: #e9d5ff; border: none;
+  border-radius: 5px; padding: 1px 6px; font-size: 10px; font-weight: 600;
+  box-shadow: none;
+}
+.block-boundary-label::before { display: none; }
 
 /* ============================================================
    INTERVENTIONS — tree checklist selector
