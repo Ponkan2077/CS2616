@@ -188,5 +188,5 @@
   const FARM_TREES_BY_ID = {{ farm_trees_json|default:"{}"|safe }};
 </script>
 {% load static %}
-<script src="{% static 'js/interventions.js' %}"></script>
+<script src="{% static 'js/interventions.js' %}?v={{ STATIC_VERSION }}"></script>
 {% endblock %}
