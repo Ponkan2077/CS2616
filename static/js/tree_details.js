@@ -6,8 +6,8 @@
    ============================================================ */
 
 const DISEASE_COLOR_MAP = {
-  'Healthy': '#28a745', 'Pink Disease': '#dc3545',
-  'White Root Rot': '#8b5a2b', 'Stem Bleeding': '#8b0000',
+  'Healthy': '#34d399', 'Pink Disease': '#f87171',
+  'White Root Rot': '#d0995f', 'Stem Bleeding': '#fb7185',
 };
 
 // Renders a small Leaflet map centered on the tree's GPS point.
@@ -69,43 +69,46 @@ function renderMiniMap(tree, farmBoundary) {
   }).bindPopup(`<b>${tree.tree_id}</b><br>${tree.disease}<br><i style="font-size:11px;color:#666;">Managed by ${tree.farm_owner}</i>`).addTo(miniMap).openPopup();
 }
 
-// Renders a combo bar+line chart of confidence scores across scan
-// history: one bar per scan (colored by that scan's own detected disease,
-// same as before) so individual results are easy to compare at a glance,
-// plus a plain trend line on top connecting the same values -- the line
-// has no point markers of its own (pointRadius: 0), it's just the trend,
-// so it doesn't visually compete with the bars underneath it.
+// Renders a smooth line chart of confidence scores across scan history,
+// with each point colored by that scan's own detected disease (so
+// individual results stay easy to identify at a glance) and a soft
+// gradient fill under the curve to make the overall trend easy to read.
 function renderHistoryChart(tree, history) {
   if (!history.length) return;
   const points = [...history].reverse();
   const dates = points.map(h => new Date(h.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
   const confidences = points.map(h => h.confidence);
-  const barColors = points.map(h => DISEASE_COLOR_MAP[h.disease] || tree.color);
+  const pointColors = points.map(h => DISEASE_COLOR_MAP[h.disease] || tree.color);
 
-  new Chart(document.getElementById('historyChart'), {
+  const canvas = document.getElementById('historyChart');
+  const ctx = canvas.getContext('2d');
+
+  // Soft gradient fill under the line, in the app's primary accent color
+  // rather than any one disease's color, since a single scan history can
+  // span several diseases.
+  const fillGradient = ctx.createLinearGradient(0, 0, 0, canvas.height || 220);
+  fillGradient.addColorStop(0, 'rgba(59,130,246,.28)');
+  fillGradient.addColorStop(1, 'rgba(59,130,246,0)');
+
+  new Chart(canvas, {
+    type: 'line',
     data: {
       labels: dates,
       datasets: [
         {
-          type: 'bar',
           label: 'Confidence %',
           data: confidences,
-          backgroundColor: barColors,
-          borderRadius: 3,
-          maxBarThickness: 34,
-          order: 2,
-        },
-        {
-          type: 'line',
-          label: 'Trend',
-          data: confidences,
-          borderColor: '#9ca3af',
-          borderWidth: 2,
-          pointRadius: 0,       // no circle markers on the line itself
-          pointHoverRadius: 0,
-          tension: 0.3,
-          fill: false,
-          order: 1,
+          borderColor: '#3b82f6',
+          borderWidth: 2.5,
+          backgroundColor: fillGradient,
+          fill: true,
+          tension: 0.35,
+          pointBackgroundColor: pointColors,
+          pointBorderColor: '#1a2535',
+          pointBorderWidth: 2,
+          pointRadius: 6,
+          pointHoverRadius: 8,
+          pointHoverBorderWidth: 2,
         },
       ],
     },
@@ -118,10 +121,13 @@ function renderHistoryChart(tree, history) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          // Only the bar (one tooltip line per scan) shows in the
-          // tooltip -- the trend line duplicates the same values, so
-          // showing both would just repeat every number twice.
-          filter: item => item.dataset.type === 'bar',
+          backgroundColor: '#0f1722',
+          borderColor: 'rgba(255,255,255,.12)',
+          borderWidth: 1,
+          titleColor: '#e7eaf0',
+          bodyColor: '#e7eaf0',
+          padding: 10,
+          displayColors: false,
           callbacks: {
             label: ctx => {
               const h = points[ctx.dataIndex];
@@ -131,8 +137,15 @@ function renderHistoryChart(tree, history) {
         }
       },
       scales: {
-        y: { min: 0, max: 100, ticks: { font: { size: 11 } } },
-        x: { grid: { display: false }, ticks: { font: { size: 11 } } }
+        y: {
+          min: 0, max: 100,
+          ticks: { font: { size: 11 }, color: '#96a3b8' },
+          grid: { color: 'rgba(255,255,255,.06)' },
+        },
+        x: {
+          grid: { display: false },
+          ticks: { font: { size: 11 }, color: '#96a3b8' },
+        }
       }
     }
   });
