@@ -128,6 +128,8 @@
           <input type="hidden" name="lng" id="save-lng">
           <input type="file" name="root_image" id="save-root-image" class="d-none">
           <input type="file" name="trunk_image" id="save-trunk-image" class="d-none">
+          <input type="hidden" name="root_image_key" id="save-root-image-key">
+          <input type="hidden" name="trunk_image_key" id="save-trunk-image-key">
           <div class="row g-2 mb-2">
             <div class="col-6">
               <select name="farm_pk" id="save-farm-pk" class="form-control-rg" required>
@@ -151,7 +153,7 @@
             Leave blank to auto-generate one.
           </div>
           <div class="d-flex gap-2">
-            <button type="submit" class="btn btn-primary btn-sm flex-grow-1">
+            <button type="button" id="save-submit-btn" class="btn btn-primary btn-sm flex-grow-1">
               <i class="bi bi-floppy-fill"></i> Save Result
             </button>
             <a href="{% url 'tree_inventory' %}" class="btn btn-outline-secondary btn-sm flex-grow-1">
