@@ -9,6 +9,7 @@ urlpatterns = [
     path('map/', views.farm_map, name='farm_map'),
     path('map/marker/<str:tree_id>/', views.tree_marker_detail, name='tree_marker_detail'),
     path('detection/', views.disease_detection, name='disease_detection'),
+    path('detection/upload-url/', views.request_upload_url, name='request_upload_url'),
     path('detection/save/', views.save_detection, name='save_detection'),
     path('inventory/', views.tree_inventory, name='tree_inventory'),
     path('inventory/<str:tree_id>/', views.tree_details, name='tree_details'),
