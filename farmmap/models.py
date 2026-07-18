@@ -416,8 +416,9 @@ class ScanHistory(models.Model):
     tree = models.ForeignKey(RubberTree, on_delete=models.CASCADE, related_name="history")
     date = models.DateField()
     # Multiple scans can land on the same calendar date during testing/demo
-    # sessions; date alone can't break ties, so progression tracking
-    # (get_progression_trend) orders by this instead.
+    # sessions; date alone can't break ties, so it's used as a tiebreaker
+    # in Meta.ordering below (most recent scan date first, then most
+    # recently created for same-day scans).
     created_at = models.DateTimeField(auto_now_add=True)
     disease = models.CharField(max_length=50)
     confidence = models.FloatField()
@@ -427,7 +428,10 @@ class ScanHistory(models.Model):
     trunk_image = models.ImageField(upload_to="scans/trunks/%Y/%m/", blank=True, null=True)
 
     class Meta:
-        ordering = ["-created_at"]
+        # Ordered by actual scan date first (not just DB insertion order) so
+        # get_progression_trend()'s "most recent 2 scans" and the tree-detail
+        # chart/table both reflect true chronological order.
+        ordering = ["-date", "-created_at"]
 
     def __str__(self):
         # Returns a readable string showing the tree, scan date, and detected disease.
