@@ -13,6 +13,7 @@ from .models import Farm, RubberTree, ScanHistory, Intervention, DiseaseClass, U
 from .imaging import resize_for_storage
 from . import ai_inference
 from . import storage_stats
+from . import direct_upload
 
 # Icon and color shown in the notification bell for each disease type.
 NOTIFICATION_STYLE = {
@@ -657,6 +658,32 @@ def disease_detection(request):
 
 
 @login_required
+def request_upload_url(request):
+    # Issues a short-lived presigned R2 PUT URL for one scan photo.
+    # Called twice by the frontend (once for the root photo, once for the
+    # trunk) right before "Save Result" -- see static/js/upload_direct.js.
+    # Frontend has already compressed the photo to WebP itself at this
+    # point, so all this endpoint does is hand back somewhere to put it.
+    from django.http import JsonResponse
+
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+
+    kind = request.POST.get("kind")
+    if kind not in ("roots", "trunks"):
+        return JsonResponse({"error": "kind must be 'roots' or 'trunks'"}, status=400)
+
+    try:
+        data = direct_upload.generate_upload_url(kind)
+    except direct_upload.DirectUploadUnavailable as exc:
+        # Cloud storage isn't configured yet -- tell the client so it can
+        # fall back to the normal multipart file upload instead.
+        return JsonResponse({"error": str(exc), "fallback": True}, status=503)
+
+    return JsonResponse(data)
+
+
+@login_required
 def save_detection(request):
     # Saves a simulated (or future real) CNN detection result. Creates a
     # new tree, or — if tree_id matches an existing tree on this farm —
@@ -691,12 +718,31 @@ def save_detection(request):
     trunk_image_resized = None
     root_file_bytes = None
     trunk_file_bytes = None
-    if request.FILES.get("root_image"):
+
+    # Preferred path: the frontend already compressed the photo to WebP
+    # and uploaded it straight to R2 (see upload_direct.js), and just
+    # tells us the object key here. No re-upload -- assigning the key
+    # string directly to the ImageField marks it as an existing file
+    # rather than a new one to save.
+    root_image_key = request.POST.get("root_image_key", "").strip()
+    trunk_image_key = request.POST.get("trunk_image_key", "").strip()
+    if root_image_key:
+        root_file_bytes = direct_upload.fetch_uploaded_bytes(root_image_key)
+        root_image_resized = root_image_key
+    if trunk_image_key:
+        trunk_file_bytes = direct_upload.fetch_uploaded_bytes(trunk_image_key)
+        trunk_image_resized = trunk_image_key
+
+    # Fallback path: a raw file came through the multipart form instead
+    # (older browsers without canvas/WebP support, or direct uploads
+    # unavailable because cloud storage isn't configured) -- resize and
+    # route it through Django exactly as before.
+    if not root_image_key and request.FILES.get("root_image"):
         f = request.FILES["root_image"]
         root_file_bytes = f.read()
         f.seek(0)
         root_image_resized = resize_for_storage(f, f.name)
-    if request.FILES.get("trunk_image"):
+    if not trunk_image_key and request.FILES.get("trunk_image"):
         f = request.FILES["trunk_image"]
         trunk_file_bytes = f.read()
         f.seek(0)
