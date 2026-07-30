@@ -6,13 +6,13 @@ how project/storage_config.py is kept separate from settings.py.
 
 Required environment variable to enable real inference (set on
 PythonAnywhere's Web tab -> Environment variables, or in a local .env):
-    AI_MODEL_ENDPOINT_URL   e.g. https://<user>-<space>.hf.space/predict
+    AI_MODEL_ENDPOINT_URL   e.g. https://REGION-PROJECT_ID.cloudfunctions.net/predict
 
 Optional:
-    AI_MODEL_TIMEOUT_SECONDS   defaults to 15
+    AI_MODEL_TIMEOUT_SECONDS   defaults to 60 (see cold-start note below)
     AI_MODEL_API_KEY           only needed if your endpoint requires auth
                                 (sent as a Bearer token); leave unset for
-                                a public Space/endpoint
+                                a public endpoint
 
 Until AI_MODEL_ENDPOINT_URL is set, save_detection() keeps using the
 client-side JS simulator (static/js/disease_detection.js) -- the app
@@ -21,34 +21,42 @@ never breaks because a model isn't deployed yet.
 ---------------------------------------------------------------------
 Recommended AI hosting (checked July 2026)
 ---------------------------------------------------------------------
-Hugging Face Spaces, CPU Basic tier, is still the best free option for a
-thesis-scale deployment: MobileNetV3 / EfficientNet-B0 / ResNet-50 sized
-models classify a single image in well under a second on CPU, so GPU
-isn't needed to serve individual scan requests. Package the trained model
-behind a small FastAPI or Gradio app in a public Space, and its URL goes
-in AI_MODEL_ENDPOINT_URL above. hf.space is on PythonAnywhere's
-free-account outbound allowlist (pythonanywhere.com/whitelist/), so this
-works unmodified on a free PythonAnywhere account.
+As of this month, Hugging Face requires a paid plan to create a Docker
+or Gradio-on-CPU Space -- free accounts can only create Gradio Spaces on
+ZeroGPU hardware (max 2, account 30+ days old, verified email) or static
+Spaces, and Render's free tier isn't on PythonAnywhere's outbound
+allowlist by default (would need a manual per-URL approval request that
+isn't guaranteed for a private endpoint). That replaces both of those
+earlier recommendations here.
 
-One change since this was first set up: as of June 1, 2026, Hugging Face
-capped free CPU-Basic usage at 2,000 CPU-hours/month (previously
-uncapped), and that free allowance now requires the Space to be public.
-2,000 hours/month is still far more than a single low-traffic demo
-endpoint needs (roughly 66 hours/day), so this doesn't change the
-recommendation -- just keep the Space public rather than private.
+Currently deployed on Google Cloud, specifically as a "Cloud Run
+function" (2nd gen, deployed with `gcloud functions deploy`, NOT `gcloud
+run deploy`) -- see the gcp_deploy/ folder alongside this file's sibling
+module for the ready-to-deploy app matching the /predict contract
+classify_images() below expects. The reason for that specific deploy
+path: it gives a *.cloudfunctions.net URL by default, which -- unlike
+plain Cloud Run's *.run.app -- IS already on PythonAnywhere's free
+outbound allowlist. Same underlying infrastructure and free tier as
+Cloud Run either way (2 million requests / 360,000 GB-seconds / 180,000
+vCPU-seconds per month, far more than this project needs), just reached
+through a URL PythonAnywhere already trusts.
 
-If you outgrow the free CPU tier or need GPU for a heavier model, two
-pay-as-you-go options worth comparing when the time comes: Hugging Face
-Inference Endpoints (scale-to-zero, billed per minute, so a bursty demo
-stays cheap) and Modal (serverless GPU functions, no idle charges).
-Neither is needed for the current MobileNetV3/ResNet-50/EfficientNet-B0
-model sizes on CPU.
+Setting up Google Cloud billing may involve a one-time refundable
+deposit depending on your country/card (not an ongoing cost) -- see
+gcp_deploy/README.md for details. Since real billing is attached here
+(unlike the free-Space options above), gcp_deploy/main.py supports an
+optional PREDICT_API_KEY / AI_MODEL_API_KEY shared secret so the
+endpoint isn't left open to random use -- worth setting.
+
+Cold starts: much faster than Render's free tier was, but a TensorFlow
+container loading a model from a cold instance can still take several
+seconds, which is why AI_MODEL_TIMEOUT_SECONDS defaults to 60 below.
 """
 
 import os
 
 AI_MODEL_ENDPOINT_URL = os.environ.get("AI_MODEL_ENDPOINT_URL", "")
-AI_MODEL_TIMEOUT_SECONDS = float(os.environ.get("AI_MODEL_TIMEOUT_SECONDS", "15"))
+AI_MODEL_TIMEOUT_SECONDS = float(os.environ.get("AI_MODEL_TIMEOUT_SECONDS", "60"))
 AI_MODEL_API_KEY = os.environ.get("AI_MODEL_API_KEY", "")
 
 AI_MODEL_ENABLED = bool(AI_MODEL_ENDPOINT_URL)
