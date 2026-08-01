@@ -1,8 +1,9 @@
 /* Handles the two-step capture flow (root image, then trunk image — see
    comment 4), resizes each photo client-side before upload, runs a
    simulated CNN analysis step (no trained model is wired in yet), and
-   populates the save form -- including the two resized image files --
-   ready for a normal multipart form submission. */
+   uploads both resized images directly to cloud storage via a presigned
+   URL (falling back to attaching them to the save form's file inputs for
+   a normal multipart submission if direct upload isn't available). */
 
 // Populated from window.DISEASE_CATALOG, which is rendered server-side
 // from the dynamic DiseaseClass catalog (see views.disease_detection) --
@@ -20,6 +21,14 @@ let rootImageFile = null;   // resized File, ready to attach to the save form
 let trunkImageFile = null;
 let capturedLat = null;     // device GPS, captured at scan time (Chapter 3:
 let capturedLng = null;     // "Mobile GPS module - Auto the capture coordinates")
+
+// Direct-to-storage upload state. Uploads kick off in the background as
+// soon as the (simulated) analysis result is shown, so they're usually
+// already finished by the time the farmer reviews the result and hits
+// Save. directUploadPromise resolves once both are done (or resolves
+// anyway on failure/unavailability, leaving the original file-input
+// attachment from showResult() as the fallback).
+let directUploadPromise = null;
 
 // Requests the device's current position once, as soon as the user starts
 // a scan. Silently no-ops on denial/unsupported browsers -- save_detection
@@ -80,7 +89,66 @@ function resizeImageFile(file) {
   });
 }
 
-// Shared handler for both capture zones: resizes the file, previews it,
+// Reads the CSRF token straight out of the save form's own hidden input,
+// so the direct-upload requests below stay authenticated the same way
+// the eventual form submission is, without depending on cookie settings.
+function getCsrfToken() {
+  return document.querySelector('#save-form input[name=csrfmiddlewaretoken]').value;
+}
+
+// Asks Django for a short-lived presigned URL to PUT one image straight
+// to cloud storage. kind is 'roots' or 'trunks'.
+async function requestUploadUrl(kind) {
+  const res = await fetch("/detection/upload-url/", {
+    method: "POST",
+    headers: {
+      "X-CSRFToken": getCsrfToken(),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ kind }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Upload URL request failed (${res.status})`);
+  }
+  return res.json(); // { key, upload_url, expires_in }
+}
+
+// Uploads one already-resized WebP file straight to cloud storage and
+// returns its object key. Throws if direct upload isn't available or the
+// PUT itself fails -- callers fall back to the multipart file inputs.
+async function uploadDirectly(file, kind) {
+  const { key, upload_url } = await requestUploadUrl(kind);
+  const putRes = await fetch(upload_url, {
+    method: "PUT",
+    headers: { "Content-Type": "image/webp" },
+    body: file,
+  });
+  if (!putRes.ok) throw new Error("Direct upload to storage failed");
+  return key;
+}
+
+// Kicks off both direct uploads in the background. On success, fills the
+// save form's hidden key fields and clears the file inputs (so the
+// multipart submission doesn't also send the raw bytes through Django).
+// On any failure -- cloud storage not configured, network error, etc --
+// leaves the file inputs exactly as showResult() set them, so the
+// original multipart upload path still works with no user-visible change.
+function startDirectUploads() {
+  directUploadPromise = Promise.all([
+    uploadDirectly(rootImageFile, "roots"),
+    uploadDirectly(trunkImageFile, "trunks"),
+  ]).then(([rootKey, trunkKey]) => {
+    document.getElementById("save-root-image-key").value = rootKey;
+    document.getElementById("save-trunk-image-key").value = trunkKey;
+    document.getElementById("save-root-image").value = "";
+    document.getElementById("save-trunk-image").value = "";
+  }).catch(() => {
+    // Fall back silently -- file inputs already hold the resized images.
+  });
+}
+
+
 // stores the result for the save form, and advances the workflow.
 function handleCapture(file, { previewImgId, dropZoneId, kind }) {
   const dropZone = document.getElementById(dropZoneId);
@@ -172,6 +240,8 @@ function showResult(disease, confidence, rootCondition) {
 
   document.getElementById("result-box").style.display = "";
   document.getElementById("class-reference").style.display = "none";
+
+  startDirectUploads();
 }
 
 function wireCaptureZone({ dropZoneId, fileInputId, previewImgId, kind }) {
@@ -205,8 +275,28 @@ document.addEventListener("DOMContentLoaded", () => {
   wireCaptureZone({ dropZoneId: "root-drop-zone", fileInputId: "root-file-input", previewImgId: "root-preview-img", kind: "root" });
   wireCaptureZone({ dropZoneId: "trunk-drop-zone", fileInputId: "trunk-file-input", previewImgId: "trunk-preview-img", kind: "trunk" });
   document.getElementById("analyze-btn").addEventListener("click", runAnalysis);
+  wireSaveSubmit();
   wireTreeIdPreview();
 });
+
+// Waits for the background direct uploads (if any are in flight) before
+// actually submitting the save form, so a fast click right after the
+// result appears can't race ahead of the uploads finishing.
+function wireSaveSubmit() {
+  const btn = document.getElementById("save-submit-btn");
+  const form = document.getElementById("save-form");
+  if (!btn || !form) return;
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving...';
+    if (directUploadPromise) {
+      await directUploadPromise;
+    }
+    form.submit();
+  });
+}
 
 // Shows the farmer what their typed tree code will actually be saved as
 // (farm ID prefix + their code), matching the server-side prefixing in
