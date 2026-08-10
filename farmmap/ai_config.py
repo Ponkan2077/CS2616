@@ -14,9 +14,9 @@ Optional:
                                 (sent as a Bearer token); leave unset for
                                 a public endpoint
 
-Until AI_MODEL_ENDPOINT_URL is set, save_detection() keeps using the
-client-side JS simulator (static/js/disease_detection.js) -- the app
-never breaks because a model isn't deployed yet.
+Until AI_MODEL_ENDPOINT_URL is set, the Analyze Images button on the
+detection page is disabled instead of faking a result (see
+templates/disease_detection.html and admin_dashboard.html).
 
 ---------------------------------------------------------------------
 Recommended AI hosting (checked July 2026)
