@@ -144,7 +144,7 @@ class DiseaseClass(models.Model):
     on whatever the trained CNN model ends up covering, which depends on
     dataset/field availability, not something fixed at development time.
     Add, edit, or remove a disease here and every part of the app (badges,
-    heatmap, recommendations, the scan simulator) picks it up automatically.
+    heatmap, recommendations) picks it up automatically.
     """
     name = models.CharField(max_length=50, unique=True, help_text="Must match the CNN model's class label exactly.")
     description = models.TextField(
