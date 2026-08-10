@@ -3,12 +3,11 @@ AI model inference, kept separate from views.py so swapping model hosts
 (or eventually running a real local model) never touches request-handling
 code -- only this module changes.
 
-Currently, actual classification happens client-side as a JS simulation
-(see static/js/disease_detection.js) since no trained model is wired in
-yet. This module is the seam for when that changes: once you deploy your
-trained model behind an HTTP endpoint, set AI_MODEL_ENDPOINT_URL (in
-ai_config.py / your environment) and classify_images() below will call it
-for real, with the simulated fallback removed automatically.
+classify_images() calls the model endpoint configured via
+AI_MODEL_ENDPOINT_URL (see ai_config.py). There's no simulated fallback
+here -- if the endpoint isn't configured or the call fails,
+InferenceError is raised and the caller decides what to show the user
+instead of making up a result.
 
 All configuration -- the endpoint URL, timeout, optional API key, and
 hosting recommendations -- lives in ai_config.py, not here, so changing
@@ -39,14 +38,13 @@ def classify_images(root_image_bytes, trunk_image_bytes):
 
     Raises InferenceError if AI_MODEL_ENDPOINT_URL isn't set, the request
     fails, or the response is malformed -- callers decide what to do next
-    (e.g. views.py can catch this and tell the client to fall back to the
-    JS simulator during development).
+    (e.g. views.py surfaces this as an error to the user instead of
+    saving a guessed result).
     """
     if not AI_MODEL_ENABLED:
         raise InferenceError(
             "No AI_MODEL_ENDPOINT_URL configured. Set it once your trained "
-            "model is deployed (e.g. to a Hugging Face Space) to enable "
-            "real inference; until then, the client-side simulator is used."
+            "model is deployed to enable detection."
         )
 
     try:
