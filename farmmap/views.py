@@ -9,7 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.core.paginator import Paginator
 from django.db.models import Count, Q, Prefetch, Min, Max, Avg, Exists, OuterRef
-from .models import Farm, RubberTree, ScanHistory, Intervention, DiseaseClass, UserSettings
+from .models import Farm, RubberTree, ScanHistory, Intervention, DiseaseClass, UserSettings, get_disease_lookup
 from .imaging import resize_for_storage
 from . import ai_inference
 from . import storage_stats
@@ -639,22 +639,63 @@ def disease_detection(request):
     # Renders the disease detection upload page.
     farm = _get_farm_or_none(request)
     ctx = _base_context(request, farm)
-    # The simulated inference step (no trained model wired in yet) needs to
-    # pick from and describe whatever diseases currently exist in the
-    # DiseaseClass catalog -- not a hardcoded JS list -- so adding/removing
-    # a disease via the admin is reflected here immediately.
-    disease_catalog = {
-        d.name: {
-            "action": d.recommendation_for("Moderate") or d.recommendation_for("Mild"),
-        }
-        for d in DiseaseClass.objects.all()
-    }
     ctx.update({
         "page": "disease_detection",
-        "disease_catalog_json": json.dumps(disease_catalog),
         "disease_classes": DiseaseClass.objects.all().order_by("display_order", "name"),
+        # Analyze Images is disabled in the template when this is False,
+        # rather than the page silently making up a result.
+        "ai_enabled": ai_inference.AI_MODEL_ENABLED,
     })
     return render(request, "disease_detection.html", ctx)
+
+
+def _severity_label_for(disease, confidence):
+    # Mirrors RubberTree.severity_label's thresholds (models.py), for a
+    # result that hasn't been saved as a RubberTree yet -- see
+    # analyze_detection() below.
+    disease_class = get_disease_lookup().get(disease)
+    if (disease_class and disease_class.is_healthy) or not confidence:
+        return "Healthy"
+    if confidence < 34:
+        return "Mild"
+    if confidence < 67:
+        return "Moderate"
+    return "Severe"
+
+
+@login_required
+def analyze_detection(request):
+    # Runs the configured AI model on the two captured photos and returns
+    # its result as JSON. Called by the Analyze Images button so what the
+    # user reviews before saving is the real model output. save_detection()
+    # independently re-runs this at save time too -- that copy is the one
+    # actually trusted for what gets stored, since these hidden form
+    # fields could still be edited in devtools before submit.
+    from django.http import JsonResponse
+
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+
+    if not ai_inference.AI_MODEL_ENABLED:
+        return JsonResponse(
+            {"error": "AI model isn't configured. Set AI_MODEL_ENDPOINT_URL to enable detection."},
+            status=503,
+        )
+
+    root_file = request.FILES.get("root_image")
+    trunk_file = request.FILES.get("trunk_image")
+    if not root_file or not trunk_file:
+        return JsonResponse({"error": "Both root and trunk images are required."}, status=400)
+
+    try:
+        result = ai_inference.classify_images(root_file.read(), trunk_file.read())
+    except ai_inference.InferenceError as exc:
+        return JsonResponse({"error": str(exc)}, status=502)
+
+    disease_class = get_disease_lookup().get(result["disease"])
+    severity_label = _severity_label_for(result["disease"], result["confidence"])
+    result["action"] = disease_class.recommendation_for(severity_label) if disease_class else ""
+    return JsonResponse(result)
 
 
 @login_required
@@ -685,7 +726,7 @@ def request_upload_url(request):
 
 @login_required
 def save_detection(request):
-    # Saves a simulated (or future real) CNN detection result. Creates a
+    # Saves a CNN detection result. Creates a
     # new tree, or — if tree_id matches an existing tree on this farm —
     # appends a new ScanHistory entry and updates that tree's current
     # state instead. The latter is what makes progression tracking
@@ -748,12 +789,12 @@ def save_detection(request):
         f.seek(0)
         trunk_image_resized = resize_for_storage(f, f.name)
 
-    # If a real model endpoint is configured (AI_MODEL_ENDPOINT_URL), use it
-    # instead of trusting the client-submitted disease/confidence -- which
-    # otherwise come from the JS simulator in disease_detection.js. Falls
-    # back to the client-submitted (simulated) values if the endpoint call
-    # fails, so a flaky or cold-starting model host never blocks saving a
-    # scan outright.
+    # Re-runs inference server-side rather than trusting the hidden
+    # save-form fields outright -- they already hold the real result from
+    # analyze_detection() above, but could still be edited in devtools
+    # before submit. Falls back to those submitted values only if this
+    # second call fails transiently, so a flaky or cold-starting model
+    # host never blocks saving a scan outright.
     if ai_inference.AI_MODEL_ENABLED and root_file_bytes and trunk_file_bytes:
         try:
             result = ai_inference.classify_images(root_file_bytes, trunk_file_bytes)
@@ -882,6 +923,9 @@ def tree_details(request, tree_id):
         "history_chart_json": json.dumps(list(history_qs.values("date", "confidence", "disease")), default=str),
         "progression": tree.get_progression_trend(),
         "tree_farm_boundary": json.dumps(tree.farm.get_boundary_polygon()),
+        # Legend + chart colors, pulled from the DiseaseClass catalog.
+        "legend_diseases": DiseaseClass.objects.all().order_by("display_order", "name"),
+        "disease_colors_json": json.dumps({name: dc.color_hex for name, dc in get_disease_lookup().items()}),
     })
     return render(request, "tree_details.html", ctx)
 
