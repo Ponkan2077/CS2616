@@ -134,10 +134,9 @@
         {% if history %}
         <canvas id="historyChart" height="130"></canvas>
         <div class="mt-3 d-flex flex-wrap gap-3 justify-content-center" style="font-size:11px;">
-          <span><span class="legend-dot" style="background:var(--healthy);"></span>Healthy</span>
-          <span><span class="legend-dot" style="background:var(--pink);"></span>Pink Disease</span>
-          <span><span class="legend-dot" style="background:var(--white-root);"></span>White Root Rot</span>
-          <span><span class="legend-dot" style="background:var(--stem);"></span>Stem Bleeding</span>
+          {% for d in legend_diseases %}
+          <span><span class="legend-dot" style="background:{{ d.color_hex }};"></span>{{ d.name }}</span>
+          {% endfor %}
         </div>
         {% else %}
         <div class="text-center text-muted py-4" style="font-size:13px;">No scan history available.</div>
@@ -252,7 +251,8 @@
       farm_name: '{{ tree.farm.name|escapejs }}'
     },
     farmBoundary: {{ tree_farm_boundary|safe }},
-    history: {{ history_chart_json|safe }}
+    history: {{ history_chart_json|safe }},
+    diseaseColors: {{ disease_colors_json|safe }}
   };
 </script>
 {% load static %}
