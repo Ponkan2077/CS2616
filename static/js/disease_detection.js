@@ -1,15 +1,9 @@
 /* Handles the two-step capture flow (root image, then trunk image — see
-   comment 4), resizes each photo client-side before upload, runs a
-   simulated CNN analysis step (no trained model is wired in yet), and
-   uploads both resized images directly to cloud storage via a presigned
-   URL (falling back to attaching them to the save form's file inputs for
-   a normal multipart submission if direct upload isn't available). */
-
-// Populated from window.DISEASE_CATALOG, which is rendered server-side
-// from the dynamic DiseaseClass catalog (see views.disease_detection) --
-// NOT a hardcoded list, since the real disease set depends on the trained
-// CNN model's actual classes, which depends on dataset/field availability.
-const DISEASE_INFO = window.DISEASE_CATALOG || {};
+   comment 4), resizes each photo client-side before upload, sends both to
+   the real AI model for analysis, and uploads both resized images
+   directly to cloud storage via a presigned URL (falling back to
+   attaching them to the save form's file inputs for a normal multipart
+   submission if direct upload isn't available). */
 
 // Images are stored at up to this size on the longest edge -- separate
 // from whatever input size a future trained CNN normalizes to (e.g.
@@ -23,7 +17,7 @@ let capturedLat = null;     // device GPS, captured at scan time (Chapter 3:
 let capturedLng = null;     // "Mobile GPS module - Auto the capture coordinates")
 
 // Direct-to-storage upload state. Uploads kick off in the background as
-// soon as the (simulated) analysis result is shown, so they're usually
+// soon as the analysis result is shown, so they're usually
 // already finished by the time the farmer reviews the result and hits
 // Save. directUploadPromise resolves once both are done (or resolves
 // anyway on failure/unavailability, leaving the original file-input
@@ -169,7 +163,10 @@ function handleCapture(file, { previewImgId, dropZoneId, kind }) {
       document.getElementById("trunk-zone-wrapper").classList.remove("step-locked");
       setWorkflowStep(1);
     } else {
-      document.getElementById("analyze-btn").disabled = false;
+      // Stays disabled if no model is configured -- see the banner
+      // rendered in disease_detection.html instead of enabling a button
+      // that would just error out.
+      document.getElementById("analyze-btn").disabled = !window.AI_ENABLED;
       setWorkflowStep(2);
     }
   }).catch(() => {
@@ -177,41 +174,51 @@ function handleCapture(file, { previewImgId, dropZoneId, kind }) {
   });
 }
 
-// Runs a simulated CNN analysis (random pick among trunk disease classes)
-// plus a simulated root-condition check, since a trained model isn't
-// wired into this Django app yet. Root condition is assessed separately
-// from trunk disease -- exposed roots aren't one of the trained trunk
-// disease classes (see the dynamic DiseaseClass catalog for what those are).
-function runAnalysis() {
-  const classes = Object.keys(DISEASE_INFO);
-  if (classes.length === 0) {
-    alert("No disease classes are configured yet. Add at least one in the admin panel.");
-    return;
-  }
+// Sends the two captured photos to the real AI model (views.analyze_detection)
+// and shows its actual result. Root condition comes back from the same
+// call -- assessed separately from trunk disease server-side, since
+// exposed roots aren't one of the trained trunk disease classes (see the
+// dynamic DiseaseClass catalog for what those are).
+async function runAnalysis() {
   setWorkflowStep(2);
   const analyzeBtn = document.getElementById("analyze-btn");
+  const errorBox = document.getElementById("analyze-error");
+  errorBox.style.display = "none";
   analyzeBtn.disabled = true;
   analyzeBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Analyzing...';
 
-  setTimeout(() => {
-    const disease = classes[Math.floor(Math.random() * classes.length)];
-    const confidence = Math.round((70 + Math.random() * 29) * 10) / 10;
-    const rootCondition = Math.random() < 0.75 ? "Healthy Roots" : "Exposed Roots Detected";
-    showResult(disease, confidence, rootCondition);
+  try {
+    const formData = new FormData();
+    formData.append("root_image", rootImageFile);
+    formData.append("trunk_image", trunkImageFile);
+
+    const res = await fetch("/detection/analyze/", {
+      method: "POST",
+      headers: { "X-CSRFToken": getCsrfToken() },
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Analysis failed (${res.status})`);
+
+    showResult(data.disease, data.confidence, data.root_condition, data.action);
     setWorkflowStep(3);
+  } catch (err) {
+    errorBox.textContent = err.message || "Analysis failed. Please try again.";
+    errorBox.style.display = "";
+    setWorkflowStep(1);
+  } finally {
     analyzeBtn.disabled = false;
     analyzeBtn.innerHTML = '<i class="bi bi-cpu"></i> Analyze Images';
-  }, 1400);
+  }
 }
 
 // Populates and reveals the result panel, hides the class reference card,
 // and fills the hidden save-form fields (including the two image files).
-function showResult(disease, confidence, rootCondition) {
-  const info = DISEASE_INFO[disease];
+function showResult(disease, confidence, rootCondition, action) {
   document.getElementById("result-disease").textContent = disease;
   document.getElementById("result-conf").textContent = `${confidence}%`;
   document.getElementById("result-fill").style.width = `${confidence}%`;
-  document.getElementById("result-action").textContent = info.action;
+  document.getElementById("result-action").textContent = action || "No recommendation on file for this result.";
 
   const rootBadge = document.getElementById("result-root-condition");
   rootBadge.textContent = rootCondition;
