@@ -5,11 +5,6 @@
    tree_details.html before this script loads.
    ============================================================ */
 
-const DISEASE_COLOR_MAP = {
-  'Healthy': '#34d399', 'Pink Disease': '#f87171',
-  'White Root Rot': '#d0995f', 'Stem Bleeding': '#fb7185',
-};
-
 // Renders a small Leaflet map centered on the tree's GPS point.
 function renderMiniMap(tree, farmBoundary) {
   const hasBoundary = farmBoundary && farmBoundary.length >= 3;
@@ -73,12 +68,13 @@ function renderMiniMap(tree, farmBoundary) {
 // with each point colored by that scan's own detected disease (so
 // individual results stay easy to identify at a glance) and a soft
 // gradient fill under the curve to make the overall trend easy to read.
-function renderHistoryChart(tree, history) {
+function renderHistoryChart(tree, history, diseaseColors) {
   if (!history.length) return;
   const points = [...history].reverse();
   const dates = points.map(h => new Date(h.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
   const confidences = points.map(h => h.confidence);
-  const pointColors = points.map(h => DISEASE_COLOR_MAP[h.disease] || tree.color);
+  // diseaseColors comes from the DiseaseClass catalog on the server.
+  const pointColors = points.map(h => diseaseColors[h.disease] || tree.color);
 
   const canvas = document.getElementById('historyChart');
   const ctx = canvas.getContext('2d');
@@ -109,13 +105,15 @@ function renderHistoryChart(tree, history) {
           pointRadius: 6,
           pointHoverRadius: 8,
           pointHoverBorderWidth: 2,
+          // Extra room so a point at 100% isn't clipped by the top edge.
+          clip: { top: 12, left: 10, right: 10, bottom: 0 },
         },
       ],
     },
     options: {
       responsive: true,
       layout: {
-        padding: { top: 10, bottom: 4, left: 4, right: 10 },
+        padding: { top: 14, bottom: 4, left: 4, right: 10 },
       },
       interaction: { mode: 'index', intersect: false },
       plugins: {
@@ -152,7 +150,7 @@ function renderHistoryChart(tree, history) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const { tree, history } = TREE_DETAIL_DATA;
+  const { tree, history, diseaseColors } = TREE_DETAIL_DATA;
   renderMiniMap(tree, TREE_DETAIL_DATA.farmBoundary);
-  renderHistoryChart(tree, history);
+  renderHistoryChart(tree, history, diseaseColors);
 });
