@@ -635,6 +635,15 @@ def tree_marker_detail(request, tree_id):
 
 
 @login_required
+def service_worker_js(request):
+    # Served from /detection/sw.js, not /static/js/sw.js -- see the
+    # comment at the top of static/js/sw.js for why that path matters.
+    from django.http import HttpResponse
+    from pathlib import Path
+    sw_path = Path(__file__).resolve().parent.parent / "static" / "js" / "sw.js"
+    return HttpResponse(sw_path.read_text(), content_type="application/javascript")
+
+
 def disease_detection(request):
     # Renders the disease detection upload page.
     farm = _get_farm_or_none(request)
@@ -732,8 +741,20 @@ def save_detection(request):
     # state instead. The latter is what makes progression tracking
     # (comment 9) reachable through real usage, not just seeded demo data.
     import datetime
+    from django.http import JsonResponse
 
     if request.method != "POST":
+        return redirect("disease_detection")
+
+    # The offline sync queue (offline_queue.js) replays this same endpoint
+    # via fetch() instead of a real form submission, since there's no page
+    # to redirect. It sends this header to ask for JSON back instead.
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+    def fail(message, status=400):
+        if is_ajax:
+            return JsonResponse({"error": message}, status=status)
+        messages.error(request, message)
         return redirect("disease_detection")
 
     farm_pk = request.POST.get("farm_pk")
@@ -743,15 +764,18 @@ def save_detection(request):
     block = request.POST.get("block", "").strip()
     root_condition = request.POST.get("root_condition", "").strip()
 
-    # Prefer the device's actual captured GPS position (Chapter 3: "Mobile
-    # GPS module - Auto the capture coordinates"); fall back to the farm's
-    # center point if geolocation was denied/unavailable, so a scan never
-    # fails just because of a GPS permission prompt.
+    # GPS is required, not just preferred -- gps_exif.js / offline_queue.js
+    # reject a photo client-side if it has neither EXIF GPS nor a live
+    # device position, so this should basically always be present by the
+    # time a request gets here. Still re-checked server-side rather than
+    # trusted, same reasoning as the disease/confidence re-check below.
     try:
         tree_lat = float(request.POST.get("lat") or "")
         tree_lng = float(request.POST.get("lng") or "")
     except ValueError:
         tree_lat = tree_lng = None
+    if tree_lat is None or tree_lng is None:
+        return fail("This scan is missing a GPS location and can't be saved. Retake the photo somewhere the camera/GPS can get a location.")
 
     farm = get_object_or_404(Farm, pk=farm_pk, owner=request.user)
 
@@ -775,9 +799,10 @@ def save_detection(request):
         trunk_image_resized = trunk_image_key
 
     # Fallback path: a raw file came through the multipart form instead
-    # (older browsers without canvas/WebP support, or direct uploads
-    # unavailable because cloud storage isn't configured) -- resize and
-    # route it through Django exactly as before.
+    # (older browsers without canvas/WebP support, direct uploads
+    # unavailable because cloud storage isn't configured, or this is an
+    # offline-queued scan being synced -- those always use this path,
+    # since they were never uploaded to R2 while offline).
     if not root_image_key and request.FILES.get("root_image"):
         f = request.FILES["root_image"]
         root_file_bytes = f.read()
@@ -817,8 +842,7 @@ def save_detection(request):
     existing_tree = RubberTree.objects.filter(tree_id=tree_id).first()
 
     if existing_tree and existing_tree.farm_id != farm.id:
-        messages.error(request, f"Tree ID '{tree_id}' already exists on a different farm.")
-        return redirect("disease_detection")
+        return fail(f"Tree ID '{tree_id}' already exists on a different farm.")
 
     if existing_tree:
         # Rescan: update the tree's current snapshot and blank out
@@ -831,6 +855,8 @@ def save_detection(request):
         tree.severity_score = 0.0
         tree.recommended_action = ""
         tree.date_scanned = datetime.date.today()
+        tree.lat = tree_lat
+        tree.lng = tree_lng
         if block:
             tree.block = block
         if root_image_resized:
@@ -841,8 +867,7 @@ def save_detection(request):
     else:
         tree = RubberTree.objects.create(
             farm=farm, tree_id=tree_id,
-            lat=tree_lat if tree_lat is not None else farm.center_lat,
-            lng=tree_lng if tree_lng is not None else farm.center_lng,
+            lat=tree_lat, lng=tree_lng,
             disease=disease, confidence=float(confidence),
             root_condition=root_condition,
             date_scanned=datetime.date.today(), block=block,
@@ -859,6 +884,9 @@ def save_detection(request):
     )
     verb = "updated" if existing_tree else "saved"
     messages.success(request, f"Detection {verb} for tree '{tree_id}'.")
+
+    if is_ajax:
+        return JsonResponse({"ok": True, "tree_id": tree_id, "verb": verb})
     return redirect("tree_details", tree_id=tree_id)
 
 
