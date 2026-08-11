@@ -11,6 +11,21 @@
   {% endfor %}
 {% endif %}
 
+<div id="offline-banner" class="alert alert-warning py-2 d-flex align-items-center gap-2" style="display:none;font-size:12.5px;">
+  <i class="bi bi-wifi-off"></i> You're offline — captured scans are saved on this device and will sync automatically once you're back online.
+</div>
+
+<!-- Pending Scans: populated client-side from IndexedDB, see offline_queue.js -->
+<div class="card-rg mb-3" id="pending-scans-section" style="display:none;">
+  <div class="card-header-rg d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-cloud-arrow-up"></i> Pending Sync <span class="badge bg-secondary ms-1" id="pending-scans-count">0</span></span>
+    <button class="btn btn-sm btn-outline-primary" id="sync-now-btn" style="font-size:11.5px;">
+      <i class="bi bi-arrow-repeat"></i> Sync Now
+    </button>
+  </div>
+  <div class="card-body-rg py-1" id="pending-scans-list"></div>
+</div>
+
 <!-- Workflow strip -->
 <div class="card-rg mb-3">
   <div class="card-body-rg d-flex flex-wrap gap-1 align-items-center justify-content-center" style="font-size:12px;">
@@ -36,10 +51,11 @@
           <div id="root-upload-placeholder">
             <div class="drop-zone-icon"><i class="bi bi-tree-fill"></i></div>
             <div class="fw-semibold mb-1">Photo of exposed roots</div>
-            <div class="text-muted" style="font-size:12px;">Supports JPG, PNG, WEBP — resized to 1080px on upload</div>
+            <div class="text-muted" style="font-size:12px;">Supports JPG, PNG, WEBP — must have location data (from the photo or your device)</div>
           </div>
           <img id="root-preview-img" src="" alt="Root preview">
         </div>
+        <div id="root-gps-status" class="mb-2"></div>
         <label class="btn btn-outline-secondary btn-sm w-100 text-center" style="cursor:pointer;">
           <i class="bi bi-folder2-open"></i> Browse Root Photo
           <input type="file" id="root-file-input" accept="image/*" class="d-none">
@@ -54,10 +70,11 @@
           <div id="trunk-upload-placeholder">
             <div class="drop-zone-icon"><i class="bi bi-cloud-arrow-up-fill"></i></div>
             <div class="fw-semibold mb-1">Capture the root image first</div>
-            <div class="text-muted" style="font-size:12px;">Supports JPG, PNG, WEBP — resized to 1080px on upload</div>
+            <div class="text-muted" style="font-size:12px;">Supports JPG, PNG, WEBP — must have location data (from the photo or your device)</div>
           </div>
           <img id="trunk-preview-img" src="" alt="Trunk preview">
         </div>
+        <div id="trunk-gps-status" class="mb-2"></div>
         <div class="d-flex gap-2">
           <label class="btn btn-outline-secondary btn-sm flex-grow-1 text-center" style="cursor:pointer;">
             <i class="bi bi-folder2-open"></i> Browse Trunk Photo
@@ -146,7 +163,7 @@
               </select>
             </div>
             <div class="col-3">
-              <input type="text" name="block" class="form-control-rg" placeholder="Block">
+              <input type="text" name="block" id="save-block" class="form-control-rg" placeholder="Block">
             </div>
             <div class="col-3">
               <input type="text" name="tree_id" id="save-tree-id" class="form-control-rg" placeholder="Tree ID (optional)">
@@ -197,5 +214,19 @@
   // after both photos are captured, when no model endpoint is set.
   window.AI_ENABLED = {{ ai_enabled|yesno:"true,false" }};
 </script>
+<script src="{% static 'js/gps_exif.js' %}?v={{ STATIC_VERSION }}"></script>
+<script src="{% static 'js/offline_queue.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/disease_detection.js' %}?v={{ STATIC_VERSION }}"></script>
+<script>
+  // Registered from /detection/sw.js (a view, not a static file) so its
+  // scope covers the whole /detection/ path -- see the comment at the
+  // top of static/js/sw.js for why that matters.
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("{% url 'service_worker_js' %}", { scope: "/detection/" }).catch(() => {
+      // Offline page-shell caching just won't be available this session --
+      // the capture form still works fine as long as the page was already
+      // loaded once, so this isn't fatal.
+    });
+  }
+</script>
 {% endblock %}
