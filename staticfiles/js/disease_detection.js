@@ -1,15 +1,9 @@
 /* Handles the two-step capture flow (root image, then trunk image — see
-   comment 4), resizes each photo client-side before upload, runs a
-   simulated CNN analysis step (no trained model is wired in yet), and
-   uploads both resized images directly to cloud storage via a presigned
-   URL (falling back to attaching them to the save form's file inputs for
-   a normal multipart submission if direct upload isn't available). */
-
-// Populated from window.DISEASE_CATALOG, which is rendered server-side
-// from the dynamic DiseaseClass catalog (see views.disease_detection) --
-// NOT a hardcoded list, since the real disease set depends on the trained
-// CNN model's actual classes, which depends on dataset/field availability.
-const DISEASE_INFO = window.DISEASE_CATALOG || {};
+   comment 4), resizes each photo client-side before upload, sends both to
+   the real AI model for analysis, and uploads both resized images
+   directly to cloud storage via a presigned URL (falling back to
+   attaching them to the save form's file inputs for a normal multipart
+   submission if direct upload isn't available). */
 
 // Images are stored at up to this size on the longest edge -- separate
 // from whatever input size a future trained CNN normalizes to (e.g.
@@ -19,32 +13,42 @@ const STORAGE_WEBP_QUALITY = 0.85;
 
 let rootImageFile = null;   // resized File, ready to attach to the save form
 let trunkImageFile = null;
-let capturedLat = null;     // device GPS, captured at scan time (Chapter 3:
-let capturedLng = null;     // "Mobile GPS module - Auto the capture coordinates")
+let rootGPS = null;   // { lat, lng, source: 'exif' | 'device' } -- resolved per image
+let trunkGPS = null;
 
 // Direct-to-storage upload state. Uploads kick off in the background as
-// soon as the (simulated) analysis result is shown, so they're usually
+// soon as the analysis result is shown, so they're usually
 // already finished by the time the farmer reviews the result and hits
 // Save. directUploadPromise resolves once both are done (or resolves
 // anyway on failure/unavailability, leaving the original file-input
 // attachment from showResult() as the fallback).
 let directUploadPromise = null;
 
-// Requests the device's current position once, as soon as the user starts
-// a scan. Silently no-ops on denial/unsupported browsers -- save_detection
-// falls back to the farm's center point server-side in that case.
-function captureDeviceGPS() {
-  if (!navigator.geolocation || capturedLat !== null) return;
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      capturedLat = pos.coords.latitude;
-      capturedLng = pos.coords.longitude;
-      document.getElementById("save-lat").value = capturedLat;
-      document.getElementById("save-lng").value = capturedLng;
-    },
-    () => { /* denied or unavailable -- server falls back to farm center */ },
-    { enableHighAccuracy: true, timeout: 8000 }
-  );
+// One-shot read of the device's current position, promisified. Used as a
+// fallback when a photo has no EXIF GPS of its own (see resolveImageGPS
+// below) -- this works fine offline too, since GPS hardware doesn't need
+// a data connection, only a permission grant and sky visibility.
+function getDeviceGPS() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: "device" }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  });
+}
+
+// Every photo has to carry a location one way or another: prefer the
+// GPS baked into the photo's own EXIF (works for both a fresh camera
+// shot with location tagging on, and an existing geotagged photo picked
+// from the gallery), and only fall back to the device's live position
+// when the file has none. Returns null if neither is available -- the
+// caller rejects the photo in that case rather than saving it untagged.
+async function resolveImageGPS(file) {
+  const exifGps = await extractGPSFromFile(file);
+  if (exifGps) return exifGps;
+  return await getDeviceGPS();
 }
 
 // Advances the workflow strip, marking prior steps done and the given step active.
@@ -149,17 +153,47 @@ function startDirectUploads() {
 }
 
 
-// stores the result for the save form, and advances the workflow.
+// Resolves GPS from the original file (has to happen before resize, since
+// redrawing onto a canvas strips all EXIF including GPS), resizes it, and
+// only then accepts the capture -- rejecting outright if neither the
+// photo's own EXIF nor a live device position could provide a location.
 function handleCapture(file, { previewImgId, dropZoneId, kind }) {
   const dropZone = document.getElementById(dropZoneId);
   const previewImg = document.getElementById(previewImgId);
+  const statusEl = document.getElementById(`${kind}-gps-status`);
+  if (statusEl) { statusEl.textContent = "Checking location…"; statusEl.className = "text-muted mt-1"; statusEl.style.fontSize = "11px"; }
 
-  resizeImageFile(file).then(resizedFile => {
+  Promise.all([resolveImageGPS(file), resizeImageFile(file)]).then(([gps, resizedFile]) => {
+    if (!gps) {
+      if (statusEl) {
+        statusEl.textContent = "No location data found in this photo, and couldn't get your device's GPS either. Enable location and try again.";
+        statusEl.className = "text-danger mt-1";
+        statusEl.style.fontSize = "11px";
+      }
+      return; // reject: image is not accepted, existing state (if any) is untouched
+    }
+
     if (kind === "root") {
       rootImageFile = resizedFile;
+      rootGPS = gps;
     } else {
       trunkImageFile = resizedFile;
+      trunkGPS = gps;
     }
+    if (statusEl) {
+      statusEl.textContent = `📍 Location from ${gps.source === "exif" ? "photo" : "device"}`;
+      statusEl.className = "text-healthy mt-1";
+      statusEl.style.fontSize = "11px";
+    }
+
+    // The tree gets one location -- prefer the root photo's, since
+    // root and trunk are shot moments apart at the same tree and root is
+    // captured first. Refreshed every time either GPS resolves, so
+    // whichever was captured most recently is reflected immediately.
+    const chosenGps = rootGPS || trunkGPS;
+    document.getElementById("save-lat").value = chosenGps.lat;
+    document.getElementById("save-lng").value = chosenGps.lng;
+
     previewImg.src = URL.createObjectURL(resizedFile);
     previewImg.style.display = "block";
     dropZone.classList.add("has-image");
@@ -169,7 +203,10 @@ function handleCapture(file, { previewImgId, dropZoneId, kind }) {
       document.getElementById("trunk-zone-wrapper").classList.remove("step-locked");
       setWorkflowStep(1);
     } else {
-      document.getElementById("analyze-btn").disabled = false;
+      // Stays disabled if no model is configured -- see the banner
+      // rendered in disease_detection.html instead of enabling a button
+      // that would just error out.
+      document.getElementById("analyze-btn").disabled = !window.AI_ENABLED;
       setWorkflowStep(2);
     }
   }).catch(() => {
@@ -177,41 +214,115 @@ function handleCapture(file, { previewImgId, dropZoneId, kind }) {
   });
 }
 
-// Runs a simulated CNN analysis (random pick among trunk disease classes)
-// plus a simulated root-condition check, since a trained model isn't
-// wired into this Django app yet. Root condition is assessed separately
-// from trunk disease -- exposed roots aren't one of the trained trunk
-// disease classes (see the dynamic DiseaseClass catalog for what those are).
-function runAnalysis() {
-  const classes = Object.keys(DISEASE_INFO);
-  if (classes.length === 0) {
-    alert("No disease classes are configured yet. Add at least one in the admin panel.");
-    return;
-  }
+
+// Sends the two captured photos to the real AI model (views.analyze_detection)
+// and shows its actual result. Root condition comes back from the same
+// call -- assessed separately from trunk disease server-side, since
+// exposed roots aren't one of the trained trunk disease classes (see the
+// dynamic DiseaseClass catalog for what those are).
+async function runAnalysis() {
   setWorkflowStep(2);
   const analyzeBtn = document.getElementById("analyze-btn");
+  const errorBox = document.getElementById("analyze-error");
+  errorBox.style.display = "none";
   analyzeBtn.disabled = true;
   analyzeBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Analyzing...';
 
-  setTimeout(() => {
-    const disease = classes[Math.floor(Math.random() * classes.length)];
-    const confidence = Math.round((70 + Math.random() * 29) * 10) / 10;
-    const rootCondition = Math.random() < 0.75 ? "Healthy Roots" : "Exposed Roots Detected";
-    showResult(disease, confidence, rootCondition);
-    setWorkflowStep(3);
+  const formData = new FormData();
+  formData.append("root_image", rootImageFile);
+  formData.append("trunk_image", trunkImageFile);
+
+  let res;
+  try {
+    res = await fetch("/detection/analyze/", {
+      method: "POST",
+      headers: { "X-CSRFToken": getCsrfToken() },
+      body: formData,
+    });
+  } catch (networkErr) {
+    // fetch() throwing here (as opposed to resolving with a bad status)
+    // means there's no network path at all right now -- analysis can't
+    // happen offline no matter what, so queue the scan instead of
+    // dead-ending with an error the user can't do anything about.
+    await queueScanOffline();
     analyzeBtn.disabled = false;
     analyzeBtn.innerHTML = '<i class="bi bi-cpu"></i> Analyze Images';
-  }, 1400);
+    return;
+  }
+
+  try {
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Analysis failed (${res.status})`);
+    showResult(data.disease, data.confidence, data.root_condition, data.action);
+    setWorkflowStep(3);
+  } catch (err) {
+    errorBox.textContent = err.message || "Analysis failed. Please try again.";
+    errorBox.style.display = "";
+    setWorkflowStep(1);
+  } finally {
+    analyzeBtn.disabled = false;
+    analyzeBtn.innerHTML = '<i class="bi bi-cpu"></i> Analyze Images';
+  }
+}
+
+// Stores the current capture (both images + resolved GPS) in IndexedDB
+// via offline_queue.js, then resets the form so the farmer can keep
+// scanning the next tree right away instead of getting stuck. Analysis
+// itself happens later, at sync time, once there's a connection again.
+async function queueScanOffline() {
+  const chosenGps = rootGPS || trunkGPS;
+  await queueScan({
+    farmPk: document.getElementById("save-farm-pk").value,
+    treeId: document.getElementById("save-tree-id").value.trim(),
+    block: document.getElementById("save-block").value.trim(),
+    rootBlob: rootImageFile,
+    trunkBlob: trunkImageFile,
+    lat: chosenGps.lat,
+    lng: chosenGps.lng,
+    gpsSource: chosenGps.source,
+    capturedAt: Date.now(),
+  });
+  if (typeof renderPendingScans === "function") renderPendingScans();
+
+  const errorBox = document.getElementById("analyze-error");
+  errorBox.className = "alert alert-warning mt-2 py-2";
+  errorBox.style.fontSize = "12.5px";
+  errorBox.style.display = "";
+  errorBox.textContent = "No connection right now — this scan was saved on your device and will analyze and sync automatically once you're back online.";
+
+  resetCaptureForm();
+}
+
+// Clears the capture state back to a fresh scan, without a page reload
+// (so farm/tree-id typed so far, and the message above, both survive).
+function resetCaptureForm() {
+  rootImageFile = null;
+  trunkImageFile = null;
+  rootGPS = null;
+  trunkGPS = null;
+  ["root", "trunk"].forEach(kind => {
+    const previewImg = document.getElementById(`${kind}-preview-img`);
+    const dropZone = document.getElementById(`${kind}-drop-zone`);
+    const statusEl = document.getElementById(`${kind}-gps-status`);
+    previewImg.style.display = "none";
+    previewImg.src = "";
+    dropZone.classList.remove("has-image");
+    if (statusEl) statusEl.textContent = "";
+  });
+  document.getElementById("trunk-zone-wrapper").classList.add("step-locked");
+  document.getElementById("analyze-btn").disabled = true;
+  document.getElementById("save-lat").value = "";
+  document.getElementById("save-lng").value = "";
+  setWorkflowStep(0);
 }
 
 // Populates and reveals the result panel, hides the class reference card,
 // and fills the hidden save-form fields (including the two image files).
-function showResult(disease, confidence, rootCondition) {
-  const info = DISEASE_INFO[disease];
+function showResult(disease, confidence, rootCondition, action) {
   document.getElementById("result-disease").textContent = disease;
   document.getElementById("result-conf").textContent = `${confidence}%`;
   document.getElementById("result-fill").style.width = `${confidence}%`;
-  document.getElementById("result-action").textContent = info.action;
+  document.getElementById("result-action").textContent = action || "No recommendation on file for this result.";
 
   const rootBadge = document.getElementById("result-root-condition");
   rootBadge.textContent = rootCondition;
@@ -269,7 +380,6 @@ function wireCaptureZone({ dropZoneId, fileInputId, previewImgId, kind }) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  captureDeviceGPS();
   document.getElementById("root-preview-img").style.display = "none";
   document.getElementById("trunk-preview-img").style.display = "none";
   wireCaptureZone({ dropZoneId: "root-drop-zone", fileInputId: "root-file-input", previewImgId: "root-preview-img", kind: "root" });
