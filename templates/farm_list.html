@@ -18,8 +18,22 @@
   </button>
 </div>
 
+<!-- Toolbar: real GET filter, applied server-side so pagination stays correct -->
+<div class="card-rg mb-0" style="border-bottom-left-radius:0;border-bottom-right-radius:0;">
+  <form method="GET" class="card-body-rg d-flex flex-wrap gap-2 align-items-center">
+    <div class="search-wrap">
+      <i class="bi bi-search"></i>
+      <input type="text" name="q" value="{{ search_q }}" class="form-control-rg" placeholder="Search farm, owner, or location…">
+    </div>
+    <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-search"></i> Search</button>
+    {% if search_q %}
+    <a href="{% url 'farm_list' %}" class="btn btn-sm btn-outline-secondary">Clear</a>
+    {% endif %}
+  </form>
+</div>
+
 <!-- Summary table -->
-<div class="card-rg mb-3">
+<div class="card-rg mb-3" style="border-top-left-radius:0;border-top-right-radius:0;">
   <div class="table-responsive-rg">
     <table class="table-rg" style="min-width:560px;">
       <thead>
@@ -54,8 +68,9 @@
   </div>
   {% if farms.paginator.num_pages > 1 %}
   <div class="pagination-rg border-top">
+    {% with base_qs="q="|add:search_q %}
     {% if farms.has_previous %}
-      <a href="?page={{ farms.previous_page_number }}"><i class="bi bi-chevron-left"></i></a>
+      <a href="?{{ base_qs }}&page={{ farms.previous_page_number }}"><i class="bi bi-chevron-left"></i></a>
     {% else %}
       <span class="disabled"><i class="bi bi-chevron-left"></i></span>
     {% endif %}
@@ -64,17 +79,18 @@
       {% if num == farms.number %}
         <span class="active">{{ num }}</span>
       {% elif num == 1 or num == farms.paginator.num_pages or num|add:"-3" < farms.number and num|add:"3" > farms.number %}
-        <a href="?page={{ num }}">{{ num }}</a>
+        <a href="?{{ base_qs }}&page={{ num }}">{{ num }}</a>
       {% elif num == 2 or num == farms.paginator.num_pages|add:"-1" %}
         <span class="ellipsis">…</span>
       {% endif %}
     {% endfor %}
 
     {% if farms.has_next %}
-      <a href="?page={{ farms.next_page_number }}"><i class="bi bi-chevron-right"></i></a>
+      <a href="?{{ base_qs }}&page={{ farms.next_page_number }}"><i class="bi bi-chevron-right"></i></a>
     {% else %}
       <span class="disabled"><i class="bi bi-chevron-right"></i></span>
     {% endif %}
+    {% endwith %}
   </div>
   {% endif %}
 </div>
