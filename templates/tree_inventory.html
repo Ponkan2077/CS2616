@@ -41,10 +41,22 @@
     </div>
     <select name="disease" class="select-filter-rg" onchange="this.form.submit()">
       <option value="">All Diseases</option>
-      <option value="Healthy" {% if disease_filter == "Healthy" %}selected{% endif %}>Healthy</option>
-      <option value="Pink Disease" {% if disease_filter == "Pink Disease" %}selected{% endif %}>Pink Disease</option>
-      <option value="White Root Rot" {% if disease_filter == "White Root Rot" %}selected{% endif %}>White Root Rot</option>
-      <option value="Stem Bleeding" {% if disease_filter == "Stem Bleeding" %}selected{% endif %}>Stem Bleeding</option>
+      {% for d in disease_classes %}
+      <option value="{{ d.name }}" {% if disease_filter == d.name %}selected{% endif %}>{{ d.name }}</option>
+      {% endfor %}
+    </select>
+    <select name="severity" class="select-filter-rg" onchange="this.form.submit()">
+      <option value="">All Severities</option>
+      <option value="Healthy" {% if severity_filter == "Healthy" %}selected{% endif %}>Healthy</option>
+      <option value="Mild" {% if severity_filter == "Mild" %}selected{% endif %}>Mild</option>
+      <option value="Moderate" {% if severity_filter == "Moderate" %}selected{% endif %}>Moderate</option>
+      <option value="Severe" {% if severity_filter == "Severe" %}selected{% endif %}>Severe</option>
+    </select>
+    <select name="range" class="select-filter-rg" onchange="this.form.submit()">
+      <option value="">All Time</option>
+      <option value="7" {% if range_filter == "7" %}selected{% endif %}>Last 7 Days</option>
+      <option value="30" {% if range_filter == "30" %}selected{% endif %}>Last 30 Days</option>
+      <option value="90" {% if range_filter == "90" %}selected{% endif %}>Last 90 Days</option>
     </select>
     {% if not selected_farm %}
     <select name="farm" class="select-filter-rg" onchange="this.form.submit()">
@@ -55,7 +67,7 @@
     </select>
     {% endif %}
     <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-search"></i> Search</button>
-    {% if search_q or disease_filter or farm_filter %}
+    {% if search_q or disease_filter or farm_filter or range_filter or severity_filter %}
     <a href="{% url 'tree_inventory' %}" class="btn btn-sm btn-outline-secondary">Clear</a>
     {% endif %}
     <button type="button" class="btn btn-sm btn-primary ms-auto"><i class="bi bi-plus-lg"></i> Add Tree</button>
@@ -114,7 +126,7 @@
 
   {% if trees.paginator.num_pages > 1 %}
   <div class="pagination-rg border-top">
-    {% with base_qs="q="|add:search_q|add:"&disease="|add:disease_filter|add:"&farm="|add:farm_filter %}
+    {% with base_qs="q="|add:search_q|add:"&disease="|add:disease_filter|add:"&farm="|add:farm_filter|add:"&range="|add:range_filter|add:"&severity="|add:severity_filter %}
     {% if trees.has_previous %}
       <a href="?{{ base_qs }}&page={{ trees.previous_page_number }}"><i class="bi bi-chevron-left"></i></a>
     {% else %}
