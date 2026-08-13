@@ -23,8 +23,42 @@
   </div>
 </div>
 
+<!-- Toolbar: real GET filters, applied server-side so pagination stays correct -->
+<div class="card-rg mb-0" style="border-bottom-left-radius:0;border-bottom-right-radius:0;">
+  <form method="GET" class="card-body-rg d-flex flex-wrap gap-2 align-items-center">
+    <div class="search-wrap">
+      <i class="bi bi-search"></i>
+      <input type="text" name="q" value="{{ search_q }}" class="form-control-rg" placeholder="Search Tree ID…">
+    </div>
+    <select name="action" class="select-filter-rg" onchange="this.form.submit()">
+      <option value="">All Actions</option>
+      {% for value, label in action_choices %}
+      <option value="{{ value }}" {% if action_filter == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="range" class="select-filter-rg" onchange="this.form.submit()">
+      <option value="">All Time</option>
+      <option value="7" {% if range_filter == "7" %}selected{% endif %}>Last 7 Days</option>
+      <option value="30" {% if range_filter == "30" %}selected{% endif %}>Last 30 Days</option>
+      <option value="90" {% if range_filter == "90" %}selected{% endif %}>Last 90 Days</option>
+    </select>
+    {% if not selected_farm %}
+    <select name="farm" class="select-filter-rg" onchange="this.form.submit()">
+      <option value="">All Farms</option>
+      {% for farm in all_farms %}
+      <option value="{{ farm.farm_id }}" {% if farm_filter == farm.farm_id %}selected{% endif %}>{{ farm.farm_id }}</option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-search"></i> Search</button>
+    {% if search_q or action_filter or farm_filter or range_filter %}
+    <a href="{% url 'interventions_log' %}" class="btn btn-sm btn-outline-secondary">Clear</a>
+    {% endif %}
+  </form>
+</div>
+
 <!-- Intervention log table -->
-<div class="card-rg">
+<div class="card-rg" style="border-top-left-radius:0;border-top-right-radius:0;">
   <div class="card-header-rg"><i class="bi bi-clipboard2-pulse-fill"></i> Intervention Log</div>
   <div class="table-responsive-rg">
     <table class="table-rg">
@@ -57,8 +91,9 @@
 
   {% if interventions.paginator.num_pages > 1 %}
   <div class="pagination-rg border-top">
+    {% with base_qs="q="|add:search_q|add:"&action="|add:action_filter|add:"&farm="|add:farm_filter|add:"&range="|add:range_filter %}
     {% if interventions.has_previous %}
-      <a href="?page={{ interventions.previous_page_number }}"><i class="bi bi-chevron-left"></i></a>
+      <a href="?{{ base_qs }}&page={{ interventions.previous_page_number }}"><i class="bi bi-chevron-left"></i></a>
     {% else %}
       <span class="disabled"><i class="bi bi-chevron-left"></i></span>
     {% endif %}
@@ -67,17 +102,18 @@
       {% if num == interventions.number %}
         <span class="active">{{ num }}</span>
       {% elif num == 1 or num == interventions.paginator.num_pages or num|add:"-3" < interventions.number and num|add:"3" > interventions.number %}
-        <a href="?page={{ num }}">{{ num }}</a>
+        <a href="?{{ base_qs }}&page={{ num }}">{{ num }}</a>
       {% elif num == 2 or num == interventions.paginator.num_pages|add:"-1" %}
         <span class="ellipsis">…</span>
       {% endif %}
     {% endfor %}
 
     {% if interventions.has_next %}
-      <a href="?page={{ interventions.next_page_number }}"><i class="bi bi-chevron-right"></i></a>
+      <a href="?{{ base_qs }}&page={{ interventions.next_page_number }}"><i class="bi bi-chevron-right"></i></a>
     {% else %}
       <span class="disabled"><i class="bi bi-chevron-right"></i></span>
     {% endif %}
+    {% endwith %}
   </div>
   {% endif %}
 
