@@ -187,17 +187,101 @@ for fd in farms_data:
     farms[fd["farm_id"]] = f
     print(f"Created farm: {f}")
 
-SCAN_WINDOW_START = datetime.date(2025, 1, 1)
-SCAN_WINDOW_END = datetime.date(2026, 6, 30)
+# Window is relative to "today" (not a fixed past date range) so re-running
+# the seed always leaves recent scans in place -- otherwise date-based
+# filters like "last 30 days" on the website would show nothing once the
+# real calendar moves past a hardcoded end date.
+SCAN_WINDOW_END = datetime.date.today()
+SCAN_WINDOW_START = SCAN_WINDOW_END - datetime.timedelta(days=548)  # ~18 months of history
+
+OUTBREAK_BLOCKS_PER_FARM = 2
+OUTBREAK_TREE_SHARE = 0.55      # share of trees in an outbreak block currently showing that disease
+BACKGROUND_DISEASE_SHARE = 0.06  # sporadic disease rate outside outbreak blocks
+
+
+def build_inspection_rounds(start, end, interval_days=25, jitter_days=4):
+    # Field inspectors visit on a rotating schedule, not a random date per
+    # tree -- so scans land on a shared set of round dates roughly 3-4
+    # weeks apart instead of being scattered uniformly across 18 months.
+    # Anchored backward from `end` (not forward from `start`) so the most
+    # recent round always lands on `end` itself -- otherwise the last round
+    # could drift up to interval_days+jitter_days before today by chance,
+    # leaving tight "recent" filters on the site with nothing to show.
+    rounds = []
+    d = end
+    while d >= start:
+        rounds.append(d)
+        d -= datetime.timedelta(days=interval_days + random.randint(-jitter_days, jitter_days))
+    rounds.reverse()
+    return rounds or [end]
+
+
+def assign_block_outbreaks(blocks, diseased_names):
+    # Diseases spread through contiguous rows, not randomly across an
+    # entire farm -- so a couple of blocks per farm carry an active
+    # outbreak of one disease, while the rest stay mostly healthy with
+    # occasional sporadic cases.
+    if not diseased_names:
+        return {}
+    chosen = random.sample(blocks, k=min(OUTBREAK_BLOCKS_PER_FARM, len(blocks)))
+    return {b: random.choice(diseased_names) for b in chosen}
+
+
+def current_disease_for(block, block_outbreaks):
+    # Picks a tree's current disease using its block's outbreak status
+    # rather than one farm-wide random distribution.
+    if block in block_outbreaks:
+        outbreak_disease = block_outbreaks[block]
+        roll = random.random()
+        if roll < OUTBREAK_TREE_SHARE:
+            return outbreak_disease
+        if roll < OUTBREAK_TREE_SHARE + 0.1 and _DISEASED_NAMES:
+            return random.choice(_DISEASED_NAMES)  # occasional unrelated case nearby
+        return random.choice(_HEALTHY_NAMES) if _HEALTHY_NAMES else outbreak_disease
+    if random.random() < BACKGROUND_DISEASE_SHARE and _DISEASED_NAMES:
+        return random.choice(_DISEASED_NAMES)
+    return random.choice(_HEALTHY_NAMES) if _HEALTHY_NAMES else weighted_disease()
+
+
+def build_scan_trajectory(current_disease, current_confidence, current_date, inspection_rounds):
+    # Builds 1-3 scans ending at the tree's current result, with earlier
+    # scans trending toward it (rising confidence, same disease at an
+    # earlier stage) instead of each being an independent random draw --
+    # a tree doesn't flip between unrelated diseases scan to scan.
+    prior_rounds = [d for d in inspection_rounds if d < current_date]
+    num_prior = random.randint(0, min(2, len(prior_rounds)))
+    chosen_dates = sorted(random.sample(prior_rounds, num_prior)) if num_prior else []
+    is_healthy_now = current_disease in _HEALTHY_NAMES
+
+    scans = []
+    for i, d in enumerate(chosen_dates):
+        progress = (i + 1) / (len(chosen_dates) + 1)
+        if is_healthy_now or random.random() < 0.85:
+            disease = current_disease if not is_healthy_now else random.choice(_HEALTHY_NAMES)
+            confidence = round(max(60.0, current_confidence - (1 - progress) * random.uniform(10, 25)), 1)
+        else:
+            # small chance of inspector noise / an earlier misread
+            disease = weighted_disease()
+            confidence = round(random.uniform(65, 90), 1)
+        scans.append((d, disease, confidence))
+    scans.append((current_date, current_disease, current_confidence))
+    return scans
+
 
 # ── Trees, scan history, and interventions (bulk-created for speed) ───────
 for farm_id, farm in farms.items():
     positions = generate_grid_positions(farm.center_lat, farm.center_lng, TREES_PER_FARM)
+    inspection_rounds = build_inspection_rounds(SCAN_WINDOW_START, SCAN_WINDOW_END)
+    recent_rounds = inspection_rounds[-4:]  # most trees' latest scan lands in these
+    block_outbreaks = assign_block_outbreaks(BLOCKS, _DISEASED_NAMES)
+
     tree_objs = []
     for i in range(1, TREES_PER_FARM + 1):
-        disease = weighted_disease()
-        confidence = round(random.uniform(75, 99.5), 1)
-        date_scanned = random_date(SCAN_WINDOW_START, SCAN_WINDOW_END)
+        block = random.choice(BLOCKS)
+        disease = current_disease_for(block, block_outbreaks)
+        is_healthy = disease in _HEALTHY_NAMES
+        confidence = round(random.uniform(90, 99.5), 1) if is_healthy else round(random.uniform(78, 98), 1)
+        date_scanned = random.choice(recent_rounds)
         lat, lng = positions[i - 1]
         score = compute_severity_score(disease, confidence)
         tree_objs.append(RubberTree(
@@ -209,7 +293,7 @@ for farm_id, farm in farms.items():
             confidence=confidence,
             severity_score=score,
             date_scanned=date_scanned,
-            block=random.choice(BLOCKS),
+            block=block,
             recommended_action=recommended_action_for(disease, score),
             notes="",
         ))
@@ -223,24 +307,15 @@ for farm_id, farm in farms.items():
     scan_objs = []
     intervention_objs = []
     for tree in created_trees:
-        # Each tree gets 1-3 scan history entries, most recent matching
-        # the tree's current disease/confidence/date.
-        num_scans = random.randint(1, 3)
-        scan_objs.append(ScanHistory(
-            tree=tree, date=tree.date_scanned, disease=tree.disease,
-            confidence=tree.confidence, inspector=random.choice(INSPECTORS),
-        ))
-        for _ in range(num_scans - 1):
-            earlier_date = random_date(SCAN_WINDOW_START, tree.date_scanned)
-            earlier_disease = weighted_disease()
+        trajectory = build_scan_trajectory(tree.disease, tree.confidence, tree.date_scanned, inspection_rounds)
+        for d, disease, confidence in trajectory:
             scan_objs.append(ScanHistory(
-                tree=tree, date=earlier_date, disease=earlier_disease,
-                confidence=round(random.uniform(70, 99), 1),
-                inspector=random.choice(INSPECTORS),
+                tree=tree, date=d, disease=disease,
+                confidence=confidence, inspector=random.choice(INSPECTORS),
             ))
 
         # ~40% of diseased trees have at least one logged intervention.
-        if tree.disease != "Healthy" and random.random() < 0.4:
+        if tree.disease not in _HEALTHY_NAMES and random.random() < 0.4:
             iv_date = random_date(tree.date_scanned, min(tree.date_scanned + datetime.timedelta(days=30), SCAN_WINDOW_END))
             intervention_objs.append(Intervention(
                 tree=tree, performed_by=demo_user,
