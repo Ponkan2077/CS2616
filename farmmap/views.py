@@ -1,4 +1,5 @@
 import json
+import datetime
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib.admin.views.decorators import staff_member_required
@@ -320,6 +321,29 @@ def _get_farm_or_none(request):
     return None
 
 
+RANGE_FILTER_DAYS = {"7": 7, "30": 30, "90": 90}
+
+
+def _apply_range_filter(qs, range_param, date_field):
+    # Shared "recent" filter used across the table pages: range_param is one
+    # of "7"/"30"/"90" (days) or "" for all time.
+    days = RANGE_FILTER_DAYS.get(range_param)
+    if not days:
+        return qs
+    since = timezone.now().date() - datetime.timedelta(days=days)
+    return qs.filter(**{f"{date_field}__gte": since})
+
+
+def _severity_bounds(severity_param):
+    # Mirrors RubberTree.severity_label's score thresholds, as a queryset filter.
+    return {
+        "Healthy": {"severity_score": 0},
+        "Mild": {"severity_score__gt": 0, "severity_score__lt": 34},
+        "Moderate": {"severity_score__gte": 34, "severity_score__lt": 67},
+        "Severe": {"severity_score__gte": 67},
+    }.get(severity_param)
+
+
 def _get_trees(request, farm=None):
     # Returns the logged-in user's trees, optionally filtered to one farm.
     qs = RubberTree.objects.select_related("farm").filter(farm__owner=request.user)
@@ -442,11 +466,17 @@ def settings_view(request):
 def farm_list(request):
     # Displays a list of all farms owned by the logged-in user.
     farms_qs = Farm.objects.filter(owner=request.user).order_by("farm_id")
+    search_q = request.GET.get("q", "").strip()
+    if search_q:
+        farms_qs = farms_qs.filter(
+            Q(farm_id__icontains=search_q) | Q(name__icontains=search_q)
+            | Q(owner_name__icontains=search_q) | Q(location__icontains=search_q)
+        )
     paginator = Paginator(farms_qs, 25)
     page_number = request.GET.get("page", 1)
     farms = paginator.get_page(page_number)
     ctx = _base_context(request)
-    ctx.update({"page": "farm_list", "farms": farms})
+    ctx.update({"page": "farm_list", "farms": farms, "search_q": search_q})
     return render(request, "farm_list.html", ctx)
 
 
@@ -902,6 +932,8 @@ def tree_inventory(request):
     search_q = request.GET.get("q", "").strip()
     disease_filter = request.GET.get("disease", "").strip()
     farm_filter = request.GET.get("farm", "").strip()
+    range_filter = request.GET.get("range", "").strip()
+    severity_filter = request.GET.get("severity", "").strip()
 
     if search_q:
         trees_qs = trees_qs.filter(tree_id__icontains=search_q)
@@ -909,6 +941,10 @@ def tree_inventory(request):
         trees_qs = trees_qs.filter(disease=disease_filter)
     if farm_filter:
         trees_qs = trees_qs.filter(farm__farm_id=farm_filter)
+    trees_qs = _apply_range_filter(trees_qs, range_filter, "date_scanned")
+    severity_bounds = _severity_bounds(severity_filter)
+    if severity_bounds:
+        trees_qs = trees_qs.filter(**severity_bounds)
 
     paginator = Paginator(trees_qs, 25)
     page_number = request.GET.get("page", 1)
@@ -920,6 +956,8 @@ def tree_inventory(request):
         "trees": trees_page,
         "total": total, "counts": counts, "diseased": diseased,
         "search_q": search_q, "disease_filter": disease_filter, "farm_filter": farm_filter,
+        "range_filter": range_filter, "severity_filter": severity_filter,
+        "disease_classes": DiseaseClass.objects.all().order_by("display_order", "name"),
     })
     return render(request, "tree_inventory.html", ctx)
 
@@ -1036,6 +1074,20 @@ def interventions_log(request):
     )
     if farm:
         qs = qs.filter(tree__farm=farm)
+
+    search_q = request.GET.get("q", "").strip()
+    action_filter = request.GET.get("action", "").strip()
+    farm_filter = request.GET.get("farm", "").strip()
+    range_filter = request.GET.get("range", "").strip()
+
+    if search_q:
+        qs = qs.filter(tree__tree_id__icontains=search_q)
+    if action_filter:
+        qs = qs.filter(action=action_filter)
+    if farm_filter:
+        qs = qs.filter(tree__farm__farm_id=farm_filter)
+    qs = _apply_range_filter(qs, range_filter, "date_performed")
+
     qs = qs.order_by("-date_performed", "-created_at")
 
     paginator = Paginator(qs, 25)
@@ -1059,6 +1111,9 @@ def interventions_log(request):
         "page": "interventions",
         "interventions": interventions_page,
         "farm_trees_json": json.dumps(farm_trees),
+        "search_q": search_q, "action_filter": action_filter,
+        "farm_filter": farm_filter, "range_filter": range_filter,
+        "action_choices": Intervention.ACTION_CHOICES,
     })
     return render(request, "interventions_log.html", ctx)
 
