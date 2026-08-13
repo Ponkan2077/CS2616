@@ -330,9 +330,13 @@ function showResult(disease, confidence, rootCondition, action) {
     ? "fw-bold mt-1 text-pink" : "fw-bold mt-1 text-healthy";
 
   const badge = document.getElementById("threshold-badge-result");
-  badge.innerHTML = confidence >= 80
-    ? '<span class="threshold-badge threshold-confirmed"><i class="bi bi-check-circle-fill"></i> Confirmed Detection</span>'
-    : '<span class="threshold-badge threshold-review"><i class="bi bi-exclamation-circle-fill"></i> Manual Review Suggested</span>';
+  if (confidence >= 80) {
+    badge.innerHTML = '<span class="threshold-badge threshold-confirmed"><i class="bi bi-check-circle-fill"></i> Confirmed Detection</span>';
+  } else if (confidence >= 50) {
+    badge.innerHTML = '<span class="threshold-badge threshold-review"><i class="bi bi-exclamation-circle-fill"></i> Manual Review Suggested</span>';
+  } else {
+    badge.innerHTML = '<span class="threshold-badge" style="background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.35);"><i class="bi bi-question-circle-fill"></i> Uncertain — Not a Reliable Classification</span>';
+  }
 
   document.getElementById("save-disease").value = disease;
   document.getElementById("save-confidence").value = confidence;
