@@ -209,21 +209,15 @@ function discardQueuedScan(id) {
 // Shows/hides the top-of-page connectivity banner and (re)triggers a sync
 // pass once we've actually confirmed the connection, not just on
 // navigator.onLine's say-so -- that flag reflects whether the device has
-// *any* network link, not whether this server is reachable. It can also
-// get stuck: it flips true/false on OS-level link changes, so if it read
-// false for a moment (waking from sleep, switching from mobile data to
-// WiFi) and no further transition fires afterward, the banner stays
-// stuck showing "offline" indefinitely even once the connection is fine.
+// *any* network link, not whether this server is reachable, and can get
+// stuck misreporting in either direction after a screen wake or network
+// switch.
 async function isActuallyOnline() {
-  // Deliberately does NOT short-circuit on navigator.onLine === false --
-  // that flag misreporting false (not just true) is the exact bug this
-  // function exists to work around, so trusting it here would skip the
-  // one check that's supposed to catch that case.
+  if (typeof fetch !== "function") return navigator.onLine; // can't probe -- best guess
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch("/ping/", { method: "GET", cache: "no-store", signal: controller.signal });
-    clearTimeout(timer);
+    const fetchPromise = fetch("/ping/", { method: "GET", cache: "no-store" });
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 4000));
+    const res = await Promise.race([fetchPromise, timeoutPromise]);
     return res.ok;
   } catch {
     return false;
@@ -234,7 +228,20 @@ async function updateConnectivityBanner() {
   const banner = document.getElementById("offline-banner");
   if (!banner) return;
   const online = await isActuallyOnline();
-  banner.style.display = online ? "none" : "";
+  // banner has Bootstrap's "d-flex" class for its layout, and Bootstrap's
+  // display utilities are all defined with `display: ... !important` --
+  // a plain banner.style.display assignment can NEVER win against that,
+  // regardless of what value it's set to. That's why the banner kept
+  // showing even on runs where the check above correctly returned
+  // online=true: the "hide" instruction was silently doing nothing this
+  // whole time. Removing the class (not just setting inline display) is
+  // what actually works, backed by an !important inline override too.
+  banner.classList.toggle("d-flex", !online);
+  if (online) {
+    banner.style.setProperty("display", "none", "important");
+  } else {
+    banner.style.removeProperty("display");
+  }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -266,3 +273,16 @@ window.addEventListener("online", () => {
   syncPendingScans();
 });
 window.addEventListener("offline", updateConnectivityBanner);
+
+// Mobile browsers can restore this page from a frozen snapshot (bfcache)
+// when you switch apps/tabs and come back, instead of actually re-running
+// the page -- which would leave the banner stuck showing whatever it said
+// at the moment the page got backgrounded, with no timers ticking to
+// correct it. Both events below force a fresh check the instant the page
+// becomes visible/resumed again.
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) updateConnectivityBanner();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") updateConnectivityBanner();
+});
