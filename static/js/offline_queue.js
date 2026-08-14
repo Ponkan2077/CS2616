@@ -214,42 +214,55 @@ function discardQueuedScan(id) {
 // false for a moment (waking from sleep, switching from mobile data to
 // WiFi) and no further transition fires afterward, the banner stays
 // stuck showing "offline" indefinitely even once the connection is fine.
+// TEMPORARY debug panel -- pinned to the bottom of the screen so it can be
+// screenshotted any time, independent of the banner's own show/hide timing
+// (which was flashing too fast to read). Remove this whole block once the
+// stuck-offline-banner issue is confirmed fixed.
+function debugLog(online, reason) {
+  let panel = document.getElementById("connectivity-debug-log");
+  if (!panel) {
+    panel = document.createElement("div");
+    panel.id = "connectivity-debug-log";
+    panel.style.cssText = "position:fixed;bottom:8px;left:8px;right:8px;z-index:99999;background:rgba(0,0,0,.9);color:#0f0;font-size:10px;font-family:monospace;padding:6px 8px;border-radius:6px;max-height:130px;overflow-y:auto;white-space:pre-wrap;pointer-events:none;";
+    document.documentElement.appendChild(panel);
+  }
+  const time = new Date().toLocaleTimeString();
+  const lines = panel.dataset.lines ? JSON.parse(panel.dataset.lines) : [];
+  lines.push(`${time}  online=${online}  ${reason}`);
+  while (lines.length > 6) lines.shift();
+  panel.dataset.lines = JSON.stringify(lines);
+  panel.textContent = lines.join("\n");
+}
+
 async function isActuallyOnline() {
   // Deliberately does NOT short-circuit on navigator.onLine === false --
   // that flag misreporting false (not just true) is the exact bug this
   // function exists to work around, so trusting it here would skip the
   // one check that's supposed to catch that case.
-  if (typeof fetch !== "function") return { online: navigator.onLine, reason: "no fetch() support" };
+  if (typeof fetch !== "function") {
+    const r = { online: navigator.onLine, reason: "no fetch() support" };
+    debugLog(r.online, r.reason);
+    return r;
+  }
   try {
     const fetchPromise = fetch("/ping/", { method: "GET", cache: "no-store" });
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout after 4s")), 4000));
     const res = await Promise.race([fetchPromise, timeoutPromise]);
-    return { online: res.ok, reason: `HTTP ${res.status}` };
+    const r = { online: res.ok, reason: `HTTP ${res.status}` };
+    debugLog(r.online, r.reason);
+    return r;
   } catch (err) {
-    return { online: false, reason: (err && err.message) || String(err) };
+    const r = { online: false, reason: (err && err.message) || String(err) };
+    debugLog(r.online, r.reason);
+    return r;
   }
 }
 
 async function updateConnectivityBanner() {
   const banner = document.getElementById("offline-banner");
   if (!banner) return;
-  const { online, reason } = await isActuallyOnline();
+  const { online } = await isActuallyOnline();
   banner.style.display = online ? "none" : "";
-  // TEMPORARY debug line -- remove once the stuck-offline-banner issue is
-  // confirmed fixed. Shows the raw reason isActuallyOnline() thinks we're
-  // offline, since there's no easy way to read the browser console here.
-  let debugEl = document.getElementById("offline-debug-reason");
-  if (!online) {
-    if (!debugEl) {
-      debugEl = document.createElement("div");
-      debugEl.id = "offline-debug-reason";
-      debugEl.style.cssText = "font-size:10px;opacity:.75;margin-top:4px;";
-      banner.appendChild(debugEl);
-    }
-    debugEl.textContent = `[debug] probe result: ${reason}`;
-  } else if (debugEl) {
-    debugEl.remove();
-  }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
