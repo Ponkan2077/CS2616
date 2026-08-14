@@ -535,6 +535,14 @@ def farm_detail(request, farm_id):
     return render(request, "farm_detail.html", ctx)
 
 
+def ping(request):
+    # Deliberately outside @login_required and does zero DB/template work --
+    # this only exists as a cheap target for the offline-banner's real
+    # connectivity probe (see offline_queue.js), which may poll every ~15s.
+    from django.http import HttpResponse
+    return HttpResponse(status=204)
+
+
 @login_required
 def dashboard(request):
     # Renders the dashboard: summary cards, recent detections, and a map preview.
