@@ -209,59 +209,25 @@ function discardQueuedScan(id) {
 // Shows/hides the top-of-page connectivity banner and (re)triggers a sync
 // pass once we've actually confirmed the connection, not just on
 // navigator.onLine's say-so -- that flag reflects whether the device has
-// *any* network link, not whether this server is reachable. It can also
-// get stuck: it flips true/false on OS-level link changes, so if it read
-// false for a moment (waking from sleep, switching from mobile data to
-// WiFi) and no further transition fires afterward, the banner stays
-// stuck showing "offline" indefinitely even once the connection is fine.
-// TEMPORARY debug panel -- pinned to the bottom of the screen so it can be
-// screenshotted any time, independent of the banner's own show/hide timing
-// (which was flashing too fast to read). Remove this whole block once the
-// stuck-offline-banner issue is confirmed fixed.
-function debugLog(online, reason) {
-  let panel = document.getElementById("connectivity-debug-log");
-  if (!panel) {
-    panel = document.createElement("div");
-    panel.id = "connectivity-debug-log";
-    panel.style.cssText = "position:fixed;bottom:8px;left:8px;right:8px;z-index:99999;background:rgba(0,0,0,.9);color:#0f0;font-size:10px;font-family:monospace;padding:6px 8px;border-radius:6px;max-height:130px;overflow-y:auto;white-space:pre-wrap;pointer-events:none;";
-    document.documentElement.appendChild(panel);
-  }
-  const time = new Date().toLocaleTimeString();
-  const lines = panel.dataset.lines ? JSON.parse(panel.dataset.lines) : [];
-  lines.push(`${time}  online=${online}  ${reason}`);
-  while (lines.length > 6) lines.shift();
-  panel.dataset.lines = JSON.stringify(lines);
-  panel.textContent = lines.join("\n");
-}
-
+// *any* network link, not whether this server is reachable, and can get
+// stuck misreporting in either direction after a screen wake or network
+// switch.
 async function isActuallyOnline() {
-  // Deliberately does NOT short-circuit on navigator.onLine === false --
-  // that flag misreporting false (not just true) is the exact bug this
-  // function exists to work around, so trusting it here would skip the
-  // one check that's supposed to catch that case.
-  if (typeof fetch !== "function") {
-    const r = { online: navigator.onLine, reason: "no fetch() support" };
-    debugLog(r.online, r.reason);
-    return r;
-  }
+  if (typeof fetch !== "function") return navigator.onLine; // can't probe -- best guess
   try {
     const fetchPromise = fetch("/ping/", { method: "GET", cache: "no-store" });
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout after 4s")), 4000));
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 4000));
     const res = await Promise.race([fetchPromise, timeoutPromise]);
-    const r = { online: res.ok, reason: `HTTP ${res.status}` };
-    debugLog(r.online, r.reason);
-    return r;
-  } catch (err) {
-    const r = { online: false, reason: (err && err.message) || String(err) };
-    debugLog(r.online, r.reason);
-    return r;
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 
 async function updateConnectivityBanner() {
   const banner = document.getElementById("offline-banner");
   if (!banner) return;
-  const { online } = await isActuallyOnline();
+  const online = await isActuallyOnline();
   // banner has Bootstrap's "d-flex" class for its layout, and Bootstrap's
   // display utilities are all defined with `display: ... !important` --
   // a plain banner.style.display assignment can NEVER win against that,
@@ -310,10 +276,10 @@ window.addEventListener("offline", updateConnectivityBanner);
 
 // Mobile browsers can restore this page from a frozen snapshot (bfcache)
 // when you switch apps/tabs and come back, instead of actually re-running
-// the page -- which would leave the banner and the debug log stuck
-// showing whatever they said at the moment the page got backgrounded,
-// with no timers ticking to correct it. Both events below force a fresh
-// check the instant the page becomes visible/resumed again.
+// the page -- which would leave the banner stuck showing whatever it said
+// at the moment the page got backgrounded, with no timers ticking to
+// correct it. Both events below force a fresh check the instant the page
+// becomes visible/resumed again.
 window.addEventListener("pageshow", (event) => {
   if (event.persisted) updateConnectivityBanner();
 });
