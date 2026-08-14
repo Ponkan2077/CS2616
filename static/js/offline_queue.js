@@ -219,22 +219,37 @@ async function isActuallyOnline() {
   // that flag misreporting false (not just true) is the exact bug this
   // function exists to work around, so trusting it here would skip the
   // one check that's supposed to catch that case.
+  if (typeof fetch !== "function") return { online: navigator.onLine, reason: "no fetch() support" };
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch("/ping/", { method: "GET", cache: "no-store", signal: controller.signal });
-    clearTimeout(timer);
-    return res.ok;
-  } catch {
-    return false;
+    const fetchPromise = fetch("/ping/", { method: "GET", cache: "no-store" });
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout after 4s")), 4000));
+    const res = await Promise.race([fetchPromise, timeoutPromise]);
+    return { online: res.ok, reason: `HTTP ${res.status}` };
+  } catch (err) {
+    return { online: false, reason: (err && err.message) || String(err) };
   }
 }
 
 async function updateConnectivityBanner() {
   const banner = document.getElementById("offline-banner");
   if (!banner) return;
-  const online = await isActuallyOnline();
+  const { online, reason } = await isActuallyOnline();
   banner.style.display = online ? "none" : "";
+  // TEMPORARY debug line -- remove once the stuck-offline-banner issue is
+  // confirmed fixed. Shows the raw reason isActuallyOnline() thinks we're
+  // offline, since there's no easy way to read the browser console here.
+  let debugEl = document.getElementById("offline-debug-reason");
+  if (!online) {
+    if (!debugEl) {
+      debugEl = document.createElement("div");
+      debugEl.id = "offline-debug-reason";
+      debugEl.style.cssText = "font-size:10px;opacity:.75;margin-top:4px;";
+      banner.appendChild(debugEl);
+    }
+    debugEl.textContent = `[debug] probe result: ${reason}`;
+  } else if (debugEl) {
+    debugEl.remove();
+  }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
