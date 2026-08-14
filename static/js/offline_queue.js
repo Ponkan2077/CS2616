@@ -294,3 +294,16 @@ window.addEventListener("online", () => {
   syncPendingScans();
 });
 window.addEventListener("offline", updateConnectivityBanner);
+
+// Mobile browsers can restore this page from a frozen snapshot (bfcache)
+// when you switch apps/tabs and come back, instead of actually re-running
+// the page -- which would leave the banner and the debug log stuck
+// showing whatever they said at the moment the page got backgrounded,
+// with no timers ticking to correct it. Both events below force a fresh
+// check the instant the page becomes visible/resumed again.
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) updateConnectivityBanner();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") updateConnectivityBanner();
+});
