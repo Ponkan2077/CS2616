@@ -215,11 +215,14 @@ function discardQueuedScan(id) {
 // WiFi) and no further transition fires afterward, the banner stays
 // stuck showing "offline" indefinitely even once the connection is fine.
 async function isActuallyOnline() {
-  if (!navigator.onLine) return false; // no link at all -- no point probing
+  // Deliberately does NOT short-circuit on navigator.onLine === false --
+  // that flag misreporting false (not just true) is the exact bug this
+  // function exists to work around, so trusting it here would skip the
+  // one check that's supposed to catch that case.
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch("/detection/", { method: "HEAD", cache: "no-store", signal: controller.signal });
+    const res = await fetch("/ping/", { method: "GET", cache: "no-store", signal: controller.signal });
     clearTimeout(timer);
     return res.ok;
   } catch {
