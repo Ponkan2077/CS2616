@@ -262,7 +262,20 @@ async function updateConnectivityBanner() {
   const banner = document.getElementById("offline-banner");
   if (!banner) return;
   const { online } = await isActuallyOnline();
-  banner.style.display = online ? "none" : "";
+  // banner has Bootstrap's "d-flex" class for its layout, and Bootstrap's
+  // display utilities are all defined with `display: ... !important` --
+  // a plain banner.style.display assignment can NEVER win against that,
+  // regardless of what value it's set to. That's why the banner kept
+  // showing even on runs where the check above correctly returned
+  // online=true: the "hide" instruction was silently doing nothing this
+  // whole time. Removing the class (not just setting inline display) is
+  // what actually works, backed by an !important inline override too.
+  banner.classList.toggle("d-flex", !online);
+  if (online) {
+    banner.style.setProperty("display", "none", "important");
+  } else {
+    banner.style.removeProperty("display");
+  }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
