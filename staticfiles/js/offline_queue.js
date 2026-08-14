@@ -207,15 +207,38 @@ function discardQueuedScan(id) {
 }
 
 // Shows/hides the top-of-page connectivity banner and (re)triggers a sync
-// pass the moment the browser reports being back online.
-function updateConnectivityBanner() {
-  const banner = document.getElementById("offline-banner");
-  if (!banner) return;
-  banner.style.display = navigator.onLine ? "none" : "";
+// pass once we've actually confirmed the connection, not just on
+// navigator.onLine's say-so -- that flag reflects whether the device has
+// *any* network link, not whether this server is reachable. It can also
+// get stuck: it flips true/false on OS-level link changes, so if it read
+// false for a moment (waking from sleep, switching from mobile data to
+// WiFi) and no further transition fires afterward, the banner stays
+// stuck showing "offline" indefinitely even once the connection is fine.
+async function isActuallyOnline() {
+  // Deliberately does NOT short-circuit on navigator.onLine === false --
+  // that flag misreporting false (not just true) is the exact bug this
+  // function exists to work around, so trusting it here would skip the
+  // one check that's supposed to catch that case.
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch("/ping/", { method: "GET", cache: "no-store", signal: controller.signal });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  updateConnectivityBanner();
+async function updateConnectivityBanner() {
+  const banner = document.getElementById("offline-banner");
+  if (!banner) return;
+  const online = await isActuallyOnline();
+  banner.style.display = online ? "none" : "";
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  await updateConnectivityBanner();
   renderPendingScans();
   // Covers the case where scans were queued in a previous, fully-offline
   // session and the app is only now being reopened somewhere with signal.
@@ -223,6 +246,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const syncBtn = document.getElementById("sync-now-btn");
   if (syncBtn) syncBtn.addEventListener("click", syncPendingScans);
+
+  // Re-probes every 15s while the banner is showing "offline" -- this is
+  // what actually recovers from the navigator.onLine stuck-true/stuck-false
+  // problem above, since the 'online' event it would otherwise wait for
+  // doesn't reliably fire in every case that flips it back.
+  setInterval(() => {
+    const banner = document.getElementById("offline-banner");
+    if (banner && banner.style.display !== "none") {
+      updateConnectivityBanner().then(() => {
+        if (banner.style.display === "none") syncPendingScans();
+      });
+    }
+  }, 15000);
 });
 
 window.addEventListener("online", () => {
