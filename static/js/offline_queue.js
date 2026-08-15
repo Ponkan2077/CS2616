@@ -224,10 +224,22 @@ async function isActuallyOnline() {
   }
 }
 
+let connectivityCheckId = 0;
+
 async function updateConnectivityBanner() {
   const banner = document.getElementById("offline-banner");
   if (!banner) return;
+  // Multiple triggers (interval, online/offline events, visibility change)
+  // can each kick off their own overlapping check. If an older, slower
+  // check (e.g. one that has to wait out the full 4s timeout because it
+  // started while genuinely offline) resolves AFTER a newer, faster one
+  // (started once the connection came back), its stale result would
+  // otherwise clobber the correct state -- showing "offline" again right
+  // after it correctly cleared. This id guard makes only the most
+  // recently STARTED check allowed to actually touch the banner.
+  const myCheckId = ++connectivityCheckId;
   const online = await isActuallyOnline();
+  if (myCheckId !== connectivityCheckId) return; // a newer check has since started -- discard this stale result
   // banner has Bootstrap's "d-flex" class for its layout, and Bootstrap's
   // display utilities are all defined with `display: ... !important` --
   // a plain banner.style.display assignment can NEVER win against that,
