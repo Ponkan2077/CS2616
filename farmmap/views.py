@@ -465,7 +465,14 @@ def settings_view(request):
 @login_required
 def farm_list(request):
     # Displays a list of all farms owned by the logged-in user.
-    farms_qs = Farm.objects.filter(owner=request.user).order_by("farm_id")
+    # tree_count/avg_lat/avg_lng are annotated here (one GROUP BY query for
+    # the whole page) rather than calling farm.trees.count() / get_center()
+    # per row in the template, which would re-query per farm card.
+    farms_qs = Farm.objects.filter(owner=request.user).annotate(
+        tree_count=Count("trees"),
+        avg_lat=Avg("trees__lat"),
+        avg_lng=Avg("trees__lng"),
+    ).order_by("farm_id")
     search_q = request.GET.get("q", "").strip()
     if search_q:
         farms_qs = farms_qs.filter(
@@ -488,9 +495,6 @@ def farm_create(request):
         name = request.POST.get("name", "").strip()
         owner_name = request.POST.get("owner_name", "").strip()
         location = request.POST.get("location", "").strip()
-        center_lat = request.POST.get("center_lat") or 6.9214
-        center_lng = request.POST.get("center_lng") or 122.0790
-        boundary_radius_m = request.POST.get("boundary_radius_m") or 300
 
         if not farm_id or not name or not owner_name:
             messages.error(request, "Farm ID, name, and owner name are required.")
@@ -500,15 +504,17 @@ def farm_create(request):
             messages.error(request, f"You already have a farm with ID '{farm_id}'.")
             return redirect("farm_list")
 
+        # No center/boundary here on purpose -- Farm.center_lat/center_lng
+        # just take their model defaults (a general Zamboanga City point) as
+        # a placeholder until this farm's first tree scan comes in, at which
+        # point get_center()/get_boundary_polygon() take over and compute
+        # the real thing from actual tree GPS data instead.
         Farm.objects.create(
             owner=request.user,
             farm_id=farm_id,
             name=name,
             owner_name=owner_name,
             location=location,
-            center_lat=float(center_lat),
-            center_lng=float(center_lng),
-            boundary_radius_m=int(boundary_radius_m),
         )
         messages.success(request, f"Farm '{name}' added successfully.")
         return redirect("farm_list")
@@ -595,10 +601,11 @@ def _farm_map_bounds(farm):
         min_lng=Min("lng"), max_lng=Max("lng"),
     )
     if bounds["min_lat"] is None:
+        center_lat, center_lng = farm.get_center()
         deg_pad = max(farm.boundary_radius_m, 200) / 111000
         bounds = {
-            "min_lat": farm.center_lat - deg_pad, "max_lat": farm.center_lat + deg_pad,
-            "min_lng": farm.center_lng - deg_pad, "max_lng": farm.center_lng + deg_pad,
+            "min_lat": center_lat - deg_pad, "max_lat": center_lat + deg_pad,
+            "min_lng": center_lng - deg_pad, "max_lng": center_lng + deg_pad,
         }
     return bounds
 
