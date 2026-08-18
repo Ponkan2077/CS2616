@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Avg
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db.models.signals import post_save, post_delete
@@ -47,10 +48,16 @@ class Farm(models.Model):
     name = models.CharField(max_length=100)
     owner_name = models.CharField(max_length=100)
     location = models.CharField(max_length=200, blank=True)
+    # These two are NOT user-editable and no longer represent "the" farm
+    # center once real trees exist -- get_center() below computes the live
+    # centroid of scanned trees instead. They only matter as a placeholder
+    # anchor point for the brief window between farm creation and its first
+    # tree scan (e.g. so a map has somewhere to sit before there's any real
+    # data), and default to a general Zamboanga City point for that reason.
     center_lat = models.FloatField(default=6.9214)
     center_lng = models.FloatField(default=122.0790)
-    # Approximate farm boundary radius in meters, used to draw a territory
-    # circle on the map. Not a precise survey boundary, just a visual aid.
+    # Same story -- only used for the pre-first-scan fallback square in
+    # get_boundary_polygon() below, never shown to or set by the user.
     boundary_radius_m = models.PositiveIntegerField(default=300)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -87,26 +94,41 @@ class Farm(models.Model):
             counts[t.severity_label] += 1
         return counts
 
+    def get_center(self):
+        # Returns (lat, lng) -- the farm's live center. Computed as the mean
+        # position of every tree on the farm, recalculated fresh from the DB
+        # on every call (same live-query approach as get_stats() above, no
+        # caching, so it's never stale by even one scan). Only falls back to
+        # the fixed anchor point on center_lat/center_lng for a brand new
+        # farm that has no trees yet to average.
+        agg = self.trees.aggregate(avg_lat=Avg("lat"), avg_lng=Avg("lng"))
+        if agg["avg_lat"] is None:
+            return self.center_lat, self.center_lng
+        return agg["avg_lat"], agg["avg_lng"]
+
     def get_boundary_polygon(self):
         # Returns the convex hull of this farm's tree coordinates as a list
         # of [lat, lng] points, forming a boundary that actually follows the
         # shape of the planted area instead of a fixed-radius circle. Falls
-        # back to a small square around the farm center if there are fewer
-        # than 3 trees (not enough points to form a hull).
+        # back to a small square around get_center() if there are fewer than
+        # 3 trees (not enough points to form a hull) -- which for a new farm
+        # just means the fixed anchor point, since get_center() falls back
+        # to that itself when there are zero trees.
         points = list(self.trees.values_list("lat", "lng"))
+        center_lat, center_lng = self.get_center()
         if len(points) < 3:
             pad = max(self.boundary_radius_m, 200) / 111000
             return [
-                [self.center_lat - pad, self.center_lng - pad],
-                [self.center_lat - pad, self.center_lng + pad],
-                [self.center_lat + pad, self.center_lng + pad],
-                [self.center_lat + pad, self.center_lng - pad],
+                [center_lat - pad, center_lng - pad],
+                [center_lat - pad, center_lng + pad],
+                [center_lat + pad, center_lng + pad],
+                [center_lat + pad, center_lng - pad],
             ]
 
         hull = _convex_hull(points)
         # Expand the hull outward slightly so the boundary sits just
         # outside the outermost trees rather than clipping through them.
-        return _expand_polygon(hull, self.center_lat, self.center_lng, factor=1.06)
+        return _expand_polygon(hull, center_lat, center_lng, factor=1.06)
 
     def get_block_polygons(self):
         # Returns {block_name: [[lat, lng], ...]} boundary polygons for
