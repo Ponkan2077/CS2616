@@ -113,13 +113,17 @@
           <div class="col-6">
             <div class="stat-box">
               <div class="stat-label">TREES</div>
-              <div class="stat-value" style="font-size:18px;">{{ farm.trees.count }}</div>
+              <div class="stat-value" style="font-size:18px;">{{ farm.tree_count }}</div>
             </div>
           </div>
           <div class="col-6">
             <div class="stat-box">
               <div class="stat-label">CENTER</div>
-              <div style="font-size:10px;color:var(--text-muted);">{{ farm.center_lat|floatformat:3 }}, {{ farm.center_lng|floatformat:3 }}</div>
+              {% if farm.tree_count %}
+              <div style="font-size:10px;color:var(--text-muted);">{{ farm.avg_lat|floatformat:3 }}, {{ farm.avg_lng|floatformat:3 }}</div>
+              {% else %}
+              <div style="font-size:10px;color:var(--text-muted);">Pending first scan</div>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -166,26 +170,8 @@
             <label for="location">Location</label>
             <input type="text" name="location" id="location" class="form-control-rg" placeholder="e.g. Brgy. Mampang, Zamboanga City">
           </div>
-          <div class="row g-2">
-            <div class="col-6">
-              <div class="auth-field">
-                <label for="center_lat">Center Latitude</label>
-                <input type="number" step="any" name="center_lat" id="center_lat" class="form-control-rg" placeholder="6.9214">
-              </div>
-            </div>
-            <div class="col-6">
-              <div class="auth-field">
-                <label for="center_lng">Center Longitude</label>
-                <input type="number" step="any" name="center_lng" id="center_lng" class="form-control-rg" placeholder="122.0790">
-              </div>
-            </div>
-          </div>
-          <div class="auth-field">
-            <label for="boundary_radius_m">Boundary Radius (meters)</label>
-            <input type="number" step="1" min="50" name="boundary_radius_m" id="boundary_radius_m" class="form-control-rg" placeholder="300">
-          </div>
           <div class="text-muted" style="font-size:11px;">
-            <i class="bi bi-info-circle"></i> Boundary radius draws an approximate territory circle on the map, not a surveyed boundary. Leave coordinates blank to use the default Zamboanga City center point.
+            <i class="bi bi-info-circle"></i> No need to set a center or boundary here — once trees are scanned on this farm, its map center and boundary are calculated automatically from their GPS locations.
           </div>
         </div>
         <div class="modal-footer">
