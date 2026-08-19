@@ -809,11 +809,15 @@ def save_detection(request):
     block = request.POST.get("block", "").strip()
     root_condition = request.POST.get("root_condition", "").strip()
 
-    # GPS is required, not just preferred -- gps_exif.js / offline_queue.js
-    # reject a photo client-side if it has neither EXIF GPS nor a live
-    # device position, so this should basically always be present by the
-    # time a request gets here. Still re-checked server-side rather than
-    # trusted, same reasoning as the disease/confidence re-check below.
+    # GPS is required, not just preferred. Client-side (disease_detection.js),
+    # a fresh camera capture can fall back to a live device position when
+    # the photo has no EXIF GPS, but a browsed/dropped file can't -- using
+    # the phone's current position for an existing photo would mislabel
+    # where it was actually taken, so that path is rejected outright with
+    # no location instead. Either way, this should basically always be
+    # present by the time a request gets here, but it's still re-checked
+    # server-side rather than trusted, same reasoning as the disease/
+    # confidence re-check below.
     try:
         tree_lat = float(request.POST.get("lat") or "")
         tree_lng = float(request.POST.get("lng") or "")
