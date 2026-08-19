@@ -56,10 +56,16 @@
           <img id="root-preview-img" src="" alt="Root preview">
         </div>
         <div id="root-gps-status" class="mb-2"></div>
-        <label class="btn btn-outline-secondary btn-sm w-100 text-center" style="cursor:pointer;">
-          <i class="bi bi-folder2-open"></i> Browse Root Photo
-          <input type="file" id="root-file-input" accept="image/*" class="d-none">
-        </label>
+        <div class="d-flex gap-2">
+          <label class="btn btn-primary btn-sm flex-grow-1 text-center" style="cursor:pointer;">
+            <i class="bi bi-camera-fill"></i> Take Photo
+            <input type="file" id="root-camera-input" accept="image/*" capture="environment" class="d-none">
+          </label>
+          <label class="btn btn-outline-secondary btn-sm flex-grow-1 text-center" style="cursor:pointer;">
+            <i class="bi bi-folder2-open"></i> Browse
+            <input type="file" id="root-file-input" accept="image/*" class="d-none">
+          </label>
+        </div>
       </div>
     </div>
 
@@ -75,15 +81,19 @@
           <img id="trunk-preview-img" src="" alt="Trunk preview">
         </div>
         <div id="trunk-gps-status" class="mb-2"></div>
-        <div class="d-flex gap-2">
+        <div class="d-flex gap-2 mb-2">
+          <label class="btn btn-primary btn-sm flex-grow-1 text-center" style="cursor:pointer;">
+            <i class="bi bi-camera-fill"></i> Take Photo
+            <input type="file" id="trunk-camera-input" accept="image/*" capture="environment" class="d-none">
+          </label>
           <label class="btn btn-outline-secondary btn-sm flex-grow-1 text-center" style="cursor:pointer;">
-            <i class="bi bi-folder2-open"></i> Browse Trunk Photo
+            <i class="bi bi-folder2-open"></i> Browse
             <input type="file" id="trunk-file-input" accept="image/*" class="d-none">
           </label>
-          <button id="analyze-btn" class="btn btn-primary btn-sm flex-grow-1" disabled{% if not ai_enabled %} title="AI model not configured"{% endif %}>
-            <i class="bi bi-cpu"></i> Analyze Images
-          </button>
         </div>
+        <button id="analyze-btn" class="btn btn-primary btn-sm w-100" disabled{% if not ai_enabled %} title="AI model not configured"{% endif %}>
+          <i class="bi bi-cpu"></i> Analyze Images
+        </button>
         <div id="analyze-error" class="alert alert-danger mt-2 py-2" style="display:none;font-size:12.5px;"></div>
         {% if not ai_enabled %}
         <div class="mt-2 p-2 rounded-3" style="background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);color:#fbbf24;font-size:12px;">
