@@ -28,13 +28,30 @@ let directUploadPromise = null;
 // fallback when a photo has no EXIF GPS of its own (see resolveImageGPS
 // below) -- this works fine offline too, since GPS hardware doesn't need
 // a data connection, only a permission grant and sky visibility.
+//
+// Returns { lat, lng, source: "device" } on success, or null with a
+// human-readable reason on failure -- distinguishing "you denied the
+// permission prompt" from "GPS hardware couldn't get a fix in time" matters
+// a lot in the field (e.g. under rubber tree canopy), since the fix for
+// each is completely different.
 function getDeviceGPS() {
   return new Promise(resolve => {
-    if (!navigator.geolocation) { resolve(null); return; }
+    if (!navigator.geolocation) { resolve({ error: "This browser doesn't support device location." }); return; }
     navigator.geolocation.getCurrentPosition(
       pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: "device" }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 8000 }
+      err => {
+        const reasons = {
+          1: "Location permission was denied. Enable location for this site in your browser settings.",
+          2: "Couldn't get a GPS fix. Try moving to open sky, away from thick canopy or buildings.",
+          3: "GPS location timed out. Try again, ideally with a clearer view of the sky.",
+        };
+        resolve({ error: reasons[err.code] || "Couldn't get your device's location." });
+      },
+      // 15s (not the default 3 typical minimum) since a fix can genuinely
+      // take longer under rubber tree canopy; maximumAge lets the trunk
+      // photo reuse a fix from moments ago (root photo) instead of
+      // re-polling GPS hardware and making the farmer wait twice.
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
     );
   });
 }
@@ -43,8 +60,14 @@ function getDeviceGPS() {
 // GPS baked into the photo's own EXIF (works for both a fresh camera
 // shot with location tagging on, and an existing geotagged photo picked
 // from the gallery), and only fall back to the device's live position
-// when the file has none. Returns null if neither is available -- the
-// caller rejects the photo in that case rather than saving it untagged.
+// when the file has none. This fallback matters more than it might sound
+// like it should -- photos taken through a website's own camera capture
+// UI (the "Take Photo" button below) essentially never carry GPS EXIF on
+// modern phones, regardless of whether Location Services is on, because
+// browsers strip it there for privacy. So for that path, the device GPS
+// fallback isn't a rare edge case, it's the normal case.
+// Returns { lat, lng, source } on success, or { error } on failure --
+// never plain null, so the caller always has something to show the user.
 async function resolveImageGPS(file) {
   const exifGps = await extractGPSFromFile(file);
   if (exifGps) return exifGps;
@@ -164,9 +187,9 @@ function handleCapture(file, { previewImgId, dropZoneId, kind }) {
   if (statusEl) { statusEl.textContent = "Checking location…"; statusEl.className = "text-muted mt-1"; statusEl.style.fontSize = "11px"; }
 
   Promise.all([resolveImageGPS(file), resizeImageFile(file)]).then(([gps, resizedFile]) => {
-    if (!gps) {
+    if (!gps || gps.error) {
       if (statusEl) {
-        statusEl.textContent = "No location data found in this photo, and couldn't get your device's GPS either. Enable location and try again.";
+        statusEl.textContent = (gps && gps.error) || "No location data found in this photo, and couldn't get your device's GPS either.";
         statusEl.className = "text-danger mt-1";
         statusEl.style.fontSize = "11px";
       }
@@ -359,17 +382,29 @@ function showResult(disease, confidence, rootCondition, action) {
   startDirectUploads();
 }
 
-function wireCaptureZone({ dropZoneId, fileInputId, previewImgId, kind }) {
+function wireCaptureZone({ dropZoneId, fileInputId, cameraInputId, previewImgId, kind }) {
   const dropZone = document.getElementById(dropZoneId);
   const fileInput = document.getElementById(fileInputId);
+  const cameraInput = cameraInputId ? document.getElementById(cameraInputId) : null;
 
+  // Clicking the drop zone itself opens the camera when nothing's been
+  // captured yet (the more likely intent while standing at a tree), and
+  // re-opens the browse picker once an image is already showing (the more
+  // likely intent there is "pick a different one"). Both explicit buttons
+  // below remain available regardless, so this is just a helpful default.
   dropZone.addEventListener("click", () => {
     if (dropZone.classList.contains("step-locked")) return;
-    fileInput.click();
+    if (cameraInput && !dropZone.classList.contains("has-image")) cameraInput.click();
+    else fileInput.click();
   });
   fileInput.addEventListener("change", () => {
     if (fileInput.files[0]) handleCapture(fileInput.files[0], { previewImgId, dropZoneId, kind });
   });
+  if (cameraInput) {
+    cameraInput.addEventListener("change", () => {
+      if (cameraInput.files[0]) handleCapture(cameraInput.files[0], { previewImgId, dropZoneId, kind });
+    });
+  }
   dropZone.addEventListener("dragover", e => {
     e.preventDefault();
     if (!dropZone.classList.contains("step-locked")) dropZone.classList.add("dragover");
@@ -386,8 +421,8 @@ function wireCaptureZone({ dropZoneId, fileInputId, previewImgId, kind }) {
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("root-preview-img").style.display = "none";
   document.getElementById("trunk-preview-img").style.display = "none";
-  wireCaptureZone({ dropZoneId: "root-drop-zone", fileInputId: "root-file-input", previewImgId: "root-preview-img", kind: "root" });
-  wireCaptureZone({ dropZoneId: "trunk-drop-zone", fileInputId: "trunk-file-input", previewImgId: "trunk-preview-img", kind: "trunk" });
+  wireCaptureZone({ dropZoneId: "root-drop-zone", fileInputId: "root-file-input", cameraInputId: "root-camera-input", previewImgId: "root-preview-img", kind: "root" });
+  wireCaptureZone({ dropZoneId: "trunk-drop-zone", fileInputId: "trunk-file-input", cameraInputId: "trunk-camera-input", previewImgId: "trunk-preview-img", kind: "trunk" });
   document.getElementById("analyze-btn").addEventListener("click", runAnalysis);
   wireSaveSubmit();
   wireTreeIdPreview();
