@@ -15,6 +15,14 @@
   <i class="bi bi-wifi-off"></i> You're offline — captured scans are saved on this device and will sync automatically once you're back online.
 </div>
 
+<!-- Checked once on page load, before the user even picks a photo -- see
+     checkLocationAvailability() in disease_detection.js. Catches a denied/
+     blocked location permission immediately instead of only discovering it
+     after a photo comes back with no usable GPS. -->
+<div id="location-banner" class="alert alert-danger py-2 d-flex align-items-center gap-2" style="display:none;font-size:12.5px;">
+  <i class="bi bi-geo-alt-fill"></i> <span id="location-banner-text"></span>
+</div>
+
 <!-- Pending Scans: populated client-side from IndexedDB, see offline_queue.js -->
 <div class="card-rg mb-3" id="pending-scans-section" style="display:none;">
   <div class="card-header-rg d-flex justify-content-between align-items-center">
@@ -51,7 +59,7 @@
           <div id="root-upload-placeholder">
             <div class="drop-zone-icon"><i class="bi bi-tree-fill"></i></div>
             <div class="fw-semibold mb-1">Photo of exposed roots</div>
-            <div class="text-muted" style="font-size:12px;">Supports JPG, PNG, WEBP — must have location data (from the photo or your device)</div>
+            <div class="text-muted" style="font-size:12px;">Take Photo uses your current location. Browse needs the photo's own location data (rare on Android).</div>
           </div>
           <img id="root-preview-img" src="" alt="Root preview">
         </div>
@@ -76,7 +84,7 @@
           <div id="trunk-upload-placeholder">
             <div class="drop-zone-icon"><i class="bi bi-cloud-arrow-up-fill"></i></div>
             <div class="fw-semibold mb-1">Capture the root image first</div>
-            <div class="text-muted" style="font-size:12px;">Supports JPG, PNG, WEBP — must have location data (from the photo or your device)</div>
+            <div class="text-muted" style="font-size:12px;">Take Photo uses your current location. Browse needs the photo's own location data (rare on Android).</div>
           </div>
           <img id="trunk-preview-img" src="" alt="Trunk preview">
         </div>
