@@ -40,6 +40,21 @@ function dmsToDecimal(view, valueOffset, littleEndian) {
   return deg + min / 60 + sec / 3600;
 }
 
+function readAsciiValue(view, entryOffset, tiffStart, littleEndian, count) {
+  const strOffset = count <= 4 ? entryOffset + 8 : tiffStart + view.getUint32(entryOffset + 8, littleEndian);
+  let str = "";
+  for (let i = 0; i < count - 1; i++) str += String.fromCharCode(view.getUint8(strOffset + i));
+  return str;
+}
+
+function parseExifDateTime(str) {
+  // "YYYY:MM:DD HH:MM:SS", no timezone in EXIF -- treated as local time.
+  const m = str && str.match(/^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})/);
+  if (!m) return null;
+  const [y, mo, d, h, mi, s] = m.slice(1).map(Number);
+  return new Date(y, mo - 1, d, h, mi, s).getTime();
+}
+
 function readGpsIfd(view, ifdOffset, tiffStart, littleEndian) {
   const entryCount = view.getUint16(ifdOffset, littleEndian);
   const gps = {};
@@ -89,15 +104,15 @@ async function extractGPSFromFile(file) {
           const littleEndian = view.getUint16(tiffStart) === 0x4949;
           const ifd0Offset = tiffStart + view.getUint32(tiffStart + 4, littleEndian);
 
-          // Find the GPS IFD pointer (tag 0x8825) inside IFD0.
+          // Find GPS IFD (0x8825) and Exif SubIFD (0x8769) pointers in IFD0.
           const entryCount = view.getUint16(ifd0Offset, littleEndian);
           let gpsIfdOffset = null;
+          let exifIfdOffset = null;
           for (let i = 0; i < entryCount; i++) {
             const entryOffset = ifd0Offset + 2 + i * 12;
-            if (view.getUint16(entryOffset, littleEndian) === 0x8825) {
-              gpsIfdOffset = tiffStart + view.getUint32(entryOffset + 8, littleEndian);
-              break;
-            }
+            const tag = view.getUint16(entryOffset, littleEndian);
+            if (tag === 0x8825) gpsIfdOffset = tiffStart + view.getUint32(entryOffset + 8, littleEndian);
+            if (tag === 0x8769) exifIfdOffset = tiffStart + view.getUint32(entryOffset + 8, littleEndian);
           }
           if (gpsIfdOffset === null) return null; // EXIF present, but no GPS block
 
@@ -106,7 +121,23 @@ async function extractGPSFromFile(file) {
 
           const lat = gps.latRef === "S" ? -gps.lat : gps.lat;
           const lng = gps.lngRef === "W" ? -gps.lng : gps.lng;
-          return { lat, lng, source: "exif" };
+
+          // DateTimeOriginal (0x9003), best-effort -- missing/unparsable
+          // just means no capturedAt, not a failure of the GPS read.
+          let capturedAt = null;
+          if (exifIfdOffset !== null) {
+            const subCount = view.getUint16(exifIfdOffset, littleEndian);
+            for (let i = 0; i < subCount; i++) {
+              const entryOffset = exifIfdOffset + 2 + i * 12;
+              if (view.getUint16(entryOffset, littleEndian) === 0x9003) {
+                const count = view.getUint32(entryOffset + 4, littleEndian);
+                capturedAt = parseExifDateTime(readAsciiValue(view, entryOffset, tiffStart, littleEndian, count));
+                break;
+              }
+            }
+          }
+
+          return { lat, lng, source: "exif", capturedAt };
         }
       }
       offset += 2 + segmentLength;
