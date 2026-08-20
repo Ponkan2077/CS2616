@@ -88,23 +88,36 @@ async function resolveImageGPS(file, source) {
   return await getDeviceGPS();
 }
 
-// Checked once as soon as the page loads, rather than only after the user
-// takes a photo deep in the flow -- this surfaces a blocked location
-// permission immediately (with instructions for fixing it) instead of
-// leaving the person to discover it only when Take Photo fails. Only
-// relevant to Take Photo -- Browse/drag-drop never uses a live reading
-// (see resolveImageGPS above), so this can't help that path anyway.
-function checkLocationAvailability() {
+// Hides the banner. Called after page-load check, a successful photo
+// capture, or a live permission change -- whichever happens first.
+function hideLocationBanner() {
+  const banner = document.getElementById("location-banner");
+  if (banner) banner.style.display = "none";
+}
+
+function showLocationBanner(reason) {
   const banner = document.getElementById("location-banner");
   const bannerText = document.getElementById("location-banner-text");
   if (!banner || !bannerText) return;
+  bannerText.textContent = `${reason || "Couldn't get your device's location."} Needed for Take Photo. On Android: browser menu → Settings → Sites and downloads → Site permissions → Location.`;
+  banner.style.display = "";
+}
 
+// Checked on page load so a blocked permission shows up immediately, not
+// only after Take Photo fails. Also listens for the permission changing
+// live (e.g. the user answers the prompt after this first check already
+// ran), so the banner doesn't get stuck once access is actually granted.
+function checkLocationAvailability() {
   getDeviceGPS().then(result => {
-    if (result && !result.error) { banner.style.display = "none"; return; }
-    const reason = (result && result.error) || "Couldn't get your device's location.";
-    bannerText.textContent = `${reason} This is needed for the Take Photo button. On Android, check your browser's own site settings (not just system Location) — menu → Settings → Sites and downloads → Site permissions → Location.`;
-    banner.style.display = "";
+    if (result && !result.error) hideLocationBanner();
+    else showLocationBanner(result && result.error);
   });
+
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: "geolocation" }).then(status => {
+      status.onchange = () => { if (status.state === "granted") checkLocationAvailability(); };
+    }).catch(() => {});
+  }
 }
 
 // Advances the workflow strip, marking prior steps done and the given step active.
@@ -228,6 +241,7 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
       }
       return; // reject: image is not accepted, existing state (if any) is untouched
     }
+    if (gps.source === "device") hideLocationBanner();
 
     if (kind === "root") {
       rootImageFile = resizedFile;
@@ -460,6 +474,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("analyze-btn").addEventListener("click", runAnalysis);
   wireSaveSubmit();
   checkLocationAvailability();
+  const locBanner = document.getElementById("location-banner");
+  if (locBanner) locBanner.addEventListener("click", checkLocationAvailability);
   wireTreeIdPreview();
 });
 
