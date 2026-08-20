@@ -28,27 +28,83 @@ let directUploadPromise = null;
 // fallback when a photo has no EXIF GPS of its own (see resolveImageGPS
 // below) -- this works fine offline too, since GPS hardware doesn't need
 // a data connection, only a permission grant and sky visibility.
+//
+// Returns { lat, lng, source: "device" } on success, or null with a
+// human-readable reason on failure -- distinguishing "you denied the
+// permission prompt" from "GPS hardware couldn't get a fix in time" matters
+// a lot in the field (e.g. under rubber tree canopy), since the fix for
+// each is completely different.
 function getDeviceGPS() {
   return new Promise(resolve => {
-    if (!navigator.geolocation) { resolve(null); return; }
+    if (!navigator.geolocation) { resolve({ error: "This browser doesn't support device location." }); return; }
     navigator.geolocation.getCurrentPosition(
       pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: "device" }),
-      () => resolve(null),
-      { enableHighAccuracy: true, timeout: 8000 }
+      err => {
+        const reasons = {
+          1: "Location permission was denied. Enable location for this site in your browser settings.",
+          2: "Couldn't get a GPS fix. Try moving to open sky, away from thick canopy or buildings.",
+          3: "GPS location timed out. Try again, ideally with a clearer view of the sky.",
+        };
+        resolve({ error: reasons[err.code] || "Couldn't get your device's location." });
+      },
+      // 15s (not the default 3 typical minimum) since a fix can genuinely
+      // take longer under rubber tree canopy; maximumAge lets the trunk
+      // photo reuse a fix from moments ago (root photo) instead of
+      // re-polling GPS hardware and making the farmer wait twice.
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
     );
   });
 }
 
-// Every photo has to carry a location one way or another: prefer the
-// GPS baked into the photo's own EXIF (works for both a fresh camera
-// shot with location tagging on, and an existing geotagged photo picked
-// from the gallery), and only fall back to the device's live position
-// when the file has none. Returns null if neither is available -- the
-// caller rejects the photo in that case rather than saving it untagged.
-async function resolveImageGPS(file) {
+// Every photo has to carry a location one way or another, but which
+// fallback is trustworthy depends on HOW the photo got here:
+//
+// - Take Photo (source "camera"): the shot and the upload happen in the
+//   same moment, standing at the same tree. A live device GPS reading at
+//   that moment is a genuinely accurate stand-in when the photo itself has
+//   no EXIF GPS (the normal case for browser camera capture -- browsers
+//   strip it there for privacy regardless of Location Services being on).
+//
+// - Browse or drag-drop (source "file"): this is an EXISTING photo. It
+//   could've been taken this morning at the farm and uploaded tonight from
+//   home -- the phone's current position has no reliable relationship to
+//   where that photo was actually taken. Tagging it with a live reading
+//   would silently mislabel the tree instead of honestly saying "unknown."
+//   (On Android specifically, EXIF GPS is stripped from nearly every photo
+//   handed over through the system Photo Picker anyway -- an OS privacy
+//   policy since Android 13, independent of Camera/Location settings -- so
+//   this path failing is expected, not a bug to chase.)
+//
+// Returns { lat, lng, source } on success, or { error } on failure --
+// never plain null, so the caller always has something to show the user.
+async function resolveImageGPS(file, source) {
   const exifGps = await extractGPSFromFile(file);
   if (exifGps) return exifGps;
+  if (source !== "camera") {
+    return {
+      error: "This photo has no location data attached (normal for gallery/browsed photos, especially on Android). Use Take Photo instead so we can read your current location.",
+    };
+  }
   return await getDeviceGPS();
+}
+
+// Checked once as soon as the page loads, rather than only after the user
+// takes a photo deep in the flow -- this surfaces a blocked location
+// permission immediately (with instructions for fixing it) instead of
+// leaving the person to discover it only when Take Photo fails. Only
+// relevant to Take Photo -- Browse/drag-drop never uses a live reading
+// (see resolveImageGPS above), so this can't help that path anyway.
+function checkLocationAvailability() {
+  const banner = document.getElementById("location-banner");
+  const bannerText = document.getElementById("location-banner-text");
+  if (!banner || !bannerText) return;
+
+  getDeviceGPS().then(result => {
+    if (result && !result.error) { banner.style.display = "none"; return; }
+    const reason = (result && result.error) || "Couldn't get your device's location.";
+    bannerText.textContent = `${reason} This is needed for the Take Photo button. On Android, check your browser's own site settings (not just system Location) — menu → Settings → Sites and downloads → Site permissions → Location.`;
+    banner.style.display = "";
+  });
 }
 
 // Advances the workflow strip, marking prior steps done and the given step active.
@@ -157,16 +213,16 @@ function startDirectUploads() {
 // redrawing onto a canvas strips all EXIF including GPS), resizes it, and
 // only then accepts the capture -- rejecting outright if neither the
 // photo's own EXIF nor a live device position could provide a location.
-function handleCapture(file, { previewImgId, dropZoneId, kind }) {
+function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
   const dropZone = document.getElementById(dropZoneId);
   const previewImg = document.getElementById(previewImgId);
   const statusEl = document.getElementById(`${kind}-gps-status`);
   if (statusEl) { statusEl.textContent = "Checking location…"; statusEl.className = "text-muted mt-1"; statusEl.style.fontSize = "11px"; }
 
-  Promise.all([resolveImageGPS(file), resizeImageFile(file)]).then(([gps, resizedFile]) => {
-    if (!gps) {
+  Promise.all([resolveImageGPS(file, source), resizeImageFile(file)]).then(([gps, resizedFile]) => {
+    if (!gps || gps.error) {
       if (statusEl) {
-        statusEl.textContent = "No location data found in this photo, and couldn't get your device's GPS either. Enable location and try again.";
+        statusEl.textContent = (gps && gps.error) || "No location data found in this photo, and couldn't get your device's GPS either.";
         statusEl.className = "text-danger mt-1";
         statusEl.style.fontSize = "11px";
       }
@@ -359,17 +415,29 @@ function showResult(disease, confidence, rootCondition, action) {
   startDirectUploads();
 }
 
-function wireCaptureZone({ dropZoneId, fileInputId, previewImgId, kind }) {
+function wireCaptureZone({ dropZoneId, fileInputId, cameraInputId, previewImgId, kind }) {
   const dropZone = document.getElementById(dropZoneId);
   const fileInput = document.getElementById(fileInputId);
+  const cameraInput = cameraInputId ? document.getElementById(cameraInputId) : null;
 
+  // Clicking the drop zone itself opens the camera when nothing's been
+  // captured yet (the more likely intent while standing at a tree), and
+  // re-opens the browse picker once an image is already showing (the more
+  // likely intent there is "pick a different one"). Both explicit buttons
+  // below remain available regardless, so this is just a helpful default.
   dropZone.addEventListener("click", () => {
     if (dropZone.classList.contains("step-locked")) return;
-    fileInput.click();
+    if (cameraInput && !dropZone.classList.contains("has-image")) cameraInput.click();
+    else fileInput.click();
   });
   fileInput.addEventListener("change", () => {
-    if (fileInput.files[0]) handleCapture(fileInput.files[0], { previewImgId, dropZoneId, kind });
+    if (fileInput.files[0]) handleCapture(fileInput.files[0], { previewImgId, dropZoneId, kind, source: "file" });
   });
+  if (cameraInput) {
+    cameraInput.addEventListener("change", () => {
+      if (cameraInput.files[0]) handleCapture(cameraInput.files[0], { previewImgId, dropZoneId, kind, source: "camera" });
+    });
+  }
   dropZone.addEventListener("dragover", e => {
     e.preventDefault();
     if (!dropZone.classList.contains("step-locked")) dropZone.classList.add("dragover");
@@ -379,17 +447,19 @@ function wireCaptureZone({ dropZoneId, fileInputId, previewImgId, kind }) {
     e.preventDefault();
     dropZone.classList.remove("dragover");
     if (dropZone.classList.contains("step-locked")) return;
-    if (e.dataTransfer.files[0]) handleCapture(e.dataTransfer.files[0], { previewImgId, dropZoneId, kind });
+    // Drag-and-drop is also an existing file, same reasoning as Browse.
+    if (e.dataTransfer.files[0]) handleCapture(e.dataTransfer.files[0], { previewImgId, dropZoneId, kind, source: "file" });
   });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("root-preview-img").style.display = "none";
   document.getElementById("trunk-preview-img").style.display = "none";
-  wireCaptureZone({ dropZoneId: "root-drop-zone", fileInputId: "root-file-input", previewImgId: "root-preview-img", kind: "root" });
-  wireCaptureZone({ dropZoneId: "trunk-drop-zone", fileInputId: "trunk-file-input", previewImgId: "trunk-preview-img", kind: "trunk" });
+  wireCaptureZone({ dropZoneId: "root-drop-zone", fileInputId: "root-file-input", cameraInputId: "root-camera-input", previewImgId: "root-preview-img", kind: "root" });
+  wireCaptureZone({ dropZoneId: "trunk-drop-zone", fileInputId: "trunk-file-input", cameraInputId: "trunk-camera-input", previewImgId: "trunk-preview-img", kind: "trunk" });
   document.getElementById("analyze-btn").addEventListener("click", runAnalysis);
   wireSaveSubmit();
+  checkLocationAvailability();
   wireTreeIdPreview();
 });
 
