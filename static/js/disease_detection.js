@@ -38,7 +38,7 @@ function getDeviceGPS() {
   return new Promise(resolve => {
     if (!navigator.geolocation) { resolve({ error: "This browser doesn't support device location." }); return; }
     navigator.geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: "device" }),
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: "device", capturedAt: Date.now() }),
       err => {
         const reasons = {
           1: "Location permission was denied. Enable location for this site in your browser settings.",
@@ -241,7 +241,7 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
       }
       return; // reject: image is not accepted, existing state (if any) is untouched
     }
-    if (gps.source === "device") hideLocationBanner();
+    if (gps) hideLocationBanner(); // any successful resolution, EXIF or device, means location isn't blocked right now
 
     if (kind === "root") {
       rootImageFile = resizedFile;
