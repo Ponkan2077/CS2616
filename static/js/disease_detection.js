@@ -5,12 +5,6 @@
    attaching them to the save form's file inputs for a normal multipart
    submission if direct upload isn't available). */
 
-// Images are stored at up to this size on the longest edge -- separate
-// from whatever input size a future trained CNN normalizes to (e.g.
-// 224x224), which would happen right before inference, not at capture time.
-const STORAGE_MAX_DIMENSION = 1080;
-const STORAGE_WEBP_QUALITY = 0.85;
-
 let rootImageFile = null;   // resized File, ready to attach to the save form
 let trunkImageFile = null;
 let rootGPS = null;   // { lat, lng, source: 'exif' | 'device' } -- resolved per image
@@ -134,40 +128,9 @@ function setWorkflowStep(index) {
 // Resizes an image file so its longest edge is at most STORAGE_MAX_DIMENSION,
 // respecting camera EXIF orientation via the browser's own decode, and
 // returns a Promise<File> (WebP). Smaller source images are left as-is.
-function resizeImageFile(file) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      let { width, height } = img;
-      const longestEdge = Math.max(width, height);
-      if (longestEdge > STORAGE_MAX_DIMENSION) {
-        const scale = STORAGE_MAX_DIMENSION / longestEdge;
-        width = Math.round(width * scale);
-        height = Math.round(height * scale);
-      }
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-      canvas.toBlob(blob => {
-        if (!blob) { reject(new Error("Resize failed")); return; }
-        const resizedName = file.name.replace(/\.[^.]+$/, "") + ".webp";
-        resolve(new File([blob], resizedName, { type: "image/webp" }));
-      }, "image/webp", STORAGE_WEBP_QUALITY);
-    };
-    img.onerror = reject;
-    img.src = objectUrl;
-  });
-}
-
 // Reads the CSRF token straight out of the save form's own hidden input,
 // so the direct-upload requests below stay authenticated the same way
 // the eventual form submission is, without depending on cookie settings.
-function getCsrfToken() {
-  return document.querySelector('#save-form input[name=csrfmiddlewaretoken]').value;
-}
 
 // Asks Django for a short-lived presigned URL to PUT one image straight
 // to cloud storage. kind is 'roots' or 'trunks'.
@@ -263,6 +226,7 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
     const chosenGps = rootGPS || trunkGPS;
     document.getElementById("save-lat").value = chosenGps.lat;
     document.getElementById("save-lng").value = chosenGps.lng;
+    if (chosenGps.capturedAt) document.getElementById("save-captured-at").value = new Date(chosenGps.capturedAt).toISOString();
 
     previewImg.src = URL.createObjectURL(resizedFile);
     previewImg.style.display = "block";
@@ -350,7 +314,9 @@ async function queueScanOffline() {
     lat: chosenGps.lat,
     lng: chosenGps.lng,
     gpsSource: chosenGps.source,
-    capturedAt: Date.now(),
+    // Real photo capture time (EXIF/device), not queue time -- matters
+    // most exactly here, since offline scans can sit queued for hours.
+    capturedAt: chosenGps.capturedAt || Date.now(),
   });
   if (typeof renderPendingScans === "function") renderPendingScans();
 
@@ -383,6 +349,7 @@ function resetCaptureForm() {
   document.getElementById("analyze-btn").disabled = true;
   document.getElementById("save-lat").value = "";
   document.getElementById("save-lng").value = "";
+  document.getElementById("save-captured-at").value = "";
   setWorkflowStep(0);
 }
 
@@ -395,7 +362,7 @@ function showResult(disease, confidence, rootCondition, action) {
   document.getElementById("result-action").textContent = action || "No recommendation on file for this result.";
 
   const rootBadge = document.getElementById("result-root-condition");
-  rootBadge.textContent = rootCondition;
+  rootBadge.textContent = rootCondition || "Not reported by model";
   rootBadge.className = rootCondition === "Exposed Roots Detected"
     ? "fw-bold mt-1 text-pink" : "fw-bold mt-1 text-healthy";
 
