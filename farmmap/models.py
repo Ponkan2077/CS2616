@@ -259,6 +259,11 @@ class RubberTree(models.Model):
     # instead of relying on the derived property.
     severity_score = models.FloatField(default=0.0, blank=True)
     date_scanned = models.DateField()
+    # When the photo was actually taken (EXIF/device GPS timestamp from the
+    # browser), not when this row was saved -- matters for offline scans
+    # synced hours later. Null for older rows and any scan where neither
+    # source could supply one.
+    captured_at = models.DateTimeField(null=True, blank=True)
     block = models.CharField(max_length=10, blank=True)
     recommended_action = models.TextField(blank=True)
     notes = models.TextField(blank=True)
@@ -437,6 +442,7 @@ class RubberTree(models.Model):
 class ScanHistory(models.Model):
     tree = models.ForeignKey(RubberTree, on_delete=models.CASCADE, related_name="history")
     date = models.DateField()
+    captured_at = models.DateTimeField(null=True, blank=True)
     # Multiple scans can land on the same calendar date during testing/demo
     # sessions; date alone can't break ties, so it's used as a tiebreaker
     # in Meta.ordering below (most recent scan date first, then most
