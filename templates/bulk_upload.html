@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Bulk Upload{% endblock %}
+{% block page_title %}Bulk Upload{% endblock %}
+
+{% block content %}
+{% if messages %}
+  {% for message in messages %}
+  <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} py-2" style="font-size:13px;">
+    {{ message }}
+  </div>
+  {% endfor %}
+{% endif %}
+
+{% csrf_token %}
+{{ farm_centers|json_script:"farm-centers-data" }}
+
+<div class="card-rg mb-3">
+  <div class="card-header-rg"><i class="bi bi-images"></i> Select Photos</div>
+  <div class="card-body-rg">
+    <div class="text-muted mb-3" style="font-size:12.5px;">
+      Pick every root and trunk photo from this farm visit at once. They're grouped into trees automatically by
+      timestamp (and GPS, when a photo has it) — review the groups below before saving.
+    </div>
+    <div class="row g-2 mb-3">
+      <div class="col-12 col-sm-6">
+        <select id="bulk-farm-select" class="form-control-rg" required>
+          <option value="">Select Farm</option>
+          {% for farm in all_farms %}
+          <option value="{{ farm.pk }}" {% if selected_farm.pk == farm.pk %}selected{% endif %}>{{ farm.farm_id }} — {{ farm.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-sm-6">
+        <label class="btn btn-primary btn-sm w-100" style="cursor:pointer;">
+          <i class="bi bi-folder2-open"></i> Choose Photos
+          <input type="file" id="bulk-file-input" accept="image/*" multiple class="d-none">
+        </label>
+      </div>
+    </div>
+    <div id="bulk-status" class="text-muted" style="font-size:12.5px;"></div>
+    {% if not ai_enabled %}
+    <div class="mt-2 p-2 rounded-3" style="background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);color:#fbbf24;font-size:12px;">
+      <i class="bi bi-exclamation-triangle-fill me-1"></i> AI model not configured — trees will save without a disease result until AI_MODEL_ENDPOINT_URL is set.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div id="bulk-groups-container"></div>
+
+<div id="bulk-actions" class="card-rg mb-3" style="display:none;">
+  <div class="card-body-rg d-flex gap-2 align-items-center flex-wrap">
+    <button id="bulk-process-btn" class="btn btn-primary btn-sm">
+      <i class="bi bi-cloud-arrow-up"></i> Save All Ready Trees
+    </button>
+    <span id="bulk-summary" class="text-muted" style="font-size:12.5px;"></span>
+  </div>
+</div>
+
+<!-- Reusable manual-location picker, shared across all group cards -->
+<div class="modal fade" id="bulk-location-modal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background:var(--card-bg);color:var(--text);">
+      <div class="modal-header" style="border-color:var(--border);">
+        <h6 class="modal-title"><i class="bi bi-geo-alt-fill"></i> Set Tree Location</h6>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="text-muted mb-2" style="font-size:12px;">This group had no GPS on its own — tap the map where this tree actually is.</div>
+        <div id="bulk-location-map" style="height:300px;border-radius:8px;"></div>
+      </div>
+      <div class="modal-footer" style="border-color:var(--border);">
+        <button type="button" class="btn btn-primary btn-sm" id="bulk-location-confirm">Confirm Location</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+{% load static %}
+<script>
+  window.AI_ENABLED = {{ ai_enabled|yesno:"true,false" }};
+</script>
+<script src="{% static 'js/csrf.js' %}?v={{ STATIC_VERSION }}"></script>
+<script src="{% static 'js/image_utils.js' %}?v={{ STATIC_VERSION }}"></script>
+<script src="{% static 'js/gps_exif.js' %}?v={{ STATIC_VERSION }}"></script>
+<script src="{% static 'js/offline_queue.js' %}?v={{ STATIC_VERSION }}"></script>
+<script src="{% static 'js/bulk_detection.js' %}?v={{ STATIC_VERSION }}"></script>
+{% endblock %}
