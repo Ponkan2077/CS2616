@@ -108,6 +108,7 @@ async function syncOneScan(record) {
   saveForm.append("root_condition", analyzeData.root_condition);
   saveForm.append("lat", record.lat);
   saveForm.append("lng", record.lng);
+  if (record.capturedAt) saveForm.append("captured_at", new Date(record.capturedAt).toISOString());
   saveForm.append("root_image", record.rootBlob);
   saveForm.append("trunk_image", record.trunkBlob);
   saveForm.append("csrfmiddlewaretoken", getCsrfToken());
