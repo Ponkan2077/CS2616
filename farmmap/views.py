@@ -703,6 +703,27 @@ def disease_detection(request):
     return render(request, "disease_detection.html", ctx)
 
 
+@login_required
+def bulk_upload(request):
+    # Renders the bulk upload page. All the real work (clustering photos
+    # into trees by timestamp/GPS, letting the user confirm/fix groups,
+    # then analyzing+saving each) happens client-side in bulk_detection.js,
+    # reusing the same /detection/analyze/ and /detection/save/ endpoints
+    # the single-tree flow and offline sync already use -- one call per
+    # confirmed tree, nothing new server-side.
+    farm = _get_farm_or_none(request)
+    ctx = _base_context(request, farm)
+    # Each farm's live center, for defaulting the "set location manually"
+    # map when a group has no GPS of its own.
+    farm_centers = {str(f.pk): list(f.get_center()) for f in ctx["all_farms"]}
+    ctx.update({
+        "page": "bulk_upload",
+        "ai_enabled": ai_inference.AI_MODEL_ENABLED,
+        "farm_centers": farm_centers,
+    })
+    return render(request, "bulk_upload.html", ctx)
+
+
 def _severity_label_for(disease, confidence):
     # Mirrors RubberTree.severity_label's thresholds (models.py), for a
     # result that hasn't been saved as a RubberTree yet -- see
@@ -826,6 +847,14 @@ def save_detection(request):
     if tree_lat is None or tree_lng is None:
         return fail("This scan is missing a GPS location and can't be saved. Retake the photo somewhere the camera/GPS can get a location.")
 
+    captured_at = None
+    captured_at_raw = request.POST.get("captured_at", "").strip()
+    if captured_at_raw:
+        try:
+            captured_at = datetime.datetime.fromisoformat(captured_at_raw.replace("Z", "+00:00"))
+        except ValueError:
+            pass  # bad/missing timestamp isn't worth failing the save over
+
     farm = get_object_or_404(Farm, pk=farm_pk, owner=request.user)
 
     root_image_resized = None
@@ -888,49 +917,59 @@ def save_detection(request):
         # at the database level but URLs/lookups treat it as the sole key.
         tree_id = f"{farm.farm_id}-{tree_id}"
 
-    existing_tree = RubberTree.objects.filter(tree_id=tree_id).first()
+    try:
+        existing_tree = RubberTree.objects.filter(tree_id=tree_id).first()
 
-    if existing_tree and existing_tree.farm_id != farm.id:
-        return fail(f"Tree ID '{tree_id}' already exists on a different farm.")
+        if existing_tree and existing_tree.farm_id != farm.id:
+            return fail(f"Tree ID '{tree_id}' already exists on a different farm.")
 
-    if existing_tree:
-        # Rescan: update the tree's current snapshot and blank out
-        # recommended_action so save() re-derives it for the new
-        # disease/severity combination.
-        tree = existing_tree
-        tree.disease = disease
-        tree.confidence = float(confidence)
-        tree.root_condition = root_condition
-        tree.severity_score = 0.0
-        tree.recommended_action = ""
-        tree.date_scanned = datetime.date.today()
-        tree.lat = tree_lat
-        tree.lng = tree_lng
-        if block:
-            tree.block = block
-        if root_image_resized:
-            tree.root_image = root_image_resized
-        if trunk_image_resized:
-            tree.trunk_image = trunk_image_resized
-        tree.save()
-    else:
-        tree = RubberTree.objects.create(
-            farm=farm, tree_id=tree_id,
-            lat=tree_lat, lng=tree_lng,
-            disease=disease, confidence=float(confidence),
+        if existing_tree:
+            # Rescan: update the tree's current snapshot and blank out
+            # recommended_action so save() re-derives it for the new
+            # disease/severity combination.
+            tree = existing_tree
+            tree.disease = disease
+            tree.confidence = float(confidence)
+            tree.root_condition = root_condition
+            tree.severity_score = 0.0
+            tree.recommended_action = ""
+            tree.date_scanned = datetime.date.today()
+            tree.captured_at = captured_at
+            tree.lat = tree_lat
+            tree.lng = tree_lng
+            if block:
+                tree.block = block
+            if root_image_resized:
+                tree.root_image = root_image_resized
+            if trunk_image_resized:
+                tree.trunk_image = trunk_image_resized
+            tree.save()
+        else:
+            tree = RubberTree.objects.create(
+                farm=farm, tree_id=tree_id,
+                lat=tree_lat, lng=tree_lng,
+                disease=disease, confidence=float(confidence),
+                root_condition=root_condition,
+                date_scanned=datetime.date.today(), captured_at=captured_at, block=block,
+                root_image=root_image_resized, trunk_image=trunk_image_resized,
+                # recommended_action is left blank here so RubberTree.save() derives
+                # it from disease + severity_label (see SEVERITY_RECOMMENDATIONS).
+            )
+
+        ScanHistory.objects.create(
+            tree=tree, date=datetime.date.today(), captured_at=captured_at,
+            disease=disease, confidence=float(confidence), inspector=request.user.username,
             root_condition=root_condition,
-            date_scanned=datetime.date.today(), block=block,
             root_image=root_image_resized, trunk_image=trunk_image_resized,
-            # recommended_action is left blank here so RubberTree.save() derives
-            # it from disease + severity_label (see SEVERITY_RECOMMENDATIONS).
         )
+    except Exception as exc:
+        # Without this, any unexpected DB/storage error here (e.g. a
+        # pending migration not yet applied) returns Django's HTML error
+        # page instead of JSON -- offline_queue.js can't parse that for a
+        # real reason and falls back to a generic "Save failed", which is
+        # useless for actually debugging what happened.
+        return fail(f"Save failed: {exc}", status=500)
 
-    ScanHistory.objects.create(
-        tree=tree, date=datetime.date.today(),
-        disease=disease, confidence=float(confidence), inspector=request.user.username,
-        root_condition=root_condition,
-        root_image=root_image_resized, trunk_image=trunk_image_resized,
-    )
     verb = "updated" if existing_tree else "saved"
     messages.success(request, f"Detection {verb} for tree '{tree_id}'.")
 
