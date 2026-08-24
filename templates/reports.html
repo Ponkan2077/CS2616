@@ -221,9 +221,7 @@
         <tr>
           <th>FARM</th><th>OWNER</th><th>TOTAL</th>
           <th style="color:var(--healthy);">HEALTHY</th>
-          <th style="color:var(--pink);">PINK</th>
-          <th style="color:var(--white-root);">WHITE ROOT</th>
-          <th style="color:var(--stem);">STEM</th>
+          <th class="text-danger">DISEASED</th>
           <th>HEALTH RATE</th>
         </tr>
       </thead>
@@ -237,9 +235,7 @@
           <td class="text-muted">{{ s.farm.owner_name }}</td>
           <td class="fw-bold">{{ s.total }}</td>
           <td class="fw-bold text-healthy">{{ s.counts.Healthy }}</td>
-          <td class="fw-bold text-pink">{{ s.counts.Pink_Disease }}</td>
-          <td class="fw-bold text-white-root">{{ s.counts.White_Root_Rot }}</td>
-          <td class="fw-bold text-stem">{{ s.counts.Stem_Bleeding }}</td>
+          <td class="fw-bold text-danger">{{ s.diseased }}</td>
           <td>
             <div class="conf-bar" style="width:80px;"><div class="conf-fill" style="width:{{ s.pcts.Healthy }}%;background:var(--healthy);"></div></div>
             <div style="font-size:11px;margin-top:2px;">{{ s.pcts.Healthy }}%</div>
@@ -261,17 +257,20 @@
 {% block extra_scripts %}
 <script>
   const REPORTS_DATA = {
-    counts: {
-      healthy: {{ counts.Healthy }}, pink: {{ counts.Pink_Disease }},
-      white_root: {{ counts.White_Root_Rot }}, stem: {{ counts.Stem_Bleeding }}
-    },
+    total: {{ total }},
+    diseased: {{ diseased }},
+    diseaseStats: [
+      {% for d in disease_stats %}
+      { name: '{{ d.name|escapejs }}', count: {{ d.count }}, pct: {{ d.pct }}, color: '{{ d.color|escapejs }}', isHealthy: {{ d.is_healthy|yesno:"true,false" }} },
+      {% endfor %}
+    ],
     severity: {
       healthy: {{ severity_counts.Healthy }}, mild: {{ severity_counts.Mild }},
       moderate: {{ severity_counts.Moderate }}, severe: {{ severity_counts.Severe }}
     },
     monthly: [
       {% for m in monthly %}
-      { month: '{{ m.month }}', healthy: {{ m.healthy }}, pink: {{ m.pink }}, white_root: {{ m.white_root }}, stem: {{ m.stem }} },
+      { month: '{{ m.month }}', diseases: { {% for name, n in m.diseases.items %}'{{ name|escapejs }}': {{ n }},{% endfor %} } },
       {% endfor %}
     ]
   };
