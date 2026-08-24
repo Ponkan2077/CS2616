@@ -47,6 +47,17 @@ class Farm(models.Model):
     farm_id = models.CharField(max_length=20)
     name = models.CharField(max_length=100)
     owner_name = models.CharField(max_length=100)
+    # Structured PH address (Region -> Province -> City/Municipality ->
+    # Barangay), picked via cascading selects on Add Farm -- see psgc.py
+    # and farm_list.html. Stored as plain names, not PSGC codes: nothing
+    # else in the app needs to join back against the PSGC dataset, so a
+    # code would just be an extra layer of indirection for no benefit here.
+    region = models.CharField(max_length=100, blank=True)
+    province = models.CharField(max_length=100, blank=True)
+    city_municipality = models.CharField(max_length=100, blank=True)
+    barangay = models.CharField(max_length=100, blank=True)
+    # Free-text detail below barangay level (sitio/purok, landmark, etc.)
+    # -- the PSGC hierarchy above doesn't go any finer than barangay.
     location = models.CharField(max_length=200, blank=True)
     # These two are NOT user-editable and no longer represent "the" farm
     # center once real trees exist -- get_center() below computes the live
@@ -60,6 +71,14 @@ class Farm(models.Model):
     # get_boundary_polygon() below, never shown to or set by the user.
     boundary_radius_m = models.PositiveIntegerField(default=300)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def full_address(self):
+        # Human-readable address built from the structured fields, falling
+        # back to the old free-text location for farms created before this
+        # existed (or if the person skipped the picker entirely).
+        parts = [self.location, self.barangay, self.city_municipality, self.province]
+        parts = [p for p in parts if p]
+        return ", ".join(parts) if parts else (self.location or "—")
 
     class Meta:
         # farm_id only needs to be unique within a single user's farms,
@@ -84,7 +103,10 @@ class Farm(models.Model):
             "Stem_Bleeding": raw_counts.get("Stem Bleeding", 0),
         }
         pcts = {k: round(v / total * 100, 1) if total else 0 for k, v in counts.items()}
-        diseased = counts["Pink_Disease"] + counts["White_Root_Rot"] + counts["Stem_Bleeding"]
+        # total - Healthy rather than summing the 3 named keys above, so a
+        # tree with a disease added after these 3 (e.g. Brown Bast) still
+        # counts as diseased instead of silently vanishing from this total.
+        diseased = total - counts["Healthy"]
         return total, counts, pcts, diseased
 
     def get_severity_stats(self):
@@ -514,9 +536,10 @@ class UserSettings(models.Model):
         default=7,
         help_text="Only scans within this many days show up as a notification.",
     )
-    notify_pink_disease = models.BooleanField(default=True)
-    notify_white_root_rot = models.BooleanField(default=True)
-    notify_stem_bleeding = models.BooleanField(default=True)
+    # Disease *names* the user has turned OFF. Default empty means every
+    # non-healthy disease notifies out of the box -- including any added
+    # to DiseaseClass later, with no code change needed here.
+    notify_muted_diseases = models.JSONField(default=list, blank=True)
 
     def __str__(self):
         # Returns a readable string identifying whose settings these are.
@@ -524,10 +547,9 @@ class UserSettings(models.Model):
 
     def enabled_diseases(self):
         # Returns the list of disease names this user wants notifications
-        # for, based on their toggles.
-        mapping = {
-            "Pink Disease": self.notify_pink_disease,
-            "White Root Rot": self.notify_white_root_rot,
-            "Stem Bleeding": self.notify_stem_bleeding,
-        }
-        return [name for name, enabled in mapping.items() if enabled]
+        # for: every non-healthy disease in the live catalog, minus the
+        # ones they've muted.
+        return [
+            d.name for d in get_disease_lookup().values()
+            if not d.is_healthy and d.name not in self.notify_muted_diseases
+        ]
