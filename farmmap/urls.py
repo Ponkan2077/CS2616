@@ -32,6 +32,12 @@ urlpatterns = [
     path('farms/create/', views.farm_create, name='farm_create'),
     path('farms/<str:farm_id>/', views.farm_detail, name='farm_detail'),
 
+    # PSGC address cascade (Region -> Province -> City -> Barangay), used
+    # by the Add Farm form
+    path('api/psgc/provinces/<str:region_code>/', views.psgc_provinces, name='psgc_provinces'),
+    path('api/psgc/cities/<str:province_code>/', views.psgc_cities, name='psgc_cities'),
+    path('api/psgc/barangays/<str:city_code>/', views.psgc_barangays, name='psgc_barangays'),
+
     # Farm selection
     path('select-farm/', views.select_farm, name='select_farm'),
     path('settings/', views.settings_view, name='settings'),
