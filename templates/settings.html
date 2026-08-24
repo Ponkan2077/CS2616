@@ -97,21 +97,13 @@
 
           <div class="mb-3">
             <label class="form-label small text-muted mb-2 d-block">Alert me for:</label>
+            {% for d in notifiable_diseases %}
             <div class="form-check mb-1">
-              <input type="checkbox" class="form-check-input" id="notify_pink" name="notify_pink_disease"
-                     {% if user_settings.notify_pink_disease %}checked{% endif %}>
-              <label class="form-check-label small" for="notify_pink">Pink Disease</label>
+              <input type="checkbox" class="form-check-input" id="notify_{{ d.marker_key }}" name="notify_disease"
+                     value="{{ d.name }}" {% if d.name not in user_settings.notify_muted_diseases %}checked{% endif %}>
+              <label class="form-check-label small" for="notify_{{ d.marker_key }}">{{ d.name }}</label>
             </div>
-            <div class="form-check mb-1">
-              <input type="checkbox" class="form-check-input" id="notify_wrr" name="notify_white_root_rot"
-                     {% if user_settings.notify_white_root_rot %}checked{% endif %}>
-              <label class="form-check-label small" for="notify_wrr">White Root Rot</label>
-            </div>
-            <div class="form-check mb-1">
-              <input type="checkbox" class="form-check-input" id="notify_stem" name="notify_stem_bleeding"
-                     {% if user_settings.notify_stem_bleeding %}checked{% endif %}>
-              <label class="form-check-label small" for="notify_stem">Stem Bleeding</label>
-            </div>
+            {% endfor %}
           </div>
 
           <div class="text-muted mb-2" style="font-size:11px;">
