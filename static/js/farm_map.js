@@ -2,15 +2,6 @@
 // visible markers into one <canvas> instead of one DOM element per tree.
 const FARM_MAP_CANVAS = L.canvas({ padding: 0.5 });
 
-// Matches the app's CSS disease color tokens, used to color cluster
-// bubbles by their dominant disease.
-const DISEASE_COLOR_MAP = {
-  'Healthy':        '#34d399',
-  'Pink Disease':   '#f87171',
-  'White Root Rot': '#d0995f',
-  'Stem Bleeding':  '#fb7185',
-};
-
 // Builds one canvas-rendered circle marker for a tree, with the same
 // lazy-loaded popup detail (fetched only on click, cached afterward) as
 // before.
@@ -21,11 +12,12 @@ function buildTreeCircleMarker(tree, detailCache) {
     weight: 2,
     color: '#1a2535',       // dark border so markers stay visible against both basemaps
     opacity: 1,
-    fillColor: tree.color || DISEASE_COLOR_MAP[tree.disease] || '#94a3b8',
+    fillColor: tree.color || '#94a3b8',
     fillOpacity: 0.92,
   });
   marker.treeId = tree.tree_id;
   marker.diseaseKey = tree.disease;
+  marker.diseaseColor = tree.color;
 
   marker.bindPopup('<div style="font-size:12px;padding:4px;">Loading…</div>', { maxWidth: 270 });
   marker.on('popupopen', async () => {
@@ -129,7 +121,8 @@ function makeClusterIcon(cluster) {
   let dominant = 'Healthy', max = -1;
   const contenders = diseaseKeys.length > 0 ? diseaseKeys : ['Healthy'];
   contenders.forEach(k => { if (tally[k] > max) { max = tally[k]; dominant = k; } });
-  const color = DISEASE_COLOR_MAP[dominant] || '#4ade80';
+  const dominantMarker = children.find(m => m.diseaseKey === dominant);
+  const color = (dominantMarker && dominantMarker.diseaseColor) || '#4ade80';
   const mixed = Object.keys(tally).length > 1;
 
   let sizeClass = 'cluster-sm', px = 36;
@@ -321,7 +314,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const legendHeatmap = document.getElementById('legend-heatmap');
   const legendInterventions = document.getElementById('legend-interventions');
   const allDiseasesOption = filterSelect ? filterSelect.querySelector('option[value=""]') : null;
-  const diseaseOptions = ['Pink Disease', 'White Root Rot', 'Stem Bleeding'];
+  // Whatever's actually in the filter dropdown (server-rendered from the
+  // live DiseaseClass catalog), minus "All Diseases" and Healthy -- a
+  // heatmap of Healthy trees has no meaningful severity gradient.
+  const diseaseOptions = filterSelect
+    ? Array.from(filterSelect.options).map(o => o.value).filter(v => v && v !== 'Healthy')
+    : [];
 
   let activeView = 'markers';
   let currentHeatLayer = null;
