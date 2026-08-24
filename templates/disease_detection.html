@@ -15,6 +15,21 @@
   <i class="bi bi-wifi-off"></i> You're offline — captured scans are saved on this device and will sync automatically once you're back online.
 </div>
 
+<!-- Asked first, not at save time -- a scan captured (or queued offline)
+     with no farm attached has nowhere valid to save to, so the rest of
+     the flow stays locked (see step-locked below) until this is set. -->
+<div class="card-rg mb-3">
+  <div class="card-header-rg"><i class="bi bi-geo-alt-fill"></i> Farm</div>
+  <div class="card-body-rg">
+    <select name="farm_pk" id="save-farm-pk" class="form-control-rg" form="save-form" required>
+      <option value="">Select Farm</option>
+      {% for farm in all_farms %}
+      <option value="{{ farm.pk }}" data-farm-id="{{ farm.farm_id }}" {% if selected_farm.pk == farm.pk %}selected{% endif %}>{{ farm.farm_id }} — {{ farm.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+</div>
+
 <!-- Checked once on page load, before the user even picks a photo -- see
      checkLocationAvailability() in disease_detection.js. Catches a denied/
      blocked location permission immediately instead of only discovering it
@@ -52,7 +67,7 @@
 <div class="row g-3">
   <!-- Left: Upload + Preview -->
   <div class="col-12 col-lg-5">
-    <div class="card-rg mb-3">
+    <div class="card-rg mb-3{% if not selected_farm %} step-locked{% endif %}" id="root-zone-wrapper">
       <div class="card-header-rg"><i class="bi bi-cloud-upload-fill"></i> Step 1 — Capture Root Image</div>
       <div class="card-body-rg">
         <div class="drop-zone mb-3" id="root-drop-zone">
@@ -179,17 +194,9 @@
           <input type="hidden" name="trunk_image_key" id="save-trunk-image-key">
           <div class="row g-2 mb-2">
             <div class="col-6">
-              <select name="farm_pk" id="save-farm-pk" class="form-control-rg" required>
-                <option value="">Select Farm</option>
-                {% for farm in all_farms %}
-                <option value="{{ farm.pk }}" data-farm-id="{{ farm.farm_id }}" {% if selected_farm.pk == farm.pk %}selected{% endif %}>{{ farm.farm_id }} — {{ farm.name }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-3">
               <input type="text" name="block" id="save-block" class="form-control-rg" placeholder="Block">
             </div>
-            <div class="col-3">
+            <div class="col-6">
               <input type="text" name="tree_id" id="save-tree-id" class="form-control-rg" placeholder="Tree ID (optional)">
             </div>
           </div>
