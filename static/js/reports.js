@@ -4,7 +4,6 @@
    this script loads. */
 
 const SEVERITY_COLORS = { healthy: "#28a745", mild: "#fbbf24", moderate: "#f97316", severe: "#dc2626" };
-const DISEASE_COLORS = { healthy: "#28a745", pink: "#dc3545", white_root: "#8b5a2b", stem: "#8b0000" };
 
 function renderSeverityPie(severity) {
   const canvas = document.getElementById("severityPie");
@@ -23,17 +22,17 @@ function renderSeverityPie(severity) {
   });
 }
 
-function renderDetectionSummary(counts) {
+function renderDetectionSummary(total, diseased) {
   const canvas = document.getElementById("detectionSummary");
   if (!canvas) return;
-  const diseased = counts.pink + counts.white_root + counts.stem;
+  const healthy = total - diseased;
   new Chart(canvas, {
     type: "bar",
     data: {
       labels: ["Healthy Trees", "Diseased Trees"],
       datasets: [{
-        data: [counts.healthy, diseased],
-        backgroundColor: [DISEASE_COLORS.healthy, "#dc3545"],
+        data: [healthy, diseased],
+        backgroundColor: ["#28a745", "#dc3545"],
         borderRadius: 6,
       }]
     },
@@ -45,16 +44,16 @@ function renderDetectionSummary(counts) {
   });
 }
 
-function renderDiseaseBar(counts) {
+function renderDiseaseBar(diseaseStats) {
   const canvas = document.getElementById("reportBar");
   if (!canvas) return;
   new Chart(canvas, {
     type: "bar",
     data: {
-      labels: ["Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"],
+      labels: diseaseStats.map(d => d.name),
       datasets: [{
-        data: [counts.healthy, counts.pink, counts.white_root, counts.stem],
-        backgroundColor: [DISEASE_COLORS.healthy, DISEASE_COLORS.pink, DISEASE_COLORS.white_root, DISEASE_COLORS.stem],
+        data: diseaseStats.map(d => d.count),
+        backgroundColor: diseaseStats.map(d => d.color),
         borderRadius: 6,
       }]
     },
@@ -69,7 +68,7 @@ function renderDiseaseBar(counts) {
   });
 }
 
-function renderTrend(monthly) {
+function renderTrend(monthly, diseaseStats) {
   const canvas = document.getElementById("reportTrend");
   if (!canvas || !monthly.length) return;
 
@@ -79,15 +78,20 @@ function renderTrend(monthly) {
   const existing = Chart.getChart(canvas);
   if (existing) existing.destroy();
 
-  const healthyData = monthly.map(m => Number(m.healthy) || 0);
-  const pinkData = monthly.map(m => Number(m.pink) || 0);
-  const whiteRootData = monthly.map(m => Number(m.white_root) || 0);
-  const stemData = monthly.map(m => Number(m.stem) || 0);
+  const datasets = diseaseStats.map(d => ({
+    label: d.name,
+    data: monthly.map(m => Number(m.diseases[d.name]) || 0),
+    borderColor: d.color,
+    backgroundColor: d.color + "1a", // ~10% alpha, hex-with-alpha
+    tension: .4,
+    fill: d.isHealthy,
+    pointRadius: 4,
+  }));
 
   // Explicitly compute the y-axis max from the real data instead of
   // relying solely on Chart.js's automatic scale detection, which can
   // fail to pick up a sensible range in some edge cases.
-  const allValues = [...healthyData, ...pinkData, ...whiteRootData, ...stemData];
+  const allValues = datasets.flatMap(ds => ds.data);
   const dataMax = Math.max(1, ...allValues);
   const yMax = Math.ceil(dataMax * 1.15 / 10) * 10;
 
@@ -95,12 +99,7 @@ function renderTrend(monthly) {
     type: "line",
     data: {
       labels: monthly.map(m => m.month),
-      datasets: [
-        { label: "Healthy",        data: healthyData,    borderColor: DISEASE_COLORS.healthy,    backgroundColor: "rgba(40,167,69,.1)",  tension: .4, fill: true,  pointRadius: 4 },
-        { label: "Pink Disease",   data: pinkData,       borderColor: DISEASE_COLORS.pink,       backgroundColor: "rgba(220,53,69,.08)", tension: .4, fill: false, pointRadius: 4 },
-        { label: "White Root Rot", data: whiteRootData,  borderColor: DISEASE_COLORS.white_root, backgroundColor: "rgba(139,90,43,.08)", tension: .4, fill: false, pointRadius: 4 },
-        { label: "Stem Bleeding",  data: stemData,       borderColor: DISEASE_COLORS.stem,       backgroundColor: "rgba(139,0,0,.08)",   tension: .4, fill: false, pointRadius: 4 },
-      ]
+      datasets
     },
     options: {
       responsive: true,
@@ -129,7 +128,7 @@ function computeSeverityLabel(disease, confidence) {
 
 document.addEventListener("DOMContentLoaded", () => {
   renderSeverityPie(REPORTS_DATA.severity);
-  renderDetectionSummary(REPORTS_DATA.counts);
-  renderDiseaseBar(REPORTS_DATA.counts);
-  renderTrend(REPORTS_DATA.monthly);
+  renderDetectionSummary(REPORTS_DATA.total, REPORTS_DATA.diseased);
+  renderDiseaseBar(REPORTS_DATA.diseaseStats);
+  renderTrend(REPORTS_DATA.monthly, REPORTS_DATA.diseaseStats);
 });
