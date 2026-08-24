@@ -1,6 +1,7 @@
 import json
 import datetime
 from django.shortcuts import render, get_object_or_404, redirect
+from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
@@ -15,23 +16,14 @@ from .imaging import resize_for_storage
 from . import ai_inference
 from . import storage_stats
 from . import direct_upload
-
-# Icon and color shown in the notification bell for each disease type.
-NOTIFICATION_STYLE = {
-    "Pink Disease": {"icon": "bi-exclamation-triangle-fill", "color": "text-danger"},
-    "White Root Rot": {"icon": "bi-exclamation-triangle-fill", "color": "text-warning"},
-    "Stem Bleeding": {"icon": "bi-exclamation-triangle-fill", "color": "text-danger"},
-}
-
-DISEASE_FIELD_MAP = {
-    "Healthy": "healthy", "Pink Disease": "pink",
-    "White Root Rot": "white_root", "Stem Bleeding": "stem",
-}
+from . import psgc
 
 
 def _get_monthly_trend(request, farm=None):
     # Groups the user's actual scan history by month, counting each disease
-    # type per month, for the "Reports Over Time" line chart.
+    # type per month, for the "Reports Over Time" line chart. Keyed by
+    # disease name (not a fixed field per disease) so any disease in the
+    # live catalog shows up without code changes here.
     from collections import OrderedDict
 
     qs = ScanHistory.objects.filter(tree__farm__owner=request.user)
@@ -39,14 +31,14 @@ def _get_monthly_trend(request, farm=None):
         qs = qs.filter(tree__farm=farm)
     qs = qs.select_related("tree").order_by("date")
 
+    disease_names = [d.name for d in get_disease_lookup().values()]
     months = OrderedDict()
     for h in qs:
         key = h.date.strftime("%b %Y")
         if key not in months:
-            months[key] = {"month": key, "healthy": 0, "pink": 0, "white_root": 0, "stem": 0}
-        field = DISEASE_FIELD_MAP.get(h.disease)
-        if field:
-            months[key][field] += 1
+            months[key] = {"month": key, "diseases": {name: 0 for name in disease_names}}
+        if h.disease in months[key]["diseases"]:
+            months[key]["diseases"][h.disease] += 1
 
     return list(months.values())
 
@@ -121,7 +113,7 @@ def _get_intervention_effectiveness(request, farm=None):
     return effectiveness, recent
 
 
-def _get_key_insights(total, counts, pcts, diseased, block_rows, effectiveness):
+def _get_key_insights(total, counts, pcts, diseased, block_rows, effectiveness, disease_breakdown):
     # Builds a short list of plain-language, data-driven takeaways from
     # the current stats. Used on the reports page and in the PDF export
     # so a non-technical reader gets the "so what" up front.
@@ -133,15 +125,12 @@ def _get_key_insights(total, counts, pcts, diseased, block_rows, effectiveness):
         f"{pcts.get('Healthy', 0)}% of monitored trees ({counts.get('Healthy', 0)} of {total}) are currently Healthy."
     )
 
-    disease_labels = {
-        "Pink_Disease": "Pink Disease", "White_Root_Rot": "White Root Rot", "Stem_Bleeding": "Stem Bleeding",
-    }
-    if diseased:
-        top_key = max(("Pink_Disease", "White_Root_Rot", "Stem_Bleeding"), key=lambda k: counts.get(k, 0))
-        if counts.get(top_key, 0) > 0:
+    if diseased and disease_breakdown:
+        top = max(disease_breakdown, key=lambda d: d["count"])
+        if top["count"] > 0:
             insights.append(
-                f"{disease_labels[top_key]} is the most common issue detected, accounting for "
-                f"{counts.get(top_key, 0)} case(s) ({pcts.get(top_key, 0)}% of all trees)."
+                f"{top['name']} is the most common issue detected, accounting for "
+                f"{top['count']} case(s) ({top['pct']}% of all trees)."
             )
     else:
         insights.append("No active disease cases detected across the monitored trees.")
@@ -300,12 +289,14 @@ def _build_notifications(request):
         .order_by("-date_scanned")[:6]
     )
     notifications = []
+    disease_lookup = get_disease_lookup()
     for t in diseased_trees:
-        style = NOTIFICATION_STYLE.get(t.disease, {"icon": "bi-info-circle-fill", "color": "text-success"})
+        dc = disease_lookup.get(t.disease)
+        color = dc.color_hex if dc else "#22c55e"
         days_ago = (today - t.date_scanned).days
         notifications.append({
-            "icon": style["icon"],
-            "color": style["color"],
+            "icon": "bi-exclamation-triangle-fill",
+            "color": color,
             "msg": f"{t.disease} detected at Tree {t.tree_id}",
             "time": _humanize_days_ago(days_ago),
             "url": reverse("tree_details", args=[t.tree_id]),
@@ -367,8 +358,32 @@ def _get_stats(request, farm=None):
         "Stem_Bleeding": raw_counts.get("Stem Bleeding", 0),
     }
     pcts = {k: round(v / total * 100, 1) if total else 0 for k, v in counts.items()}
-    diseased = counts["Pink_Disease"] + counts["White_Root_Rot"] + counts["Stem_Bleeding"]
+    diseased = total - counts["Healthy"]
     return total, counts, pcts, diseased
+
+
+def _get_full_disease_stats(request, farm=None):
+    # Every disease in the live catalog (including Healthy) with
+    # count/pct/color, used to drive per-disease charts that need to
+    # scale to however many disease classes currently exist.
+    qs = RubberTree.objects.filter(farm=farm) if farm else RubberTree.objects.filter(farm__owner=request.user)
+    total = qs.count()
+    raw_counts = dict(qs.values_list("disease").annotate(n=Count("id")).values_list("disease", "n"))
+    stats = []
+    for d in get_disease_lookup().values():
+        n = raw_counts.get(d.name, 0)
+        stats.append({
+            "name": d.name, "count": n,
+            "pct": round(n / total * 100, 1) if total else 0,
+            "color": d.color_hex, "is_healthy": d.is_healthy,
+        })
+    return stats
+
+
+def _get_disease_breakdown(request, farm=None):
+    # Same as above, minus Healthy -- for picking out e.g. the single
+    # most common disease rather than just a healthy/diseased split.
+    return [d for d in _get_full_disease_stats(request, farm) if not d["is_healthy"]]
 
 
 def _base_context(request, farm=None):
@@ -446,9 +461,13 @@ def settings_view(request):
                 user_settings.notify_lookback_days = max(1, int(request.POST.get("notify_lookback_days", 7)))
             except ValueError:
                 user_settings.notify_lookback_days = 7
-            user_settings.notify_pink_disease = bool(request.POST.get("notify_pink_disease"))
-            user_settings.notify_white_root_rot = bool(request.POST.get("notify_white_root_rot"))
-            user_settings.notify_stem_bleeding = bool(request.POST.get("notify_stem_bleeding"))
+            # Checked box = notify (matches settings.html rendering below),
+            # so anything NOT posted for a known disease name is muted.
+            checked = set(request.POST.getlist("notify_disease"))
+            user_settings.notify_muted_diseases = [
+                d.name for d in get_disease_lookup().values()
+                if not d.is_healthy and d.name not in checked
+            ]
             user_settings.save()
             messages.success(request, "Notification preferences updated.")
             return redirect("settings")
@@ -458,6 +477,7 @@ def settings_view(request):
         "page": "settings",
         "password_form": password_form,
         "user_settings": user_settings,
+        "notifiable_diseases": [d for d in get_disease_lookup().values() if not d.is_healthy],
     })
     return render(request, "settings.html", ctx)
 
@@ -483,8 +503,28 @@ def farm_list(request):
     page_number = request.GET.get("page", 1)
     farms = paginator.get_page(page_number)
     ctx = _base_context(request)
-    ctx.update({"page": "farm_list", "farms": farms, "search_q": search_q})
+    ctx.update({"page": "farm_list", "farms": farms, "search_q": search_q, "psgc_regions": psgc.get_regions()})
     return render(request, "farm_list.html", ctx)
+
+
+@login_required
+def psgc_provinces(request, region_code):
+    # Powers the Province dropdown once a Region is picked on Add Farm.
+    return JsonResponse({"results": psgc.get_provinces(region_code)})
+
+
+@login_required
+def psgc_cities(request, province_code):
+    # Powers the City/Municipality dropdown once a Province is picked.
+    return JsonResponse({"results": psgc.get_cities(province_code)})
+
+
+@login_required
+def psgc_barangays(request, city_code):
+    # Powers the Barangay dropdown once a City is picked. This is the only
+    # one of the 3 that touches the 42k-row barangay dataset, and only for
+    # the one city asked about -- never the full list.
+    return JsonResponse({"results": psgc.get_barangays(city_code)})
 
 
 @login_required
@@ -495,6 +535,12 @@ def farm_create(request):
         name = request.POST.get("name", "").strip()
         owner_name = request.POST.get("owner_name", "").strip()
         location = request.POST.get("location", "").strip()
+        # Posted as plain names (not PSGC codes) by the cascading selects
+        # in farm_list.html -- see wireAddressCascade() in that template.
+        region = request.POST.get("region_name", "").strip()
+        province = request.POST.get("province_name", "").strip()
+        city_municipality = request.POST.get("city_name", "").strip()
+        barangay = request.POST.get("barangay_name", "").strip()
 
         if not farm_id or not name or not owner_name:
             messages.error(request, "Farm ID, name, and owner name are required.")
@@ -514,6 +560,10 @@ def farm_create(request):
             farm_id=farm_id,
             name=name,
             owner_name=owner_name,
+            region=region,
+            province=province,
+            city_municipality=city_municipality,
+            barangay=barangay,
             location=location,
         )
         messages.success(request, f"Farm '{name}' added successfully.")
@@ -527,6 +577,7 @@ def farm_detail(request, farm_id):
     # Displays details, stats, and trees for a single farm owned by the user.
     farm = get_object_or_404(Farm, farm_id=farm_id, owner=request.user)
     total, counts, pcts, diseased = farm.get_stats()
+    disease_stats = _get_full_disease_stats(request, farm)
     trees_qs = farm.trees.all().order_by("tree_id")
     paginator = Paginator(trees_qs, 25)
     page_number = request.GET.get("page", 1)
@@ -537,6 +588,7 @@ def farm_detail(request, farm_id):
         "farm": farm,
         "trees": trees_page,
         "total": total, "counts": counts, "pcts": pcts, "diseased": diseased,
+        "disease_stats": disease_stats,
     })
     return render(request, "farm_detail.html", ctx)
 
@@ -577,9 +629,9 @@ def dashboard(request):
         "total": total, "counts": counts, "pcts": pcts, "diseased": diseased,
         "severity_counts": severity_counts,
         "healthy_count": counts["Healthy"],
-        "areas_with_cases": Farm.objects.filter(owner=request.user, trees__disease__in=[
-            "Pink Disease", "White Root Rot", "Stem Bleeding"
-        ]).distinct().count() if not farm else (1 if diseased else 0),
+        "areas_with_cases": Farm.objects.filter(
+            owner=request.user, trees__disease__isnull=False
+        ).exclude(trees__disease="Healthy").distinct().count() if not farm else (1 if diseased else 0),
         "farm_count": farm_count,
         "recent": recent,
         "block_summary": block_summary,
@@ -641,6 +693,22 @@ def farm_map(request):
     boundary_polygon = json.dumps(map_farm.get_boundary_polygon())
     block_boundaries = json.dumps(map_farm.get_block_polygons())
 
+    # Built fresh from the live DiseaseClass catalog (not the fixed-key
+    # counts dict above) so the filter dropdown, legend, and top-disease
+    # card all pick up newly added disease classes automatically -- same
+    # reasoning as RubberTree.color/disease_key.
+    raw_counts = dict(
+        map_farm.trees.values_list("disease").annotate(n=Count("id")).values_list("disease", "n")
+    )
+    disease_stats = []
+    top_disease = None
+    for d in DiseaseClass.objects.all():
+        n = raw_counts.get(d.name, 0)
+        disease_stats.append({"name": d.name, "count": n, "color": d.color_hex, "is_healthy": d.is_healthy})
+        if not d.is_healthy and (top_disease is None or n > top_disease["count"]):
+            top_disease = {"name": d.name, "count": n, "color": d.color_hex}
+    disease_colors = {d["name"]: d["color"] for d in disease_stats}
+
     # Uses the sidebar's own selected_farm (not map_farm) for shared
     # context, so the sidebar dropdown never appears to change just from
     # visiting this page.
@@ -654,6 +722,9 @@ def farm_map(request):
         "map_farm_boundary": boundary_polygon,
         "map_block_boundaries": block_boundaries,
         "total": total, "counts": counts, "diseased": diseased,
+        "disease_stats": disease_stats,
+        "top_disease": top_disease,
+        "disease_colors_json": json.dumps(disease_colors),
     })
     return render(request, "farm_map.html", ctx)
 
@@ -855,7 +926,10 @@ def save_detection(request):
         except ValueError:
             pass  # bad/missing timestamp isn't worth failing the save over
 
-    farm = get_object_or_404(Farm, pk=farm_pk, owner=request.user)
+    try:
+        farm = Farm.objects.get(pk=farm_pk, owner=request.user)
+    except (Farm.DoesNotExist, ValueError, TypeError):
+        return fail("This scan has no valid farm attached and can't be saved.")
 
     root_image_resized = None
     trunk_image_resized = None
@@ -985,6 +1059,10 @@ def tree_inventory(request):
     # so large datasets don't try to render thousands of rows at once.
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
+    disease_breakdown = _get_disease_breakdown(request, farm)
+    top_disease = max(disease_breakdown, key=lambda d: d["count"], default=None)
+    if top_disease and top_disease["count"] == 0:
+        top_disease = None
     trees_qs = _get_trees(request, farm).select_related("farm").order_by("tree_id")
 
     search_q = request.GET.get("q", "").strip()
@@ -1013,6 +1091,7 @@ def tree_inventory(request):
         "page": "tree_inventory",
         "trees": trees_page,
         "total": total, "counts": counts, "diseased": diseased,
+        "top_disease": top_disease,
         "search_q": search_q, "disease_filter": disease_filter, "farm_filter": farm_filter,
         "range_filter": range_filter, "severity_filter": severity_filter,
         "disease_classes": DiseaseClass.objects.all().order_by("display_order", "name"),
@@ -1066,7 +1145,9 @@ def reports(request):
     most_affected = _get_most_affected_farms(request)
     block_summary = _get_block_summary(request, farm)
     effectiveness, recent_interventions = _get_intervention_effectiveness(request, farm)
-    key_insights = _get_key_insights(total, counts, pcts, diseased, block_summary, effectiveness)
+    disease_breakdown = _get_disease_breakdown(request, farm)
+    disease_stats = _get_full_disease_stats(request, farm)
+    key_insights = _get_key_insights(total, counts, pcts, diseased, block_summary, effectiveness, disease_breakdown)
     recommendations = _get_recommendations(block_summary, effectiveness)
 
     farm_summaries = []
@@ -1080,6 +1161,7 @@ def reports(request):
     ctx.update({
         "page": "reports",
         "total": total, "counts": counts, "pcts": pcts, "diseased": diseased,
+        "disease_stats": disease_stats,
         "severity_counts": severity_counts,
         "monthly": monthly,
         "most_affected": most_affected,
@@ -1243,6 +1325,7 @@ def export_csv(request):
 
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
+    disease_stats = _get_full_disease_stats(request, farm)
     label = farm.farm_id if farm else "all_farms"
 
     response = HttpResponse(content_type="text/csv")
@@ -1253,19 +1336,21 @@ def export_csv(request):
     writer.writerow(["Scope", farm.name if farm else "All Farms"])
     writer.writerow([])
     writer.writerow(["Disease Class", "Count", "Percentage"])
-    writer.writerow(["Healthy", counts["Healthy"], f'{pcts["Healthy"]}%'])
-    writer.writerow(["Pink Disease", counts["Pink_Disease"], f'{pcts["Pink_Disease"]}%'])
-    writer.writerow(["White Root Rot", counts["White_Root_Rot"], f'{pcts["White_Root_Rot"]}%'])
-    writer.writerow(["Stem Bleeding", counts["Stem_Bleeding"], f'{pcts["Stem_Bleeding"]}%'])
+    for d in disease_stats:
+        writer.writerow([d["name"], d["count"], f'{d["pct"]}%'])
     writer.writerow(["Total", total, "100%"])
 
     if not farm:
+        disease_names = [d["name"] for d in disease_stats]
         writer.writerow([])
         writer.writerow(["Per-Farm Breakdown"])
-        writer.writerow(["Farm ID", "Farm Name", "Owner", "Total Trees", "Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"])
+        writer.writerow(["Farm ID", "Farm Name", "Owner", "Total Trees"] + disease_names)
         for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
-            ft, fc, fp, fd = f.get_stats()
-            writer.writerow([f.farm_id, f.name, f.owner_name, ft, fc["Healthy"], fc["Pink_Disease"], fc["White_Root_Rot"], fc["Stem_Bleeding"]])
+            f_stats = {d["name"]: d["count"] for d in _get_full_disease_stats(request, f)}
+            writer.writerow(
+                [f.farm_id, f.name, f.owner_name, f.trees.count()]
+                + [f_stats.get(name, 0) for name in disease_names]
+            )
 
     return response
 
@@ -1279,6 +1364,7 @@ def export_excel(request):
 
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
+    disease_stats = _get_full_disease_stats(request, farm)
     label = farm.farm_id if farm else "all_farms"
 
     header_font = Font(bold=True, color="FFFFFF")
@@ -1299,25 +1385,27 @@ def export_excel(request):
         cell.font = header_font
         cell.fill = header_fill
 
-    ws.append(["Healthy", counts["Healthy"], f'{pcts["Healthy"]}%'])
-    ws.append(["Pink Disease", counts["Pink_Disease"], f'{pcts["Pink_Disease"]}%'])
-    ws.append(["White Root Rot", counts["White_Root_Rot"], f'{pcts["White_Root_Rot"]}%'])
-    ws.append(["Stem Bleeding", counts["Stem_Bleeding"], f'{pcts["Stem_Bleeding"]}%'])
+    for d in disease_stats:
+        ws.append([d["name"], d["count"], f'{d["pct"]}%'])
     ws.append(["Total", total, "100%"])
     for cell in ws[ws.max_row]:
         cell.font = Font(bold=True)
 
     if not farm:
+        disease_names = [d["name"] for d in disease_stats]
         ws.append([])
         ws.append(["Per-Farm Breakdown"])
         ws[f"A{ws.max_row}"].font = Font(bold=True, size=11)
-        ws.append(["Farm ID", "Farm Name", "Owner", "Total Trees", "Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"])
+        ws.append(["Farm ID", "Farm Name", "Owner", "Total Trees"] + disease_names)
         for cell in ws[ws.max_row]:
             cell.font = header_font
             cell.fill = header_fill
         for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
-            ft, fc, fp, fd = f.get_stats()
-            ws.append([f.farm_id, f.name, f.owner_name, ft, fc["Healthy"], fc["Pink_Disease"], fc["White_Root_Rot"], fc["Stem_Bleeding"]])
+            f_stats = {d["name"]: d["count"] for d in _get_full_disease_stats(request, f)}
+            ws.append(
+                [f.farm_id, f.name, f.owner_name, f.trees.count()]
+                + [f_stats.get(name, 0) for name in disease_names]
+            )
 
     for col in ws.columns:
         max_len = max((len(str(c.value)) if c.value else 0 for c in col), default=0)
@@ -1329,22 +1417,13 @@ def export_excel(request):
     return response
 
 
-def _build_pie_chart(counts, chart_width, chart_height):
+def _build_pie_chart(disease_stats, chart_width, chart_height):
     # Renders the disease distribution pie chart as a native ReportLab drawing.
     from reportlab.graphics.shapes import Drawing, String
     from reportlab.graphics.charts.piecharts import Pie
     from reportlab.lib import colors as rl_colors
 
-    color_map = {
-        "Healthy": rl_colors.HexColor("#28a745"),
-        "Pink Disease": rl_colors.HexColor("#dc3545"),
-        "White Root Rot": rl_colors.HexColor("#8b5a2b"),
-        "Stem Bleeding": rl_colors.HexColor("#8b0000"),
-    }
-
-    pie_labels = ["Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"]
-    pie_values = [counts["Healthy"], counts["Pink_Disease"], counts["White_Root_Rot"], counts["Stem_Bleeding"]]
-    nonzero = [(l, v) for l, v in zip(pie_labels, pie_values) if v > 0]
+    nonzero = [(d["name"], d["count"], rl_colors.HexColor(d["color"])) for d in disease_stats if d["count"] > 0]
 
     drawing = Drawing(chart_width, chart_height)
     drawing.add(String(chart_width / 2, chart_height - 12, "Disease Distribution",
@@ -1355,14 +1434,14 @@ def _build_pie_chart(counts, chart_width, chart_height):
         pie.y = 10
         pie.width = chart_width * 0.56
         pie.height = chart_height * 0.75
-        pie.data = [v for _, v in nonzero]
-        pie.labels = [f"{l} ({v})" for l, v in nonzero]
+        pie.data = [v for _, v, _ in nonzero]
+        pie.labels = [f"{l} ({v})" for l, v, _ in nonzero]
         pie.slices.strokeWidth = 1
         pie.slices.strokeColor = rl_colors.white
         pie.simpleLabels = 0
         pie.sideLabels = 1
-        for i, (label, _) in enumerate(nonzero):
-            pie.slices[i].fillColor = color_map[label]
+        for i, (_, _, color) in enumerate(nonzero):
+            pie.slices[i].fillColor = color
             pie.slices[i].fontSize = 6.5
         drawing.add(pie)
     else:
@@ -1371,23 +1450,16 @@ def _build_pie_chart(counts, chart_width, chart_height):
     return drawing
 
 
-def _build_trend_chart(monthly, chart_width, chart_height):
+def _build_trend_chart(monthly, disease_stats, chart_width, chart_height):
     # Renders the monthly detection trend as a native ReportLab bar chart.
     from reportlab.graphics.shapes import Drawing, String
     from reportlab.graphics.charts.barcharts import VerticalBarChart
     from reportlab.graphics.charts.legends import Legend
     from reportlab.lib import colors as rl_colors
 
-    color_map = {
-        "Healthy": rl_colors.HexColor("#28a745"),
-        "Pink Disease": rl_colors.HexColor("#dc3545"),
-        "White Root Rot": rl_colors.HexColor("#8b5a2b"),
-        "Stem Bleeding": rl_colors.HexColor("#8b0000"),
-    }
-    series_keys = [("healthy", "Healthy"), ("pink", "Pink Disease"),
-                   ("white_root", "White Root Rot"), ("stem", "Stem Bleeding")]
+    series = [(d["name"], rl_colors.HexColor(d["color"])) for d in disease_stats]
     months = [m["month"] for m in monthly]
-    trend_data = [[m[key] for m in monthly] for key, _ in series_keys]
+    trend_data = [[m["diseases"].get(name, 0) for m in monthly] for name, _ in series]
 
     drawing = Drawing(chart_width, chart_height)
     drawing.add(String(chart_width / 2, chart_height - 12, "Monthly Detection Trend",
@@ -1406,8 +1478,8 @@ def _build_trend_chart(monthly, chart_width, chart_height):
     bar.valueAxis.forceZero = True
     bar.groupSpacing = 6
     bar.barSpacing = 1
-    for i, (_, label) in enumerate(series_keys):
-        bar.bars[i].fillColor = color_map[label]
+    for i, (_, color) in enumerate(series):
+        bar.bars[i].fillColor = color
     drawing.add(bar)
 
     legend = Legend()
@@ -1419,7 +1491,7 @@ def _build_trend_chart(monthly, chart_width, chart_height):
     legend.alignment = "right"
     legend.columnMaximum = 4
     legend.deltay = 9
-    legend.colorNamePairs = [(color_map[label], label) for _, label in series_keys]
+    legend.colorNamePairs = [(color, name) for name, color in series]
     drawing.add(legend)
 
     return drawing
@@ -1440,19 +1512,25 @@ def export_pdf(request):
     trees, label = _export_rows(request)
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
+    disease_stats = _get_full_disease_stats(request, farm)
     severity_counts = _get_severity_counts(request, farm)
     monthly = _get_monthly_trend(request, farm)
     block_summary = _get_block_summary(request, farm)
     effectiveness, _recent_ivs = _get_intervention_effectiveness(request, farm)
-    key_insights = _get_key_insights(total, counts, pcts, diseased, block_summary, effectiveness)
+    disease_breakdown = _get_disease_breakdown(request, farm)
+    key_insights = _get_key_insights(total, counts, pcts, diseased, block_summary, effectiveness, disease_breakdown)
     recommendations = _get_recommendations(block_summary, effectiveness)
     generated_at = timezone.now()
 
+    disease_names = [d["name"] for d in disease_stats]
     farm_summaries = []
     if not farm:
         for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
-            ft, fc, fp, fd = f.get_stats()
-            farm_summaries.append((f.farm_id, f.name, ft, fc["Healthy"], fc["Pink_Disease"], fc["White_Root_Rot"], fc["Stem_Bleeding"]))
+            f_stats = {d["name"]: d["count"] for d in _get_full_disease_stats(request, f)}
+            farm_summaries.append(
+                (f.farm_id, f.name, f.trees.count())
+                + tuple(f_stats.get(name, 0) for name in disease_names)
+            )
 
     intervention_qs = Intervention.objects.select_related("tree", "tree__farm").filter(tree__farm__owner=request.user)
     if farm:
@@ -1507,11 +1585,12 @@ def export_pdf(request):
     elements.append(Spacer(1, 12))
 
     # KPI summary row
+    col_count = 1 + len(disease_stats)
     summary_data = [
-        ["Total Trees", "Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"],
-        [str(total), str(counts["Healthy"]), str(counts["Pink_Disease"]), str(counts["White_Root_Rot"]), str(counts["Stem_Bleeding"])],
+        ["Total Trees"] + [d["name"] for d in disease_stats],
+        [str(total)] + [str(d["count"]) for d in disease_stats],
     ]
-    summary_table = Table(summary_data, colWidths=[content_width / 5] * 5)
+    summary_table = Table(summary_data, colWidths=[content_width / col_count] * col_count)
     summary_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a2535")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -1578,7 +1657,7 @@ def export_pdf(request):
     # row below with much more room to breathe.
     pie_h = 2.0 * inch
     pie_w = content_width * 0.55
-    pie_drawing = _build_pie_chart(counts, pie_w, pie_h)
+    pie_drawing = _build_pie_chart(disease_stats, pie_w, pie_h)
     pie_frame = KeepInFrame(pie_w, pie_h, [pie_drawing])
     pie_row = Table([[pie_frame]], colWidths=[content_width])
     pie_row.setStyle(TableStyle([
@@ -1592,16 +1671,19 @@ def export_pdf(request):
     # width and taller height so month labels and the 4-series legend
     # aren't cramped the way they were when sharing a row with the pie.
     trend_h = 2.6 * inch
-    trend_drawing = _build_trend_chart(monthly, content_width, trend_h)
+    trend_drawing = _build_trend_chart(monthly, disease_stats, content_width, trend_h)
     trend_frame = KeepInFrame(content_width, trend_h, [trend_drawing])
     elements.append(trend_frame)
     elements.append(Spacer(1, 14))
 
     # Per-farm breakdown (only when viewing all farms)
     if farm_summaries:
-        farm_rows = [["Farm ID", "Farm Name", "Total", "Healthy", "Pink Disease", "White Root Rot", "Stem Bleeding"]] + \
+        farm_rows = [["Farm ID", "Farm Name", "Total"] + disease_names] + \
             [[str(v) for v in row] for row in farm_summaries]
-        farm_table = Table(farm_rows, colWidths=[content_width * f for f in [0.12, 0.28, 0.12, 0.12, 0.14, 0.12, 0.10]])
+        fixed_frac = 0.12 + 0.28 + 0.12  # Farm ID, Farm Name, Total
+        disease_frac = (1 - fixed_frac) / max(len(disease_names), 1)
+        col_fracs = [0.12, 0.28, 0.12] + [disease_frac] * len(disease_names)
+        farm_table = Table(farm_rows, colWidths=[content_width * f for f in col_fracs])
         farm_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
             ("FONTSIZE", (0, 0), (-1, -1), 8),
