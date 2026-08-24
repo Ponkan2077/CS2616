@@ -54,8 +54,10 @@
   </div>
   <div class="col-6 col-md-3">
     <div class="stat-box">
-      <div class="stat-label" style="color:var(--stem);">STEM BLEEDING</div>
-      <div class="stat-value text-stem" style="font-size:20px;">{{ counts.Stem_Bleeding }}</div>
+      <div class="stat-label" style="color:{{ top_disease.color|default:'inherit' }};">
+        {% if top_disease and top_disease.count > 0 %}{{ top_disease.name|upper }}{% else %}TOP DISEASE{% endif %}
+      </div>
+      <div class="stat-value" style="font-size:20px;color:{{ top_disease.color|default:'inherit' }};">{{ top_disease.count|default:0 }}</div>
     </div>
   </div>
 </div>
@@ -69,10 +71,9 @@
     </div>
     <select id="map-filter" class="select-filter-rg">
       <option value="">All Diseases</option>
-      <option value="Healthy">Healthy</option>
-      <option value="Pink Disease">Pink Disease</option>
-      <option value="White Root Rot">White Root Rot</option>
-      <option value="Stem Bleeding">Stem Bleeding</option>
+      {% for d in disease_stats %}
+      <option value="{{ d.name }}">{{ d.name }}</option>
+      {% endfor %}
     </select>
     <div class="view-toggle" role="group" aria-label="Map view mode">
       <button type="button" id="view-markers-btn" class="view-toggle-btn active">
@@ -96,10 +97,9 @@
   <!-- Legend: marker view -->
   <div id="legend-markers" class="p-3 border-top d-flex flex-wrap gap-3 align-items-center" style="font-size:12px;">
     <strong>Legend:</strong>
-    <span><span class="legend-dot" style="background:var(--healthy);"></span>Healthy</span>
-    <span><span class="legend-dot" style="background:var(--pink);"></span>Pink Disease</span>
-    <span><span class="legend-dot" style="background:var(--white-root);"></span>White Root Rot</span>
-    <span><span class="legend-dot" style="background:var(--stem);"></span>Stem Bleeding</span>
+    {% for d in disease_stats %}
+    <span><span class="legend-dot" style="background:{{ d.color }};"></span>{{ d.name }}</span>
+    {% endfor %}
     <span><span class="legend-dot-farm"></span>Farm Boundary</span>
     <span><span class="legend-dot-block"></span>Block Boundary</span>
     <span class="text-muted"><i class="bi bi-circle"></i> Numbered bubbles are clusters — tap one to zoom in; individual trees appear as you zoom.</span>
@@ -109,7 +109,7 @@
   <!-- Legend: heatmap view (severity gradient, hidden by default) -->
   <div id="legend-heatmap" class="p-3 border-top d-flex flex-wrap align-items-center gap-3" style="font-size:12px;display:none;">
     <strong>Heatmap:</strong>
-    <span id="heatmap-disease-label" style="font-weight:600;">Pink Disease</span>
+    <span id="heatmap-disease-label" style="font-weight:600;">—</span>
     <div class="heatmap-scale">
       <div class="heatmap-gradient-bar">
         <span class="tick"></span>
@@ -146,7 +146,8 @@
     blockBoundaries: {{ map_block_boundaries|safe }},
     farmId: '{{ map_farm.farm_id }}',
     farmName: '{{ map_farm.name|escapejs }}',
-    farmOwner: '{{ map_farm.owner_name|escapejs }}'
+    farmOwner: '{{ map_farm.owner_name|escapejs }}',
+    diseaseColors: {{ disease_colors_json|safe }}
   };
 </script>
 <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
