@@ -20,14 +20,16 @@
   </div>
   <div class="col-6 col-md-3">
     <div class="stat-box">
-      <div class="stat-label" style="color:var(--pink);">PINK DISEASE</div>
-      <div class="stat-value text-pink" style="font-size:22px;">{{ counts.Pink_Disease }}</div>
+      <div class="stat-label" style="color:var(--pink);">DISEASED</div>
+      <div class="stat-value text-pink" style="font-size:22px;">{{ diseased }}</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
     <div class="stat-box">
-      <div class="stat-label" style="color:var(--white-root);">WHITE ROOT</div>
-      <div class="stat-value text-white-root" style="font-size:22px;">{{ counts.White_Root_Rot }}</div>
+      <div class="stat-label" style="color:{{ top_disease.color|default:'inherit' }};">
+        {% if top_disease %}{{ top_disease.name|upper }}{% else %}TOP DISEASE{% endif %}
+      </div>
+      <div class="stat-value" style="font-size:22px;color:{{ top_disease.color|default:'inherit' }};">{{ top_disease.count|default:0 }}</div>
     </div>
   </div>
 </div>
