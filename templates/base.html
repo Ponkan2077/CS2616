@@ -183,7 +183,7 @@
           </div>
           {% for n in notifications %}
           <a href="{{ n.url }}" class="notif-item">
-            <i class="bi {{ n.icon }} {{ n.color }} fs-5 mt-1"></i>
+            <i class="bi {{ n.icon }} fs-5 mt-1" style="color:{{ n.color }};"></i>
             <div class="flex-grow-1">
               <div>{{ n.msg }}</div>
               <div class="notif-time mt-1">{{ n.time }}</div>
