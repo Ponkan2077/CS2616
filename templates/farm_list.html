@@ -52,7 +52,7 @@
           <td><span class="badge-farm">{{ farm.farm_id }}</span></td>
           <td class="fw-semibold">{{ farm.name }}</td>
           <td class="text-muted">{{ farm.owner_name }}</td>
-          <td class="text-muted" style="font-size:12px;">{{ farm.location|default:"—" }}</td>
+          <td class="text-muted" style="font-size:12px;">{{ farm.full_address }}</td>
           <td class="fw-bold text-center">{{ farm.trees.count }}</td>
           <td>
             <a href="{% url 'farm_detail' farm.farm_id %}" class="btn btn-sm btn-outline-primary" style="font-size:11px;">
@@ -107,7 +107,7 @@
           <i class="bi bi-person-fill"></i> {{ farm.owner_name }}
         </div>
         <div class="text-muted mb-3" style="font-size:12px;">
-          <i class="bi bi-pin-map-fill"></i> {{ farm.location|default:"No location set" }}
+          <i class="bi bi-pin-map-fill"></i> {{ farm.full_address }}
         </div>
         <div class="row g-2 mb-3">
           <div class="col-6">
@@ -167,8 +167,39 @@
             <input type="text" name="owner_name" id="owner_name" class="form-control-rg" placeholder="e.g. Juan Dela Cruz" required>
           </div>
           <div class="auth-field">
-            <label for="location">Location</label>
-            <input type="text" name="location" id="location" class="form-control-rg" placeholder="e.g. Brgy. Mampang, Zamboanga City">
+            <label for="region-select">Region</label>
+            <select id="region-select" class="form-control-rg">
+              <option value="">Select Region</option>
+              {% for r in psgc_regions %}
+              <option value="{{ r.code }}">{{ r.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="auth-field">
+            <label for="province-select">Province</label>
+            <select id="province-select" class="form-control-rg" disabled>
+              <option value="">Select Region first</option>
+            </select>
+          </div>
+          <div class="auth-field">
+            <label for="city-select">City / Municipality</label>
+            <select id="city-select" class="form-control-rg" disabled>
+              <option value="">Select Province first</option>
+            </select>
+          </div>
+          <div class="auth-field">
+            <label for="barangay-select">Barangay</label>
+            <select id="barangay-select" class="form-control-rg" disabled>
+              <option value="">Select City first</option>
+            </select>
+          </div>
+          <input type="hidden" name="region_name" id="region_name">
+          <input type="hidden" name="province_name" id="province_name">
+          <input type="hidden" name="city_name" id="city_name">
+          <input type="hidden" name="barangay_name" id="barangay_name">
+          <div class="auth-field">
+            <label for="location">Additional Details <span class="text-muted">(optional)</span></label>
+            <input type="text" name="location" id="location" class="form-control-rg" placeholder="e.g. Purok 3, near the chapel">
           </div>
           <div class="text-muted" style="font-size:11px;">
             <i class="bi bi-info-circle"></i> No need to set a center or boundary here — once trees are scanned on this farm, its map center and boundary are calculated automatically from their GPS locations.
@@ -182,4 +213,9 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+{% load static %}
+<script src="{% static 'js/farm_address_cascade.js' %}?v={{ STATIC_VERSION }}"></script>
 {% endblock %}
