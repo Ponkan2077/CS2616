@@ -132,13 +132,18 @@ class Farm(models.Model):
         # Returns the convex hull of this farm's tree coordinates as a list
         # of [lat, lng] points, forming a boundary that actually follows the
         # shape of the planted area instead of a fixed-radius circle. Falls
-        # back to a small square around get_center() if there are fewer than
-        # 3 trees (not enough points to form a hull) -- which for a new farm
-        # just means the fixed anchor point, since get_center() falls back
-        # to that itself when there are zero trees.
+        # back to a small square around get_center() whenever the hull
+        # doesn't come out to at least 3 points -- checked on the hull's
+        # actual output, not the raw tree count, since _convex_hull()
+        # dedupes internally: e.g. 5 trees sharing just 2 distinct GPS
+        # readings (GPS caching reusing a fix across a scanning session is
+        # a real way this happens) would pass a raw-count check but still
+        # collapse to a 2-point non-polygon. Exactly-collinear points
+        # degenerate the same way and are caught by the same check.
         points = list(self.trees.values_list("lat", "lng"))
         center_lat, center_lng = self.get_center()
-        if len(points) < 3:
+        hull = _convex_hull(points) if points else []
+        if len(hull) < 3:
             pad = max(self.boundary_radius_m, 200) / 111000
             return [
                 [center_lat - pad, center_lng - pad],
@@ -147,7 +152,6 @@ class Farm(models.Model):
                 [center_lat + pad, center_lng - pad],
             ]
 
-        hull = _convex_hull(points)
         # Expand the hull outward slightly so the boundary sits just
         # outside the outermost trees rather than clipping through them.
         return _expand_polygon(hull, center_lat, center_lng, factor=1.06)
@@ -156,10 +160,10 @@ class Farm(models.Model):
         # Returns {block_name: [[lat, lng], ...]} boundary polygons for
         # every labeled block in this farm, using the same convex-hull
         # approach as get_boundary_polygon() above but grouped per block
-        # instead of over the whole farm. A block needs at least 3 trees
-        # to form a hull -- blocks with fewer still show up as markers,
-        # just without a drawn outline, since 1-2 points can't describe
-        # an area.
+        # instead of over the whole farm. Same reasoning as above: checked
+        # on the hull's actual output length, not a pre-dedup point count,
+        # so a block where several trees share a GPS reading doesn't slip
+        # through as "enough points" only to collapse into a line.
         from collections import defaultdict
         by_block = defaultdict(list)
         for lat, lng, block in self.trees.exclude(block="").values_list("lat", "lng", "block"):
@@ -167,12 +171,11 @@ class Farm(models.Model):
 
         polygons = {}
         for block, points in by_block.items():
-            unique_points = list(set(points))
-            if len(unique_points) < 3:
+            hull = _convex_hull(points)
+            if len(hull) < 3:
                 continue
-            block_center_lat = sum(p[0] for p in unique_points) / len(unique_points)
-            block_center_lng = sum(p[1] for p in unique_points) / len(unique_points)
-            hull = _convex_hull(unique_points)
+            block_center_lat = sum(p[0] for p in points) / len(points)
+            block_center_lng = sum(p[1] for p in points) / len(points)
             # Slightly larger expansion factor than the farm boundary
             # since blocks are smaller -- a tight hull reads as clipping
             # through the outermost trees at this scale.
