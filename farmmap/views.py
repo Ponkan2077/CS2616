@@ -659,6 +659,17 @@ def _farm_map_bounds(farm):
             "min_lat": center_lat - deg_pad, "max_lat": center_lat + deg_pad,
             "min_lng": center_lng - deg_pad, "max_lng": center_lng + deg_pad,
         }
+    else:
+        # Guard against a zero-height/width box (e.g. every tree shares
+        # the same lat or lng so far) -- Leaflet's fitBounds/setMaxBounds
+        # on a truly zero-area box can zoom to an unusable extreme.
+        min_pad = 30 / 111000  # ~30m
+        if bounds["max_lat"] - bounds["min_lat"] < min_pad:
+            bounds["min_lat"] -= min_pad
+            bounds["max_lat"] += min_pad
+        if bounds["max_lng"] - bounds["min_lng"] < min_pad:
+            bounds["min_lng"] -= min_pad
+            bounds["max_lng"] += min_pad
     return bounds
 
 
