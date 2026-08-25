@@ -3,7 +3,32 @@
    for a tree is fetched lazily only when its marker is clicked. Expects
    DASHBOARD_MARKERS defined inline in dashboard.html before this loads. */
 
+function renderDashboardPie(diseaseStats) {
+  const canvas = document.getElementById("dashboardPie");
+  if (!canvas || typeof Chart === "undefined") return;
+  new Chart(canvas, {
+    type: "doughnut",
+    data: {
+      labels: diseaseStats.map(d => d.name),
+      datasets: [{
+        data: diseaseStats.map(d => d.count),
+        backgroundColor: diseaseStats.map(d => d.color),
+        borderWidth: 2, borderColor: "#1a2535",
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: "62%",
+      plugins: { legend: { position: "right", labels: { boxWidth: 10, font: { size: 10.5 } } } },
+    }
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  if (typeof DASHBOARD_DISEASE_STATS !== "undefined") {
+    renderDashboardPie(DASHBOARD_DISEASE_STATS);
+  }
+
   const container = document.getElementById("dashboard-mini-map");
   if (!container || typeof L === "undefined") return;
 
