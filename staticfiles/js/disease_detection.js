@@ -304,9 +304,14 @@ async function runAnalysis() {
 // scanning the next tree right away instead of getting stuck. Analysis
 // itself happens later, at sync time, once there's a connection again.
 async function queueScanOffline() {
+  const farmPk = document.getElementById("save-farm-pk").value;
+  if (!farmPk) {
+    alert("Select a farm before scanning.");
+    return;
+  }
   const chosenGps = rootGPS || trunkGPS;
   await queueScan({
-    farmPk: document.getElementById("save-farm-pk").value,
+    farmPk,
     treeId: document.getElementById("save-tree-id").value.trim(),
     block: document.getElementById("save-block").value.trim(),
     rootBlob: rootImageFile,
@@ -433,9 +438,25 @@ function wireCaptureZone({ dropZoneId, fileInputId, cameraInputId, previewImgId,
   });
 }
 
+// Keeps Step 1 locked (see .step-locked in style.css) until a farm is
+// picked -- a scan captured with no farm attached has nowhere to save
+// to, whether it saves live or gets queued offline. Server-rendered
+// initial state (see disease_detection.html) already covers the common
+// case of a farm already selected app-wide; this just keeps it in sync
+// as the person changes the dropdown.
+function wireFarmGate() {
+  const farmSelect = document.getElementById("save-farm-pk");
+  const rootWrapper = document.getElementById("root-zone-wrapper");
+  if (!farmSelect || !rootWrapper) return;
+  const update = () => rootWrapper.classList.toggle("step-locked", !farmSelect.value);
+  farmSelect.addEventListener("change", update);
+  update();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("root-preview-img").style.display = "none";
   document.getElementById("trunk-preview-img").style.display = "none";
+  wireFarmGate();
   wireCaptureZone({ dropZoneId: "root-drop-zone", fileInputId: "root-file-input", cameraInputId: "root-camera-input", previewImgId: "root-preview-img", kind: "root" });
   wireCaptureZone({ dropZoneId: "trunk-drop-zone", fileInputId: "trunk-file-input", cameraInputId: "trunk-camera-input", previewImgId: "trunk-preview-img", kind: "trunk" });
   document.getElementById("analyze-btn").addEventListener("click", runAnalysis);
