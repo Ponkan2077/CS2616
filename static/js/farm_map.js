@@ -246,7 +246,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // sub-divisions of the farm rather than competing with it; labels only
   // show on hover/tap (not permanent like the farm label) since a farm
   // can have many blocks and permanent labels for all of them would
-  // clutter the view.
+  // clutter the view. The legend entry below is built from the exact
+  // same names+colors so it can't drift out of sync with the map.
+  const blockLegend = document.getElementById('block-legend');
+  const drawnBlocks = [];
   if (blockBoundaries) {
     Object.keys(blockBoundaries).sort().forEach((blockName, i) => {
       const poly = blockBoundaries[blockName];
@@ -258,7 +261,17 @@ document.addEventListener('DOMContentLoaded', () => {
         .bindTooltip(`Block ${blockName}`, { direction: 'center', className: 'block-boundary-label' })
         .bindPopup(`<b>Block ${blockName}</b>`)
         .addTo(map);
+      drawnBlocks.push({ name: blockName, color });
     });
+  }
+  if (blockLegend) {
+    if (drawnBlocks.length > 0) {
+      blockLegend.innerHTML = drawnBlocks
+        .map(b => `<span class="legend-dot" style="background:${b.color};border-style:dashed;"></span>Block ${b.name}`)
+        .join('&nbsp;&nbsp;');
+    } else {
+      blockLegend.style.display = 'none';
+    }
   }
 
   const colorBasemap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
