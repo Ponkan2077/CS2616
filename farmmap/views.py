@@ -113,7 +113,22 @@ def _get_intervention_effectiveness(request, farm=None):
     return effectiveness, recent
 
 
-def _get_key_insights(total, counts, pcts, diseased, block_rows, effectiveness, disease_breakdown):
+def _get_confidence_summary(request, farm=None):
+    # One-number reliability snapshot for the Key Insights list: how
+    # confident the model was on average, and how many detections fell
+    # low enough (<70%) that an agricultural technician should double
+    # check them. Deliberately just these two numbers, not a full new
+    # report section -- confidence is worth surfacing, but doesn't need
+    # more room than that.
+    qs = RubberTree.objects.filter(farm=farm) if farm else RubberTree.objects.filter(farm__owner=request.user)
+    agg = qs.aggregate(avg=Avg("confidence"))
+    avg_confidence = round(agg["avg"], 1) if agg["avg"] is not None else None
+    low_threshold = 70
+    low_count = qs.filter(confidence__lt=low_threshold).count()
+    return {"avg": avg_confidence, "low_count": low_count, "low_threshold": low_threshold}
+
+
+def _get_key_insights(total, counts, pcts, diseased, block_rows, effectiveness, disease_breakdown, confidence_summary=None):
     # Builds a short list of plain-language, data-driven takeaways from
     # the current stats. Used on the reports page and in the PDF export
     # so a non-technical reader gets the "so what" up front.
@@ -161,7 +176,17 @@ def _get_key_insights(total, counts, pcts, diseased, block_rows, effectiveness, 
     else:
         insights.append("No interventions have been logged yet — recommendations below are detection-based only.")
 
-    return insights[:5]
+    if confidence_summary and confidence_summary["avg"] is not None:
+        c = confidence_summary
+        if c["low_count"] > 0:
+            insights.append(
+                f"Average detection confidence is {c['avg']}%; {c['low_count']} scan(s) came in below "
+                f"{c['low_threshold']}% and may be worth a manual second look."
+            )
+        else:
+            insights.append(f"Average detection confidence is {c['avg']}%, with no low-confidence scans on record.")
+
+    return insights[:6]
 
 
 def _get_recommendations(block_rows, effectiveness):
@@ -622,6 +647,7 @@ def dashboard(request):
     scan_activity = _get_scan_activity(request, farm)
     effectiveness, recent_interventions = _get_intervention_effectiveness(request, farm)
     top_interventions = [e for e in effectiveness if e["treated"] > 0][:3]
+    disease_stats = _get_full_disease_stats(request, farm)
 
     ctx = _base_context(request, farm)
     ctx.update({
@@ -638,6 +664,7 @@ def dashboard(request):
         "scan_activity": scan_activity,
         "recent_interventions": recent_interventions[:6],
         "top_interventions": top_interventions,
+        "disease_stats": disease_stats,
         "latest_scan": recent[0]["date_scanned"] if recent else "—",
     })
     return render(request, "dashboard.html", ctx)
@@ -781,6 +808,11 @@ def disease_detection(request):
         # Analyze Images is disabled in the template when this is False,
         # rather than the page silently making up a result.
         "ai_enabled": ai_inference.AI_MODEL_ENABLED,
+        # Suggestions for the block input's datalist -- not enforced, just
+        # nudges toward reusing an existing block name instead of typing a
+        # near-duplicate ("A" vs "a" vs "Block A").
+        "known_blocks": RubberTree.objects.filter(farm__owner=request.user).exclude(block="")
+            .values_list("block", flat=True).distinct().order_by("block"),
     })
     return render(request, "disease_detection.html", ctx)
 
@@ -909,7 +941,11 @@ def save_detection(request):
     disease = request.POST.get("disease", "Healthy")
     confidence = request.POST.get("confidence", "0")
     tree_id = request.POST.get("tree_id", "").strip()
-    block = request.POST.get("block", "").strip()
+    # Upper-cased so "a", "A ", " a" etc. from freeform typing all land as
+    # the same block instead of silently fragmenting into near-duplicate
+    # blocks on the map/reports (get_block_polygons, _get_block_summary,
+    # and the inventory filter all group by this exact string).
+    block = request.POST.get("block", "").strip().upper()
     root_condition = request.POST.get("root_condition", "").strip()
 
     # GPS is required, not just preferred. Client-side (disease_detection.js),
@@ -1158,7 +1194,8 @@ def reports(request):
     effectiveness, recent_interventions = _get_intervention_effectiveness(request, farm)
     disease_breakdown = _get_disease_breakdown(request, farm)
     disease_stats = _get_full_disease_stats(request, farm)
-    key_insights = _get_key_insights(total, counts, pcts, diseased, block_summary, effectiveness, disease_breakdown)
+    confidence_summary = _get_confidence_summary(request, farm)
+    key_insights = _get_key_insights(total, counts, pcts, diseased, block_summary, effectiveness, disease_breakdown, confidence_summary)
     recommendations = _get_recommendations(block_summary, effectiveness)
 
     farm_summaries = []
@@ -1529,7 +1566,8 @@ def export_pdf(request):
     block_summary = _get_block_summary(request, farm)
     effectiveness, _recent_ivs = _get_intervention_effectiveness(request, farm)
     disease_breakdown = _get_disease_breakdown(request, farm)
-    key_insights = _get_key_insights(total, counts, pcts, diseased, block_summary, effectiveness, disease_breakdown)
+    confidence_summary = _get_confidence_summary(request, farm)
+    key_insights = _get_key_insights(total, counts, pcts, diseased, block_summary, effectiveness, disease_breakdown, confidence_summary)
     recommendations = _get_recommendations(block_summary, effectiveness)
     generated_at = timezone.now()
 
