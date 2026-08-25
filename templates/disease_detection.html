@@ -194,7 +194,12 @@
           <input type="hidden" name="trunk_image_key" id="save-trunk-image-key">
           <div class="row g-2 mb-2">
             <div class="col-6">
-              <input type="text" name="block" id="save-block" class="form-control-rg" placeholder="Block">
+              <input type="text" name="block" id="save-block" class="form-control-rg" placeholder="Block" list="known-blocks" style="text-transform:uppercase;">
+              <datalist id="known-blocks">
+                {% for b in known_blocks %}
+                <option value="{{ b }}">
+                {% endfor %}
+              </datalist>
             </div>
             <div class="col-6">
               <input type="text" name="tree_id" id="save-tree-id" class="form-control-rg" placeholder="Tree ID (optional)">
