@@ -57,6 +57,20 @@
   </div>
 </div>
 
+<!-- Disease Distribution -->
+{% if total %}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-5 col-lg-4">
+    <div class="card-rg h-100">
+      <div class="card-header-rg"><i class="bi bi-pie-chart-fill"></i> Disease Distribution</div>
+      <div class="card-body-rg" style="height:220px;">
+        <canvas id="dashboardPie"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <!-- Recent Scan Activity -->
 {% if scan_activity %}
 <div class="card-rg mb-3">
@@ -231,4 +245,13 @@
 {% endblock %}
 
 {% block extra_scripts %}
+{% load static %}
+<script>
+  const DASHBOARD_DISEASE_STATS = [
+    {% for d in disease_stats %}
+    { name: '{{ d.name|escapejs }}', count: {{ d.count }}, color: '{{ d.color|escapejs }}' },
+    {% endfor %}
+  ];
+</script>
+<script src="{% static 'js/dashboard.js' %}?v={{ STATIC_VERSION }}"></script>
 {% endblock %}
