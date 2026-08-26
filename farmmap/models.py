@@ -171,11 +171,24 @@ class Farm(models.Model):
 
         polygons = {}
         for block, points in by_block.items():
-            hull = _convex_hull(points)
-            if len(hull) < 3:
-                continue
             block_center_lat = sum(p[0] for p in points) / len(points)
             block_center_lng = sum(p[1] for p in points) / len(points)
+            hull = _convex_hull(points)
+            if len(hull) < 3:
+                # Same fallback idea as get_boundary_polygon(): too few
+                # distinct points for a real hull still gets a small
+                # square around the block's own center, instead of being
+                # dropped from the map with no boundary at all. Half the
+                # farm-level pad, since a block is a subdivision of the
+                # farm and should read as smaller than it.
+                pad = max(self.boundary_radius_m, 200) / 111000 / 2
+                polygons[block] = [
+                    [block_center_lat - pad, block_center_lng - pad],
+                    [block_center_lat - pad, block_center_lng + pad],
+                    [block_center_lat + pad, block_center_lng + pad],
+                    [block_center_lat + pad, block_center_lng - pad],
+                ]
+                continue
             # Slightly larger expansion factor than the farm boundary
             # since blocks are smaller -- a tight hull reads as clipping
             # through the outermost trees at this scale.
