@@ -689,8 +689,12 @@ def _farm_map_bounds(farm):
     else:
         # Guard against a zero-height/width box (e.g. every tree shares
         # the same lat or lng so far) -- Leaflet's fitBounds/setMaxBounds
-        # on a truly zero-area box can zoom to an unusable extreme.
-        min_pad = 30 / 111000  # ~30m
+        # on a truly zero-area box can zoom to an unusable extreme. Must
+        # match get_boundary_polygon()'s own fallback size (not a small
+        # fixed value): otherwise the map fits/zooms tighter than that
+        # square, pushing its edges off-screen so the boundary never
+        # actually looks like it's there.
+        min_pad = max(farm.boundary_radius_m, 200) / 111000
         if bounds["max_lat"] - bounds["min_lat"] < min_pad:
             bounds["min_lat"] -= min_pad
             bounds["max_lat"] += min_pad
@@ -1321,6 +1325,13 @@ def intervention_create(request):
     notes = request.POST.get("notes", "").strip()
     farm_pk = request.POST.get("farm_pk")
     selection_mode = request.POST.get("selection_mode", "single")
+
+    # Guard against farm_pk being missing/blank -- filtering pk="" crashes
+    # with a ValueError instead of a clean 404 (every other farm_pk lookup
+    # in this file already has an equivalent guard; this one didn't).
+    if not farm_pk:
+        messages.error(request, "No farm was selected for this intervention.")
+        return redirect("interventions_log")
 
     farm = get_object_or_404(Farm, pk=farm_pk, owner=request.user)
     trees = RubberTree.objects.none()
