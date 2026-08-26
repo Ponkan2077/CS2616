@@ -135,7 +135,13 @@ async function syncPendingScans() {
   syncInFlight = true;
   try {
     const items = await getAllQueuedScans();
-    for (const item of items.filter(i => i.status !== "syncing")) {
+    // No status filter here on purpose -- syncInFlight above already
+    // rules out two passes running at once, so a "syncing" item found
+    // here can only be one left behind by a pass that got interrupted
+    // (page closed/reloaded, connection dropped mid-request) before it
+    // reached success or "error". Skipping it would leave it stuck
+    // showing "Syncing..." forever with no other way to retry.
+    for (const item of items) {
       await updateQueuedScan(item.id, { status: "syncing", errorMessage: null });
       renderPendingScans();
       try {
