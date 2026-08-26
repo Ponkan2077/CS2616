@@ -30,6 +30,37 @@
   </div>
 </div>
 
+<!-- Block / Tree ID entered here, not after analysis -- the old spot
+     only became visible once a live result came back, so an offline
+     capture (which skips straight to queueScanOffline(), see
+     disease_detection.js) never showed it and always queued with no
+     block. form="save-form" keeps these in the native submit for the
+     online path too, same pattern as the Farm select above. -->
+<div class="card-rg mb-3">
+  <div class="card-header-rg"><i class="bi bi-grid-3x3-gap-fill"></i> Block / Tree ID</div>
+  <div class="card-body-rg">
+    <div class="row g-2">
+      <div class="col-6">
+        <input type="text" name="block" id="save-block" class="form-control-rg" placeholder="Block" list="known-blocks" form="save-form" style="text-transform:uppercase;">
+        <datalist id="known-blocks">
+          {% for b in known_blocks %}
+          <option value="{{ b }}">
+          {% endfor %}
+        </datalist>
+      </div>
+      <div class="col-6">
+        <input type="text" name="tree_id" id="save-tree-id" class="form-control-rg" placeholder="Tree ID (optional)" form="save-form">
+      </div>
+    </div>
+    <div class="text-muted mt-2" style="font-size:11px;">
+      <i class="bi bi-info-circle"></i>
+      Already tag your trees your own way? Type your own code here (e.g. <code>T1</code> or <code>Row3-12</code>)
+      — we'll prefix it with the farm ID to keep it unique<span id="tree-id-preview"></span>.
+      Leave blank to auto-generate one.
+    </div>
+  </div>
+</div>
+
 <!-- Checked once on page load, before the user even picks a photo -- see
      checkLocationAvailability() in disease_detection.js. Catches a denied/
      blocked location permission immediately instead of only discovering it
@@ -192,25 +223,6 @@
           <input type="file" name="trunk_image" id="save-trunk-image" class="d-none">
           <input type="hidden" name="root_image_key" id="save-root-image-key">
           <input type="hidden" name="trunk_image_key" id="save-trunk-image-key">
-          <div class="row g-2 mb-2">
-            <div class="col-6">
-              <input type="text" name="block" id="save-block" class="form-control-rg" placeholder="Block" list="known-blocks" style="text-transform:uppercase;">
-              <datalist id="known-blocks">
-                {% for b in known_blocks %}
-                <option value="{{ b }}">
-                {% endfor %}
-              </datalist>
-            </div>
-            <div class="col-6">
-              <input type="text" name="tree_id" id="save-tree-id" class="form-control-rg" placeholder="Tree ID (optional)">
-            </div>
-          </div>
-          <div class="text-muted mb-2" style="font-size:11px;">
-            <i class="bi bi-info-circle"></i>
-            Already tag your trees your own way? Type your own code here (e.g. <code>T1</code> or <code>Row3-12</code>)
-            — we'll prefix it with the farm ID to keep it unique<span id="tree-id-preview"></span>.
-            Leave blank to auto-generate one.
-          </div>
           <div class="d-flex gap-2">
             <button type="button" id="save-submit-btn" class="btn btn-primary btn-sm flex-grow-1">
               <i class="bi bi-floppy-fill"></i> Save Result
