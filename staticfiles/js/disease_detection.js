@@ -9,6 +9,10 @@ let rootImageFile = null;   // resized File, ready to attach to the save form
 let trunkImageFile = null;
 let rootGPS = null;   // { lat, lng, source: 'exif' | 'device' } -- resolved per image
 let trunkGPS = null;
+let locationRetryTimer = null;
+let locationRetryCount = 0;
+const LOCATION_RETRY_MAX = 5;
+const LOCATION_RETRY_DELAY_MS = 4000;
 
 // Direct-to-storage upload state. Uploads kick off in the background as
 // soon as the analysis result is shown, so they're usually
@@ -102,9 +106,31 @@ function showLocationBanner(reason) {
 // live (e.g. the user answers the prompt after this first check already
 // ran), so the banner doesn't get stuck once access is actually granted.
 function checkLocationAvailability() {
+  clearTimeout(locationRetryTimer);
+
   getDeviceGPS().then(result => {
-    if (result && !result.error) hideLocationBanner();
-    else showLocationBanner(result && result.error);
+    if (result && !result.error) {
+      locationRetryCount = 0;
+      hideLocationBanner();
+      return;
+    }
+    showLocationBanner(result && result.error);
+
+    // status.onchange below only fires on an actual permission
+    // transition -- if permission was already granted from a previous
+    // visit, a merely transient failure here (slow fix under canopy,
+    // timeout) has no transition to trigger a recheck, so the banner
+    // would otherwise stay stuck until the user notices and taps it.
+    // Retry a few times instead; skip it once denied, since that needs
+    // a real settings change, not a retry.
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: "geolocation" }).then(status => {
+        if (status.state !== "denied" && locationRetryCount < LOCATION_RETRY_MAX) {
+          locationRetryCount++;
+          locationRetryTimer = setTimeout(checkLocationAvailability, LOCATION_RETRY_DELAY_MS);
+        }
+      }).catch(() => {});
+    }
   });
 
   if (navigator.permissions && navigator.permissions.query) {
