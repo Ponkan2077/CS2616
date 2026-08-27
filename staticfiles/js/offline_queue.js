@@ -102,7 +102,6 @@ async function syncOneScan(record) {
   const saveForm = new FormData();
   saveForm.append("farm_pk", record.farmPk);
   saveForm.append("tree_id", record.treeId || "");
-  saveForm.append("block", record.block || "");
   saveForm.append("disease", analyzeData.disease);
   saveForm.append("confidence", analyzeData.confidence);
   saveForm.append("root_condition", analyzeData.root_condition);
@@ -193,7 +192,7 @@ async function renderPendingScans() {
     return `
       <div class="d-flex justify-content-between align-items-start py-2 border-bottom" style="border-color:var(--border)!important;">
         <div>
-          <div style="font-size:13px;">${item.treeId || "(auto tree ID)"} — Block ${item.block || "—"}</div>
+          <div style="font-size:13px;">${item.treeId || "(auto tree ID)"}</div>
           <div class="text-muted" style="font-size:11px;">
             Captured ${formatRelativeTime(item.capturedAt)} · GPS via ${item.gpsSource} · ${statusHtml}
           </div>

@@ -9,10 +9,6 @@ let rootImageFile = null;   // resized File, ready to attach to the save form
 let trunkImageFile = null;
 let rootGPS = null;   // { lat, lng, source: 'exif' | 'device' } -- resolved per image
 let trunkGPS = null;
-let locationRetryTimer = null;
-let locationRetryCount = 0;
-const LOCATION_RETRY_MAX = 5;
-const LOCATION_RETRY_DELAY_MS = 4000;
 
 // Direct-to-storage upload state. Uploads kick off in the background as
 // soon as the analysis result is shown, so they're usually
@@ -39,7 +35,7 @@ function getDeviceGPS() {
       pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: "device", capturedAt: Date.now() }),
       err => {
         const reasons = {
-          1: "Location permission was denied. Enable location for this site in your browser settings.",
+          1: "Location access is blocked. Check two settings: the site permission (tap the location icon in your address bar) and your browser app's own OS permission (Android: Settings → Apps → Chrome → Permissions → Location) -- granting one without the other still fails.",
           2: "Couldn't get a GPS fix. Try moving to open sky, away from thick canopy or buildings.",
           3: "GPS location timed out. Try again, ideally with a clearer view of the sky.",
         };
@@ -105,39 +101,35 @@ function showLocationBanner(reason) {
 // only after Take Photo fails. Also listens for the permission changing
 // live (e.g. the user answers the prompt after this first check already
 // ran), so the banner doesn't get stuck once access is actually granted.
+// The banner is about PERMISSION, not about whether a fix has come back
+// yet -- those are different things. A live getCurrentPosition() call can
+// take 15s or time out under canopy even with permission fully granted,
+// which isn't an error worth a persistent red banner (handleCapture's
+// per-photo status already reports that separately). Checking permission
+// state directly is near-instant and doesn't depend on GPS hardware at
+// all, so the banner reflects reality immediately instead of only after
+// a slow poll happens to fail.
 function checkLocationAvailability() {
-  clearTimeout(locationRetryTimer);
-
-  getDeviceGPS().then(result => {
-    if (result && !result.error) {
-      locationRetryCount = 0;
-      hideLocationBanner();
-      return;
-    }
-    showLocationBanner(result && result.error);
-
-    // status.onchange below only fires on an actual permission
-    // transition -- if permission was already granted from a previous
-    // visit, a merely transient failure here (slow fix under canopy,
-    // timeout) has no transition to trigger a recheck, so the banner
-    // would otherwise stay stuck until the user notices and taps it.
-    // Retry a few times instead; skip it once denied, since that needs
-    // a real settings change, not a retry.
-    if (navigator.permissions && navigator.permissions.query) {
-      navigator.permissions.query({ name: "geolocation" }).then(status => {
-        if (status.state !== "denied" && locationRetryCount < LOCATION_RETRY_MAX) {
-          locationRetryCount++;
-          locationRetryTimer = setTimeout(checkLocationAvailability, LOCATION_RETRY_DELAY_MS);
-        }
-      }).catch(() => {});
-    }
-  });
-
-  if (navigator.permissions && navigator.permissions.query) {
-    navigator.permissions.query({ name: "geolocation" }).then(status => {
-      status.onchange = () => { if (status.state === "granted") checkLocationAvailability(); };
-    }).catch(() => {});
+  if (!navigator.geolocation) {
+    showLocationBanner("This browser doesn't support device location.");
+    return;
   }
+  if (!navigator.permissions || !navigator.permissions.query) {
+    // Can't read permission state on this browser (e.g. older Safari) --
+    // stay quiet rather than guess; a real problem still surfaces per-photo.
+    hideLocationBanner();
+    return;
+  }
+  navigator.permissions.query({ name: "geolocation" }).then(status => {
+    if (status.state === "denied") {
+      showLocationBanner("Location permission was denied. Enable location for this site in your browser settings.");
+    } else {
+      // "granted" or "prompt" are both fine here -- "prompt" just means
+      // nothing has asked yet, which isn't an error either.
+      hideLocationBanner();
+    }
+    status.onchange = () => checkLocationAvailability();
+  }).catch(() => hideLocationBanner());
 }
 
 // Advances the workflow strip, marking prior steps done and the given step active.
@@ -269,8 +261,12 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
       document.getElementById("analyze-btn").disabled = !window.AI_ENABLED;
       setWorkflowStep(2);
     }
-  }).catch(() => {
-    alert("Couldn't process that image. Please try another photo.");
+  }).catch(err => {
+    if (statusEl) {
+      statusEl.textContent = (err && err.message) || "Couldn't process that image. Please try another photo.";
+      statusEl.className = "text-danger mt-1";
+      statusEl.style.fontSize = "11px";
+    }
   });
 }
 
@@ -339,7 +335,6 @@ async function queueScanOffline() {
   await queueScan({
     farmPk,
     treeId: document.getElementById("save-tree-id").value.trim(),
-    block: document.getElementById("save-block").value.trim(),
     rootBlob: rootImageFile,
     trunkBlob: trunkImageFile,
     lat: chosenGps.lat,

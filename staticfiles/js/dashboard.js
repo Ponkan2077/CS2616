@@ -62,7 +62,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const html = `
           <b>${detail.tree_id}</b><br>
           ${detail.disease} · ${detail.confidence}%<br>
-          <span style="font-size:11px;color:#666;">Block ${detail.block}</span><br>
           <a href="/inventory/${detail.tree_id}/" style="font-size:11px;">View Details →</a>
         `;
         detailCache[tree.tree_id] = html;
