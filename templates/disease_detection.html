@@ -249,6 +249,7 @@
   // after both photos are captured, when no model endpoint is set.
   window.AI_ENABLED = {{ ai_enabled|yesno:"true,false" }};
 </script>
+<script src="{% static 'js/image_utils.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/csrf.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/gps_exif.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/offline_queue.js' %}?v={{ STATIC_VERSION }}"></script>
