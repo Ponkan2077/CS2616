@@ -9,7 +9,7 @@ import json
 from functools import lru_cache
 from pathlib import Path
 
-DATA_DIR = Path(__file__).resolve().parent / "psgc_data"
+Path(__file__).resolve().parent.parent / "static" / "js"
 
 
 @lru_cache(maxsize=1)
