@@ -765,7 +765,7 @@ def service_worker_js(request):
     sw_path = Path(__file__).resolve().parent.parent / "static" / "js" / "sw.js"
     return HttpResponse(sw_path.read_text(), content_type="application/javascript")
 
-
+@login_required
 def disease_detection(request):
     # Renders the disease detection upload page.
     farm = _get_farm_or_none(request)
