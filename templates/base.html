@@ -11,6 +11,8 @@
   {% load static %}
   <link href="{% static 'css/style.css' %}?v={{ STATIC_VERSION }}" rel="stylesheet">
   {% block extra_head %}{% endblock %}
+  <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+  <script>eruda.init();</script>
 </head>
 <body>
 
