@@ -82,7 +82,6 @@
       <thead>
         <tr>
           <th>TREE ID</th>
-          <th>BLOCK</th>
           <th>DISEASE</th>
           <th>CONF.</th>
           <th>SCANNED</th>
@@ -93,7 +92,6 @@
         {% for tree in trees %}
         <tr>
           <td class="fw-bold" style="color:var(--primary);">{{ tree.tree_id }}</td>
-          <td>{{ tree.block|default:"—" }}</td>
           <td>
             <span class="badge-disease" style="background:color-mix(in srgb, {{ tree.disease|disease_color }} 20%, white); color:{{ tree.disease|disease_color }};">
               {{ tree.disease }}
@@ -108,7 +106,7 @@
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="6" class="text-center text-muted py-4">No trees registered for this farm.</td></tr>
+        <tr><td colspan="5" class="text-center text-muted py-4">No trees registered for this farm.</td></tr>
         {% endfor %}
       </tbody>
     </table>
