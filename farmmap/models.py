@@ -156,45 +156,6 @@ class Farm(models.Model):
         # outside the outermost trees rather than clipping through them.
         return _expand_polygon(hull, center_lat, center_lng, factor=1.06)
 
-    def get_block_polygons(self):
-        # Returns {block_name: [[lat, lng], ...]} boundary polygons for
-        # every labeled block in this farm, using the same convex-hull
-        # approach as get_boundary_polygon() above but grouped per block
-        # instead of over the whole farm. Same reasoning as above: checked
-        # on the hull's actual output length, not a pre-dedup point count,
-        # so a block where several trees share a GPS reading doesn't slip
-        # through as "enough points" only to collapse into a line.
-        from collections import defaultdict
-        by_block = defaultdict(list)
-        for lat, lng, block in self.trees.exclude(block="").values_list("lat", "lng", "block"):
-            by_block[block].append((lat, lng))
-
-        polygons = {}
-        for block, points in by_block.items():
-            block_center_lat = sum(p[0] for p in points) / len(points)
-            block_center_lng = sum(p[1] for p in points) / len(points)
-            hull = _convex_hull(points)
-            if len(hull) < 3:
-                # Same fallback idea as get_boundary_polygon(): too few
-                # distinct points for a real hull still gets a small
-                # square around the block's own center, instead of being
-                # dropped from the map with no boundary at all. Half the
-                # farm-level pad, since a block is a subdivision of the
-                # farm and should read as smaller than it.
-                pad = max(self.boundary_radius_m, 200) / 111000 / 2
-                polygons[block] = [
-                    [block_center_lat - pad, block_center_lng - pad],
-                    [block_center_lat - pad, block_center_lng + pad],
-                    [block_center_lat + pad, block_center_lng + pad],
-                    [block_center_lat + pad, block_center_lng - pad],
-                ]
-                continue
-            # Slightly larger expansion factor than the farm boundary
-            # since blocks are smaller -- a tight hull reads as clipping
-            # through the outermost trees at this scale.
-            polygons[block] = _expand_polygon(hull, block_center_lat, block_center_lng, factor=1.12)
-        return polygons
-
 
 class DiseaseClass(models.Model):
     """
@@ -302,7 +263,6 @@ class RubberTree(models.Model):
     # synced hours later. Null for older rows and any scan where neither
     # source could supply one.
     captured_at = models.DateTimeField(null=True, blank=True)
-    block = models.CharField(max_length=10, blank=True)
     recommended_action = models.TextField(blank=True)
     notes = models.TextField(blank=True)
 
@@ -423,7 +383,6 @@ class RubberTree(models.Model):
             "confidence": self.confidence,
             "severity_score": self.severity_score,
             "color": self.color,
-            "block": self.block,
             # Only meaningful when the view annotates it with an Exists
             # subquery (see farm_map view) -- False here is just a safe
             # default for any other caller of to_marker_dict() that
@@ -448,7 +407,6 @@ class RubberTree(models.Model):
             "confidence": self.confidence,
             "date_scanned": str(self.date_scanned),
             "color": self.color,
-            "block": self.block,
             "recommended_action": self.recommended_action,
             "notes": self.notes,
             "severity": self.severity,
