@@ -54,9 +54,6 @@
           <span class="detail-label">Date Scanned</span>
           <span>{{ tree.date_scanned }}</span>
 
-          <span class="detail-label">Block</span>
-          <span>Block {{ tree.block }}</span>
-
           {% if tree.root_condition %}
           <span class="detail-label">Root Condition</span>
           <span class="fw-semibold {% if tree.root_condition == 'Exposed Roots Detected' %}text-pink{% else %}text-healthy{% endif %}">
