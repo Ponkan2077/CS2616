@@ -8,6 +8,7 @@ function resizeImageFile(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
+
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
       let { width, height } = img;
@@ -21,13 +22,25 @@ function resizeImageFile(file) {
       canvas.width = width;
       canvas.height = height;
       canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+
+      const finish = (blob, mimeType, ext) => {
+        if (!blob) { reject(new Error("Couldn't process this image. Try a different photo.")); return; }
+        const resizedName = file.name.replace(/\.[^.]+$/, "") + ext;
+        resolve(new File([blob], resizedName, { type: mimeType }));
+      };
+
+      // WebP first for smaller uploads. If this browser/WebView can't
+      // encode it, toBlob calls back with null rather than throwing --
+      // fall back to JPEG instead of failing the whole capture over it.
       canvas.toBlob(blob => {
-        if (!blob) { reject(new Error("Resize failed")); return; }
-        const resizedName = file.name.replace(/\.[^.]+$/, "") + ".webp";
-        resolve(new File([blob], resizedName, { type: "image/webp" }));
+        if (blob) { finish(blob, "image/webp", ".webp"); return; }
+        canvas.toBlob(jpegBlob => finish(jpegBlob, "image/jpeg", ".jpg"), "image/jpeg", STORAGE_WEBP_QUALITY);
       }, "image/webp", STORAGE_WEBP_QUALITY);
     };
-    img.onerror = reject;
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Couldn't read this image -- it may be corrupted or in a format this browser can't decode (e.g. HEIC)."));
+    };
     img.src = objectUrl;
   });
 }
