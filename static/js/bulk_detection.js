@@ -86,7 +86,6 @@ async function handleBulkFiles(fileList) {
     status: "draft", // draft | processing | done | error
     errorMsg: "",
     savedTreeId: "",
-    block: "",
   }));
 
   statusEl.textContent = `Grouped into ${bulkGroups.length} possible tree${bulkGroups.length === 1 ? "" : "s"} — review before saving.`;
@@ -152,9 +151,6 @@ function renderBulkGroups() {
               <i class="bi bi-geo-alt"></i> ${g.location ? "Change" : "Set"} Location
             </button>
           </div>
-          <div class="mt-2">
-            <input type="text" class="form-control-rg form-control-sm" style="font-size:12px;text-transform:uppercase;max-width:160px;" placeholder="Block (optional)" value="${g.block || ''}" data-action="edit-block" data-group="${g.id}">
-          </div>
           ${errorLine}
         </div>
       </div>`;
@@ -190,7 +186,7 @@ function handleBulkContainerClick(e) {
     bulkGroups.push({
       id: ++bulkGroupSeq, items: [moved], uncertain: false,
       rootIdx: null, trunkIdx: null, location: groupLocation([moved]),
-      status: "draft", errorMsg: "", savedTreeId: "", block: "",
+      status: "draft", errorMsg: "", savedTreeId: "",
     });
     if (!g.items.length) bulkGroups = bulkGroups.filter(x => x !== g);
     renderBulkGroups();
@@ -208,16 +204,6 @@ function handleBulkContainerClick(e) {
   } else if (btn.dataset.action === "set-location") {
     openBulkLocationModal(g.id);
   }
-}
-
-// Not routed through handleBulkContainerClick/renderBulkGroups -- typing
-// shouldn't trigger a full re-render of the group list, or the input
-// loses focus/cursor position on every keystroke.
-function handleBulkContainerInput(e) {
-  const input = e.target.closest('[data-action="edit-block"]');
-  if (!input) return;
-  const g = findGroup(input.dataset.group);
-  if (g) g.block = input.value.trim().toUpperCase();
 }
 
 function openBulkLocationModal(groupId) {
@@ -274,7 +260,7 @@ async function processBulkGroups() {
       const trunkFile = g.items[g.trunkIdx].file;
       const [rootBlob, trunkBlob] = await Promise.all([resizeImageFile(rootFile), resizeImageFile(trunkFile)]);
       const result = await syncOneScan({
-        farmPk, treeId: "", block: g.block || "",
+        farmPk, treeId: "",
         rootBlob, trunkBlob,
         lat: g.location.lat, lng: g.location.lng,
         capturedAt: g.items[g.rootIdx].capturedAt,
@@ -292,6 +278,5 @@ async function processBulkGroups() {
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("bulk-file-input").addEventListener("change", e => handleBulkFiles(e.target.files));
   document.getElementById("bulk-groups-container").addEventListener("click", handleBulkContainerClick);
-  document.getElementById("bulk-groups-container").addEventListener("input", handleBulkContainerInput);
   document.getElementById("bulk-process-btn").addEventListener("click", processBulkGroups);
 });
