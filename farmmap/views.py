@@ -63,28 +63,6 @@ AI_MODEL_VERSION = "MobileNetV3-Large v2.3 (CNN Trunk Disease Classifier)"
 REPORT_VERSION = "2.0"
 
 
-def _get_block_summary(request, farm=None):
-    # Groups trees by block and returns healthy vs. infected counts per
-    # block, sorted alphabetically (A, B, C...), for the Block Summary
-    # section on the dashboard, reports page, and PDF export.
-    from collections import OrderedDict
-    qs = RubberTree.objects.filter(farm=farm) if farm else RubberTree.objects.filter(farm__owner=request.user)
-    blocks = OrderedDict()
-    for block_val, disease in qs.values_list("block", "disease").order_by("block"):
-        key = block_val or "Unassigned"
-        if key not in blocks:
-            blocks[key] = {"block": key, "healthy": 0, "infected": 0, "total": 0}
-        blocks[key]["total"] += 1
-        if disease == "Healthy":
-            blocks[key]["healthy"] += 1
-        else:
-            blocks[key]["infected"] += 1
-    rows = sorted(blocks.values(), key=lambda r: r["block"])
-    for r in rows:
-        r["infected_pct"] = round(r["infected"] / r["total"] * 100, 1) if r["total"] else 0
-    return rows
-
-
 def _get_intervention_effectiveness(request, farm=None):
     # For each intervention action type, estimates how often the treated
     # tree's CURRENT status is Healthy — a proxy for how effective that
@@ -128,7 +106,7 @@ def _get_confidence_summary(request, farm=None):
     return {"avg": avg_confidence, "low_count": low_count, "low_threshold": low_threshold}
 
 
-def _get_key_insights(total, counts, pcts, diseased, block_rows, effectiveness, disease_breakdown, confidence_summary=None):
+def _get_key_insights(total, counts, pcts, diseased, effectiveness, disease_breakdown, confidence_summary=None):
     # Builds a short list of plain-language, data-driven takeaways from
     # the current stats. Used on the reports page and in the PDF export
     # so a non-technical reader gets the "so what" up front.
@@ -149,16 +127,6 @@ def _get_key_insights(total, counts, pcts, diseased, block_rows, effectiveness, 
             )
     else:
         insights.append("No active disease cases detected across the monitored trees.")
-
-    infected_blocks = [b for b in block_rows if b["infected"] > 0]
-    if infected_blocks:
-        worst = max(infected_blocks, key=lambda b: b["infected_pct"])
-        insights.append(
-            f"Block {worst['block']} has the highest infection rate at {worst['infected_pct']}% "
-            f"({worst['infected']} of {worst['total']} trees)."
-        )
-    elif block_rows:
-        insights.append("Every tracked block is currently fully healthy.")
 
     if effectiveness:
         best = max(effectiveness, key=lambda r: (r["recovery_pct"], r["treated"]))
@@ -189,20 +157,20 @@ def _get_key_insights(total, counts, pcts, diseased, block_rows, effectiveness, 
     return insights[:6]
 
 
-def _get_recommendations(block_rows, effectiveness):
-    # Builds short, actionable recommendations per block based on
-    # infection severity, plus a general intervention recommendation
-    # drawn from the least-effective logged action (if any).
+def _get_recommendations(disease_breakdown, effectiveness):
+    # Builds short, actionable recommendations per disease based on what
+    # share of all trees currently show it, plus a general intervention
+    # recommendation drawn from the least-effective logged action (if any).
     recs = []
-    for b in sorted(block_rows, key=lambda r: r["infected_pct"], reverse=True):
-        if b["infected"] == 0:
+    for d in sorted(disease_breakdown, key=lambda r: r["pct"], reverse=True):
+        if d["count"] == 0:
             continue
-        if b["infected_pct"] >= 50:
-            recs.append(f"Apply treatment in Block {b['block']} — {b['infected_pct']}% of trees show disease symptoms; prioritize immediate intervention.")
-        elif b["infected_pct"] >= 20:
-            recs.append(f"Schedule a follow-up inspection in Block {b['block']} — {b['infected']} tree(s) affected ({b['infected_pct']}%).")
+        if d["pct"] >= 20:
+            recs.append(f"Apply treatment for {d['name']} — {d['pct']}% of all trees show symptoms ({d['count']} tree(s)); prioritize immediate intervention.")
+        elif d["pct"] >= 5:
+            recs.append(f"Schedule a follow-up inspection for {d['name']} — {d['count']} tree(s) affected ({d['pct']}%).")
         else:
-            recs.append(f"Monitor Block {b['block']} — isolated case(s) detected ({b['infected']} tree(s)); recheck on the next scheduled scan.")
+            recs.append(f"Monitor for {d['name']} — isolated case(s) detected ({d['count']} tree(s)); recheck on the next scheduled scan.")
 
     if effectiveness:
         weakest = min(effectiveness, key=lambda r: r["recovery_pct"])
@@ -210,7 +178,7 @@ def _get_recommendations(block_rows, effectiveness):
             recs.append(f"Reassess the \"{weakest['action']}\" protocol — only {weakest['recovery_pct']}% of treated trees have recovered so far.")
 
     if not recs:
-        recs.append("No disease-affected blocks at this time — maintain routine monitoring on the standard scan schedule.")
+        recs.append("No disease cases at this time — maintain routine monitoring on the standard scan schedule.")
 
     return recs[:6]
 
@@ -643,7 +611,6 @@ def dashboard(request):
     recent = [t.to_dict() for t in trees]
 
     farm_count = Farm.objects.filter(owner=request.user).count()
-    block_summary = _get_block_summary(request, farm)
     scan_activity = _get_scan_activity(request, farm)
     effectiveness, recent_interventions = _get_intervention_effectiveness(request, farm)
     top_interventions = [e for e in effectiveness if e["treated"] > 0][:3]
@@ -660,7 +627,6 @@ def dashboard(request):
         ).exclude(trees__disease="Healthy").distinct().count() if not farm else (1 if diseased else 0),
         "farm_count": farm_count,
         "recent": recent,
-        "block_summary": block_summary,
         "scan_activity": scan_activity,
         "recent_interventions": recent_interventions[:6],
         "top_interventions": top_interventions,
@@ -733,7 +699,6 @@ def farm_map(request):
     markers_json = json.dumps([t.to_marker_dict() for t in trees_qs])
     bounds = _farm_map_bounds(map_farm)
     boundary_polygon = json.dumps(map_farm.get_boundary_polygon())
-    block_boundaries = json.dumps(map_farm.get_block_polygons())
 
     # Built fresh from the live DiseaseClass catalog (not the fixed-key
     # counts dict above) so the filter dropdown, legend, and top-disease
@@ -762,7 +727,6 @@ def farm_map(request):
         "markers_json": markers_json,
         "map_bounds": json.dumps(bounds),
         "map_farm_boundary": boundary_polygon,
-        "map_block_boundaries": block_boundaries,
         "total": total, "counts": counts, "diseased": diseased,
         "disease_stats": disease_stats,
         "top_disease": top_disease,
@@ -812,11 +776,6 @@ def disease_detection(request):
         # Analyze Images is disabled in the template when this is False,
         # rather than the page silently making up a result.
         "ai_enabled": ai_inference.AI_MODEL_ENABLED,
-        # Suggestions for the block input's datalist -- not enforced, just
-        # nudges toward reusing an existing block name instead of typing a
-        # near-duplicate ("A" vs "a" vs "Block A").
-        "known_blocks": RubberTree.objects.filter(farm__owner=request.user).exclude(block="")
-            .values_list("block", flat=True).distinct().order_by("block"),
     })
     return render(request, "disease_detection.html", ctx)
 
@@ -945,11 +904,6 @@ def save_detection(request):
     disease = request.POST.get("disease", "Healthy")
     confidence = request.POST.get("confidence", "0")
     tree_id = request.POST.get("tree_id", "").strip()
-    # Upper-cased so "a", "A ", " a" etc. from freeform typing all land as
-    # the same block instead of silently fragmenting into near-duplicate
-    # blocks on the map/reports (get_block_polygons, _get_block_summary,
-    # and the inventory filter all group by this exact string).
-    block = request.POST.get("block", "").strip().upper()
     root_condition = request.POST.get("root_condition", "").strip()
 
     # GPS is required, not just preferred. Client-side (disease_detection.js),
@@ -1062,8 +1016,6 @@ def save_detection(request):
             tree.captured_at = captured_at
             tree.lat = tree_lat
             tree.lng = tree_lng
-            if block:
-                tree.block = block
             if root_image_resized:
                 tree.root_image = root_image_resized
             if trunk_image_resized:
@@ -1075,7 +1027,7 @@ def save_detection(request):
                 lat=tree_lat, lng=tree_lng,
                 disease=disease, confidence=float(confidence),
                 root_condition=root_condition,
-                date_scanned=datetime.date.today(), captured_at=captured_at, block=block,
+                date_scanned=datetime.date.today(), captured_at=captured_at,
                 root_image=root_image_resized, trunk_image=trunk_image_resized,
                 # recommended_action is left blank here so RubberTree.save() derives
                 # it from disease + severity_label (see SEVERITY_RECOMMENDATIONS).
@@ -1194,13 +1146,12 @@ def reports(request):
     severity_counts = _get_severity_counts(request, farm)
     monthly = _get_monthly_trend(request, farm)
     most_affected = _get_most_affected_farms(request)
-    block_summary = _get_block_summary(request, farm)
     effectiveness, recent_interventions = _get_intervention_effectiveness(request, farm)
     disease_breakdown = _get_disease_breakdown(request, farm)
     disease_stats = _get_full_disease_stats(request, farm)
     confidence_summary = _get_confidence_summary(request, farm)
-    key_insights = _get_key_insights(total, counts, pcts, diseased, block_summary, effectiveness, disease_breakdown, confidence_summary)
-    recommendations = _get_recommendations(block_summary, effectiveness)
+    key_insights = _get_key_insights(total, counts, pcts, diseased, effectiveness, disease_breakdown, confidence_summary)
+    recommendations = _get_recommendations(disease_breakdown, effectiveness)
 
     farm_summaries = []
     for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
@@ -1218,7 +1169,6 @@ def reports(request):
         "monthly": monthly,
         "most_affected": most_affected,
         "farm_summaries": farm_summaries,
-        "block_summary": block_summary,
         "effectiveness": effectiveness,
         "recent_interventions": recent_interventions,
         "key_insights": key_insights,
@@ -1574,12 +1524,11 @@ def export_pdf(request):
     disease_stats = _get_full_disease_stats(request, farm)
     severity_counts = _get_severity_counts(request, farm)
     monthly = _get_monthly_trend(request, farm)
-    block_summary = _get_block_summary(request, farm)
     effectiveness, _recent_ivs = _get_intervention_effectiveness(request, farm)
     disease_breakdown = _get_disease_breakdown(request, farm)
     confidence_summary = _get_confidence_summary(request, farm)
-    key_insights = _get_key_insights(total, counts, pcts, diseased, block_summary, effectiveness, disease_breakdown, confidence_summary)
-    recommendations = _get_recommendations(block_summary, effectiveness)
+    key_insights = _get_key_insights(total, counts, pcts, diseased, effectiveness, disease_breakdown, confidence_summary)
+    recommendations = _get_recommendations(disease_breakdown, effectiveness)
     generated_at = timezone.now()
 
     disease_names = [d["name"] for d in disease_stats]
@@ -1685,33 +1634,6 @@ def export_pdf(request):
     elements.append(severity_table)
     elements.append(Spacer(1, 14))
 
-    # Block Summary — healthy vs. infected counts per block, the basis for
-    # the Recommendations section further down.
-    if block_summary:
-        block_rows = [["Block", "Total", "Healthy", "Infected", "Infected %"]] + [
-            [b["block"], str(b["total"]), str(b["healthy"]), str(b["infected"]), f"{b['infected_pct']}%"]
-            for b in block_summary
-        ]
-        block_table = Table(block_rows, colWidths=[content_width * f for f in [0.2, 0.2, 0.2, 0.2, 0.2]])
-        block_style = [
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a2535")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ]
-        for i, b in enumerate(block_summary, start=1):
-            if b["infected_pct"] >= 50:
-                block_style.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#fecaca")))
-            elif b["infected_pct"] > 0:
-                block_style.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#fef3c7")))
-        block_table.setStyle(TableStyle(block_style))
-        elements.append(Paragraph("Block Summary", styles["Heading4"]))
-        elements.append(block_table)
-        elements.append(Spacer(1, 14))
-
     # Severity pie — centered, full width available since the trend bar
     # chart (previously squeezed beside it) now gets its own full-width
     # row below with much more room to breathe.
@@ -1757,7 +1679,7 @@ def export_pdf(request):
         elements.append(Spacer(1, 14))
 
     # Recommendations — short, actionable next steps derived from the
-    # Block Summary and intervention track record above.
+    # disease breakdown and intervention track record above.
     elements.append(Paragraph("Recommendations", styles["Heading4"]))
     rec_style = styles["Normal"].clone("rec_style")
     rec_style.fontSize = 9
@@ -1801,11 +1723,11 @@ def export_pdf(request):
         heading += f" (showing {PDF_TREE_ROW_LIMIT} of {total_tree_count} — use CSV/Excel export for the full list)"
     elements.append(Paragraph(heading, styles["Heading4"]))
 
-    tree_rows = [["Tree ID", "Farm", "Block", "Disease", "Conf. %", "Date Scanned"]]
+    tree_rows = [["Tree ID", "Farm", "Disease", "Conf. %", "Date Scanned"]]
     for t in tree_list:
-        tree_rows.append([t.tree_id, t.farm.farm_id, t.block, t.disease, f"{t.confidence}%", str(t.date_scanned)])
+        tree_rows.append([t.tree_id, t.farm.farm_id, t.disease, f"{t.confidence}%", str(t.date_scanned)])
 
-    col_fractions = [0.14, 0.16, 0.10, 0.28, 0.14, 0.18]
+    col_fractions = [0.16, 0.18, 0.32, 0.16, 0.18]
     tree_table = Table(tree_rows, colWidths=[content_width * f for f in col_fractions], repeatRows=1)
     tree_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
