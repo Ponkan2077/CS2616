@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="text-muted mb-2" style="font-size:12px;">
-  <i class="bi bi-info-circle"></i> Historical trends, block-level breakdowns, and exportable reports. For a quick live snapshot, see the <a href="{% url 'dashboard' %}" style="color:var(--primary);">Dashboard</a>.
+  <i class="bi bi-info-circle"></i> Historical trends and exportable reports. For a quick live snapshot, see the <a href="{% url 'dashboard' %}" style="color:var(--primary);">Dashboard</a>.
 </div>
 
 <!-- Summary Cards -->
@@ -57,43 +57,8 @@
 </div>
 
 <div class="row g-3 mb-3">
-  <!-- Block Summary -->
-  <div class="col-12 col-md-7">
-    <div class="report-chart-card h-100">
-      <div class="card-header-rg"><i class="bi bi-grid-3x3-gap-fill"></i> Block Summary</div>
-      <div class="table-responsive-rg">
-        <table class="table-rg">
-          <thead>
-            <tr>
-              <th>BLOCK</th><th>TOTAL</th>
-              <th class="text-healthy">HEALTHY</th>
-              <th class="text-pink">INFECTED</th>
-              <th>INFECTION RATE</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for b in block_summary %}
-            <tr>
-              <td class="fw-bold">{{ b.block }}</td>
-              <td>{{ b.total }}</td>
-              <td class="text-healthy fw-semibold">{{ b.healthy }}</td>
-              <td class="text-pink fw-semibold">{{ b.infected }}</td>
-              <td>
-                <div class="conf-bar" style="width:80px;"><div class="conf-fill" style="width:{{ b.infected_pct }}%;background:var(--pink);"></div></div>
-                <div style="font-size:11px;margin-top:2px;">{{ b.infected_pct }}%</div>
-              </td>
-            </tr>
-            {% empty %}
-            <tr><td colspan="5" class="text-center text-muted py-4">No blocks recorded yet.</td></tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
   <!-- Recommendations -->
-  <div class="col-12 col-md-5">
+  <div class="col-12">
     <div class="report-chart-card h-100">
       <div class="card-header-rg"><i class="bi bi-clipboard2-check-fill"></i> Recommendations</div>
       <div class="card-body-rg">
