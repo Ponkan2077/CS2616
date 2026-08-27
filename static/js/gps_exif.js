@@ -80,9 +80,13 @@ function readGpsIfd(view, ifdOffset, tiffStart, littleEndian) {
 }
 
 async function extractGPSFromFile(file) {
-  if (file.type !== "image/jpeg" && file.type !== "image/jpg") return null;
-
   try {
+    // No file.type pre-check here on purpose -- some Android file
+    // providers report an empty or wrong MIME type even for a real JPEG,
+    // which would reject valid EXIF GPS before ever reading the file.
+    // The SOI marker check two lines down verifies it's a JPEG from the
+    // actual bytes instead, which is what should be trusted.
+    //
     // 128KB comfortably covers the EXIF block on every phone photo --
     // EXIF sits right after the JPEG's SOI marker, well before the much
     // larger actual image data.
