@@ -19,7 +19,6 @@ from farmmap.models import Farm, RubberTree, ScanHistory, Intervention, DiseaseC
 random.seed(42)  # reproducible seed data across runs
 
 TREES_PER_FARM = 1500
-BLOCKS = ["A", "B", "C", "D", "E", "F"]
 INSPECTORS = ["J. Reyes", "M. Santos", "P. Cruz", "A. Lopez"]
 ACTIONS = [a for a, _ in Intervention.ACTION_CHOICES]
 
@@ -194,9 +193,10 @@ for fd in farms_data:
 SCAN_WINDOW_END = datetime.date.today()
 SCAN_WINDOW_START = SCAN_WINDOW_END - datetime.timedelta(days=548)  # ~18 months of history
 
-OUTBREAK_BLOCKS_PER_FARM = 2
-OUTBREAK_TREE_SHARE = 0.55      # share of trees in an outbreak block currently showing that disease
-BACKGROUND_DISEASE_SHARE = 0.06  # sporadic disease rate outside outbreak blocks
+OUTBREAK_CENTERS_PER_FARM = 2
+OUTBREAK_RADIUS_DEG = 0.00022    # ~25m at this latitude -- a modest cluster of nearby trees
+OUTBREAK_TREE_SHARE = 0.55      # share of trees near an outbreak center currently showing that disease
+BACKGROUND_DISEASE_SHARE = 0.06  # sporadic disease rate elsewhere on the farm
 
 
 def build_inspection_rounds(start, end, interval_days=25, jitter_days=4):
@@ -216,28 +216,32 @@ def build_inspection_rounds(start, end, interval_days=25, jitter_days=4):
     return rounds or [end]
 
 
-def assign_block_outbreaks(blocks, diseased_names):
-    # Diseases spread through contiguous rows, not randomly across an
-    # entire farm -- so a couple of blocks per farm carry an active
-    # outbreak of one disease, while the rest stay mostly healthy with
-    # occasional sporadic cases.
-    if not diseased_names:
-        return {}
-    chosen = random.sample(blocks, k=min(OUTBREAK_BLOCKS_PER_FARM, len(blocks)))
-    return {b: random.choice(diseased_names) for b in chosen}
+def assign_outbreak_centers(positions, diseased_names):
+    # Diseases spread outward from a point, not randomly across an entire
+    # farm -- so a couple of trees per farm are picked as outbreak
+    # centers, and trees near one are more likely to share that disease.
+    # Purely a seeding-time computation to shape realistic-looking data;
+    # nothing about "being near an outbreak" is stored on any tree.
+    if not diseased_names or not positions:
+        return []
+    centers = random.sample(positions, k=min(OUTBREAK_CENTERS_PER_FARM, len(positions)))
+    return [(lat, lng, random.choice(diseased_names)) for lat, lng in centers]
 
 
-def current_disease_for(block, block_outbreaks):
-    # Picks a tree's current disease using its block's outbreak status
-    # rather than one farm-wide random distribution.
-    if block in block_outbreaks:
-        outbreak_disease = block_outbreaks[block]
-        roll = random.random()
-        if roll < OUTBREAK_TREE_SHARE:
-            return outbreak_disease
-        if roll < OUTBREAK_TREE_SHARE + 0.1 and _DISEASED_NAMES:
-            return random.choice(_DISEASED_NAMES)  # occasional unrelated case nearby
-        return random.choice(_HEALTHY_NAMES) if _HEALTHY_NAMES else outbreak_disease
+def current_disease_for(lat, lng, outbreak_centers):
+    # Picks a tree's current disease using proximity to an outbreak
+    # center rather than one farm-wide random distribution. A simple
+    # box check (not true circular distance) is precise enough at this
+    # scale, and at Zamboanga's latitude a degree of longitude is close
+    # enough in physical size to a degree of latitude not to matter.
+    for c_lat, c_lng, outbreak_disease in outbreak_centers:
+        if abs(lat - c_lat) < OUTBREAK_RADIUS_DEG and abs(lng - c_lng) < OUTBREAK_RADIUS_DEG:
+            roll = random.random()
+            if roll < OUTBREAK_TREE_SHARE:
+                return outbreak_disease
+            if roll < OUTBREAK_TREE_SHARE + 0.1 and _DISEASED_NAMES:
+                return random.choice(_DISEASED_NAMES)  # occasional unrelated case nearby
+            return random.choice(_HEALTHY_NAMES) if _HEALTHY_NAMES else outbreak_disease
     if random.random() < BACKGROUND_DISEASE_SHARE and _DISEASED_NAMES:
         return random.choice(_DISEASED_NAMES)
     return random.choice(_HEALTHY_NAMES) if _HEALTHY_NAMES else weighted_disease()
@@ -273,16 +277,15 @@ for farm_id, farm in farms.items():
     positions = generate_grid_positions(farm.center_lat, farm.center_lng, TREES_PER_FARM)
     inspection_rounds = build_inspection_rounds(SCAN_WINDOW_START, SCAN_WINDOW_END)
     recent_rounds = inspection_rounds[-4:]  # most trees' latest scan lands in these
-    block_outbreaks = assign_block_outbreaks(BLOCKS, _DISEASED_NAMES)
+    outbreak_centers = assign_outbreak_centers(positions, _DISEASED_NAMES)
 
     tree_objs = []
     for i in range(1, TREES_PER_FARM + 1):
-        block = random.choice(BLOCKS)
-        disease = current_disease_for(block, block_outbreaks)
+        lat, lng = positions[i - 1]
+        disease = current_disease_for(lat, lng, outbreak_centers)
         is_healthy = disease in _HEALTHY_NAMES
         confidence = round(random.uniform(90, 99.5), 1) if is_healthy else round(random.uniform(78, 98), 1)
         date_scanned = random.choice(recent_rounds)
-        lat, lng = positions[i - 1]
         score = compute_severity_score(disease, confidence)
         tree_objs.append(RubberTree(
             farm=farm,
@@ -293,7 +296,6 @@ for farm_id, farm in farms.items():
             confidence=confidence,
             severity_score=score,
             date_scanned=date_scanned,
-            block=block,
             recommended_action=recommended_action_for(disease, score),
             notes="",
         ))
