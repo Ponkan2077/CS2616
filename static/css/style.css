@@ -391,10 +391,6 @@ body {
   display: inline-block; width: 12px; height: 12px; border-radius: 3px;
   background: #0d6efd44; border: 2px solid #0d6efd; margin-right: 4px;
 }
-.legend-dot-block {
-  display: inline-block; width: 12px; height: 12px; border-radius: 3px;
-  background: #8b5cf644; border: 2px dashed #8b5cf6; margin-right: 4px;
-}
 
 /* ============================================================
    MOBILE RESPONSIVE OVERRIDES
@@ -597,13 +593,6 @@ body {
   box-shadow: none;
 }
 .farm-boundary-label::before { display: none; }
-
-.block-boundary-label {
-  background: rgba(26,37,53,.75); color: #e9d5ff; border: none;
-  border-radius: 5px; padding: 1px 6px; font-size: 10px; font-weight: 600;
-  box-shadow: none;
-}
-.block-boundary-label::before { display: none; }
 
 /* ============================================================
    RECOMMENDATION BOX — colored by the tree's severity tier so a
