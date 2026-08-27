@@ -87,7 +87,6 @@
           <th>DISEASE</th>
           <th>CONF.</th>
           <th>DATE</th>
-          <th>BLOCK</th>
           <th></th>
         </tr>
       </thead>
@@ -112,7 +111,6 @@
             </div>
           </td>
           <td class="text-muted" style="font-size:12px;">{{ t.date_scanned }}</td>
-          <td style="font-size:12px;">{{ t.block }}</td>
           <td>
             <a href="{% url 'tree_details' t.tree_id %}" class="btn btn-sm btn-outline-primary" style="font-size:11px;">
               <i class="bi bi-eye"></i>
@@ -120,7 +118,7 @@
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="7" class="text-center text-muted py-4">No trees match your search.</td></tr>
+        <tr><td colspan="6" class="text-center text-muted py-4">No trees match your search.</td></tr>
         {% endfor %}
       </tbody>
     </table>
