@@ -19,9 +19,10 @@
 
 function readFileHeader(file, maxBytes) {
   return new Promise((resolve, reject) => {
+    console.log("[GPS DEBUG] readFileHeader() starting FileReader.readAsArrayBuffer");
     const reader = new FileReader();
-    reader.onload = () => resolve(new DataView(reader.result));
-    reader.onerror = () => reject(reader.error);
+    reader.onload = () => { console.log("[GPS DEBUG] readFileHeader() reader.onload fired"); resolve(new DataView(reader.result)); };
+    reader.onerror = () => { console.error("[GPS DEBUG] readFileHeader() reader.onerror fired:", reader.error); reject(reader.error); };
     reader.readAsArrayBuffer(file.slice(0, maxBytes));
   });
 }
@@ -80,6 +81,7 @@ function readGpsIfd(view, ifdOffset, tiffStart, littleEndian) {
 }
 
 async function extractGPSFromFile(file) {
+  console.log("[GPS DEBUG] extractGPSFromFile() start --", file && file.name, file && file.type, file && file.size, "bytes");
   try {
     // No file.type pre-check here on purpose -- some Android file
     // providers report an empty or wrong MIME type even for a real JPEG,
@@ -91,7 +93,8 @@ async function extractGPSFromFile(file) {
     // EXIF sits right after the JPEG's SOI marker, well before the much
     // larger actual image data.
     const view = await readFileHeader(file, 131072);
-    if (view.getUint16(0) !== 0xffd8) return null; // not a valid JPEG
+    console.log("[GPS DEBUG] extractGPSFromFile() header read, byteLength:", view.byteLength);
+    if (view.getUint16(0) !== 0xffd8) { console.log("[GPS DEBUG] extractGPSFromFile() not a JPEG (no SOI marker) -- returning null"); return null; }
 
     let offset = 2;
     while (offset + 4 <= view.byteLength) {
@@ -141,13 +144,16 @@ async function extractGPSFromFile(file) {
             }
           }
 
+          console.log("[GPS DEBUG] extractGPSFromFile() found EXIF GPS:", { lat, lng, capturedAt });
           return { lat, lng, source: "exif", capturedAt };
         }
       }
       offset += 2 + segmentLength;
     }
+    console.log("[GPS DEBUG] extractGPSFromFile() no EXIF APP1/GPS block found -- returning null");
     return null;
   } catch (err) {
+    console.error("[GPS DEBUG] extractGPSFromFile() threw, treating as no-GPS:", err);
     return null; // malformed/truncated header -- treat as "no GPS data", don't crash the page
   }
 }

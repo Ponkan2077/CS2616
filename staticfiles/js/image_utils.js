@@ -6,10 +6,12 @@ const STORAGE_WEBP_QUALITY = 0.85;
 
 function resizeImageFile(file) {
   return new Promise((resolve, reject) => {
+    console.log("[GPS DEBUG] resizeImageFile() start --", file && file.name, file && file.type, file && file.size, "bytes");
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
 
     img.onload = () => {
+      console.log("[GPS DEBUG] resizeImageFile() img.onload fired --", img.width, "x", img.height);
       URL.revokeObjectURL(objectUrl);
       let { width, height } = img;
       const longestEdge = Math.max(width, height);
@@ -24,7 +26,8 @@ function resizeImageFile(file) {
       canvas.getContext("2d").drawImage(img, 0, 0, width, height);
 
       const finish = (blob, mimeType, ext) => {
-        if (!blob) { reject(new Error("Couldn't process this image. Try a different photo.")); return; }
+        if (!blob) { console.error("[GPS DEBUG] resizeImageFile() toBlob returned null for both webp and jpeg"); reject(new Error("Couldn't process this image. Try a different photo.")); return; }
+        console.log("[GPS DEBUG] resizeImageFile() blob ready --", mimeType, blob.size, "bytes");
         const resizedName = file.name.replace(/\.[^.]+$/, "") + ext;
         resolve(new File([blob], resizedName, { type: mimeType }));
       };
@@ -38,6 +41,7 @@ function resizeImageFile(file) {
       }, "image/webp", STORAGE_WEBP_QUALITY);
     };
     img.onerror = () => {
+      console.error("[GPS DEBUG] resizeImageFile() img.onerror fired -- browser couldn't decode this file");
       URL.revokeObjectURL(objectUrl);
       reject(new Error("Couldn't read this image -- it may be corrupted or in a format this browser can't decode (e.g. HEIC)."));
     };

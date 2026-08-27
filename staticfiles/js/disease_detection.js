@@ -29,11 +29,25 @@ let directUploadPromise = null;
 // a lot in the field (e.g. under rubber tree canopy), since the fix for
 // each is completely different.
 function getDeviceGPS() {
+  console.log("[GPS DEBUG] getDeviceGPS() called. navigator.geolocation present:", !!navigator.geolocation);
+  // Fire-and-forget permission read, purely for diagnostics -- doesn't
+  // block or change the actual getCurrentPosition() call below.
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: "geolocation" })
+      .then(status => console.log("[GPS DEBUG] permission state at call time:", status.state))
+      .catch(permErr => console.log("[GPS DEBUG] permission query failed:", permErr));
+  }
   return new Promise(resolve => {
-    if (!navigator.geolocation) { resolve({ error: "This browser doesn't support device location." }); return; }
+    if (!navigator.geolocation) { console.log("[GPS DEBUG] no navigator.geolocation -- resolving with error immediately"); resolve({ error: "This browser doesn't support device location." }); return; }
+    const startedAt = Date.now();
+    console.log("[GPS DEBUG] calling getCurrentPosition at", new Date(startedAt).toISOString());
     navigator.geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: "device", capturedAt: Date.now() }),
+      pos => {
+        console.log("[GPS DEBUG] getCurrentPosition SUCCESS after", Date.now() - startedAt, "ms", pos.coords);
+        resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: "device", capturedAt: Date.now() });
+      },
       err => {
+        console.warn("[GPS DEBUG] getCurrentPosition ERROR after", Date.now() - startedAt, "ms -- code:", err.code, "message:", err.message);
         const reasons = {
           1: "Location access is blocked. Check two settings: the site permission (tap the location icon in your address bar) and your browser app's own OS permission (Android: Settings → Apps → Chrome → Permissions → Location) -- granting one without the other still fails.",
           2: "Couldn't get a GPS fix. Try moving to open sky, away from thick canopy or buildings.",
@@ -72,14 +86,20 @@ function getDeviceGPS() {
 // Returns { lat, lng, source } on success, or { error } on failure --
 // never plain null, so the caller always has something to show the user.
 async function resolveImageGPS(file, source) {
+  console.log("[GPS DEBUG] resolveImageGPS() start -- source:", source, "file:", file && file.name, file && file.type, file && file.size, "bytes");
   const exifGps = await extractGPSFromFile(file);
+  console.log("[GPS DEBUG] extractGPSFromFile() returned:", exifGps);
   if (exifGps) return exifGps;
   if (source !== "camera") {
+    console.log("[GPS DEBUG] no EXIF and source isn't camera -- rejecting without touching device GPS");
     return {
       error: "This photo has no location data attached (normal for gallery/browsed photos, especially on Android). Use Take Photo instead so we can read your current location.",
     };
   }
-  return await getDeviceGPS();
+  console.log("[GPS DEBUG] no EXIF, source is camera -- falling back to getDeviceGPS()");
+  const deviceGps = await getDeviceGPS();
+  console.log("[GPS DEBUG] getDeviceGPS() settled with:", deviceGps);
+  return deviceGps;
 }
 
 // Hides the banner. Called after page-load check, a successful photo
@@ -212,8 +232,10 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
   const previewImg = document.getElementById(previewImgId);
   const statusEl = document.getElementById(`${kind}-gps-status`);
   if (statusEl) { statusEl.textContent = "Checking location…"; statusEl.className = "text-muted mt-1"; statusEl.style.fontSize = "11px"; }
+  console.log("[GPS DEBUG] handleCapture() start --", { kind, source, fileName: file && file.name, fileType: file && file.type, fileSize: file && file.size });
 
   Promise.all([resolveImageGPS(file, source), resizeImageFile(file)]).then(([gps, resizedFile]) => {
+    console.log("[GPS DEBUG] Promise.all RESOLVED --", { gps, resizedFile: resizedFile && resizedFile.name });
     if (!gps || gps.error) {
       if (statusEl) {
         statusEl.textContent = (gps && gps.error) || "No location data found in this photo, and couldn't get your device's GPS either.";
@@ -262,6 +284,7 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
       setWorkflowStep(2);
     }
   }).catch(err => {
+    console.error("[GPS DEBUG] Promise.all REJECTED --", err);
     if (statusEl) {
       statusEl.textContent = (err && err.message) || "Couldn't process that image. Please try another photo.";
       statusEl.className = "text-danger mt-1";
