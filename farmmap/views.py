@@ -777,6 +777,21 @@ def disease_detection(request):
         # rather than the page silently making up a result.
         "ai_enabled": ai_inference.AI_MODEL_ENABLED,
     })
+
+    # "Scan Again" from a tree's detail page arrives here with these two,
+    # so the farm/tree fields come pre-filled instead of the farmer having
+    # to retype the tree's exact code from memory (see tree_details.html).
+    # rescan_farm_pk is compared as an int against farm.pk in the template,
+    # not just forwarded as the raw GET string, so a tampered/bad value
+    # just fails to match any option instead of ever being trusted.
+    rescan_tree_id = request.GET.get("rescan_tree_id", "").strip()
+    try:
+        rescan_farm_pk = int(request.GET.get("rescan_farm_pk", ""))
+    except ValueError:
+        rescan_farm_pk = None
+    if rescan_tree_id:
+        ctx.update({"rescan_tree_id": rescan_tree_id, "rescan_farm_pk": rescan_farm_pk})
+
     return render(request, "disease_detection.html", ctx)
 
 
