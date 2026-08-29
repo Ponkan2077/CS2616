@@ -24,7 +24,7 @@
     <select name="farm_pk" id="save-farm-pk" class="form-control-rg" form="save-form" required>
       <option value="">Select Farm</option>
       {% for farm in all_farms %}
-      <option value="{{ farm.pk }}" data-farm-id="{{ farm.farm_id }}" {% if selected_farm.pk == farm.pk %}selected{% endif %}>{{ farm.farm_id }} — {{ farm.name }}</option>
+      <option value="{{ farm.pk }}" data-farm-id="{{ farm.farm_id }}" {% if rescan_farm_pk %}{% if rescan_farm_pk == farm.pk %}selected{% endif %}{% elif selected_farm.pk == farm.pk %}selected{% endif %}>{{ farm.farm_id }} — {{ farm.name }}</option>
       {% endfor %}
     </select>
   </div>
@@ -38,7 +38,7 @@
 <div class="card-rg mb-3">
   <div class="card-header-rg"><i class="bi bi-grid-3x3-gap-fill"></i> Tree ID</div>
   <div class="card-body-rg">
-    <input type="text" name="tree_id" id="save-tree-id" class="form-control-rg" placeholder="Tree ID (optional)" form="save-form">
+    <input type="text" name="tree_id" id="save-tree-id" value="{{ rescan_tree_id }}" class="form-control-rg" placeholder="Tree ID (optional)" form="save-form">
     <div class="text-muted mt-2" style="font-size:11px;">
       <i class="bi bi-info-circle"></i>
       Already tag your trees your own way? Type your own code here (e.g. <code>T1</code> or <code>Row3-12</code>)
@@ -250,7 +250,6 @@
   // after both photos are captured, when no model endpoint is set.
   window.AI_ENABLED = {{ ai_enabled|yesno:"true,false" }};
 </script>
-<script src="{% static 'js/image_utils.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/csrf.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/gps_exif.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/offline_queue.js' %}?v={{ STATIC_VERSION }}"></script>
