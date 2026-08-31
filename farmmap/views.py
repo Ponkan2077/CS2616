@@ -1449,98 +1449,174 @@ def export_excel(request):
     return response
 
 
-def _build_pie_chart(disease_stats, chart_width, chart_height):
-    # Renders the disease distribution pie chart as a native ReportLab drawing.
-    from reportlab.graphics.shapes import Drawing, String
-    from reportlab.graphics.charts.piecharts import Pie
-    from reportlab.lib import colors as rl_colors
-
-    nonzero = [(d["name"], d["count"], rl_colors.HexColor(d["color"])) for d in disease_stats if d["count"] > 0]
-
-    drawing = Drawing(chart_width, chart_height)
-    drawing.add(String(chart_width / 2, chart_height - 12, "Disease Distribution",
-                        fontSize=10, fontName="Helvetica-Bold", textAnchor="middle"))
-    if nonzero:
-        pie = Pie()
-        pie.x = chart_width * 0.22
-        pie.y = 10
-        pie.width = chart_width * 0.56
-        pie.height = chart_height * 0.75
-        pie.data = [v for _, v, _ in nonzero]
-        pie.labels = [f"{l} ({v})" for l, v, _ in nonzero]
-        pie.slices.strokeWidth = 1
-        pie.slices.strokeColor = rl_colors.white
-        pie.simpleLabels = 0
-        pie.sideLabels = 1
-        for i, (_, _, color) in enumerate(nonzero):
-            pie.slices[i].fillColor = color
-            pie.slices[i].fontSize = 6.5
-        drawing.add(pie)
-    else:
-        drawing.add(String(chart_width / 2, chart_height / 2, "No data",
-                            fontSize=9, textAnchor="middle"))
-    return drawing
-
-
 def _build_trend_chart(monthly, disease_stats, chart_width, chart_height):
-    # Renders the monthly detection trend as a native ReportLab bar chart.
+    # Renders the monthly detection trend as a native ReportLab bar chart,
+    # limited to the most recent 3 months. The previous version plotted the
+    # entire scan history (15+ months) squeezed into one landscape-page
+    # chart, which made individual bars unreadable. Only diseases that
+    # actually occurred in this 3-month window get a legend entry, and the
+    # legend now sits in its own horizontal row under the title instead of
+    # a side column, so it's never competing with the bars for space.
     from reportlab.graphics.shapes import Drawing, String
     from reportlab.graphics.charts.barcharts import VerticalBarChart
     from reportlab.graphics.charts.legends import Legend
     from reportlab.lib import colors as rl_colors
 
-    series = [(d["name"], rl_colors.HexColor(d["color"])) for d in disease_stats]
-    months = [m["month"] for m in monthly]
-    trend_data = [[m["diseases"].get(name, 0) for m in monthly] for name, _ in series]
+    recent = monthly[-3:] if monthly else []
+    months = [m["month"] for m in recent]
+    series = [(d["name"], rl_colors.HexColor(d["color"])) for d in disease_stats
+              if any(m["diseases"].get(d["name"], 0) for m in recent)]
 
     drawing = Drawing(chart_width, chart_height)
-    drawing.add(String(chart_width / 2, chart_height - 12, "Monthly Detection Trend",
-                        fontSize=10, fontName="Helvetica-Bold", textAnchor="middle"))
+    drawing.add(String(chart_width / 2, chart_height - 14, "Monthly Detection Trend (last 3 months)",
+                        fontSize=11, fontName="Helvetica-Bold", textAnchor="middle"))
 
-    # Reserve a real column on the right for the legend instead of letting
-    # it sit almost on top of the bars: with up to 8 disease classes laid
-    # out 2-columns-of-4, ~70pt (the previous reservation) isn't enough
-    # room and the second legend column was spilling off the page edge.
-    legend_w = 155
+    if not recent or not series:
+        drawing.add(String(chart_width / 2, chart_height / 2, "No scan history in this window",
+                            fontSize=9, textAnchor="middle"))
+        return drawing
+
+    trend_data = [[m["diseases"].get(name, 0) for m in recent] for name, _ in series]
+
+    legend_y = chart_height - 34
+    legend = Legend()
+    legend.x = chart_width / 2
+    legend.y = legend_y
+    legend.dx = 8
+    legend.dy = 8
+    legend.fontSize = 8
+    legend.alignment = "right"
+    legend.boxAnchor = "n"
+    legend.columnMaximum = 1
+    legend.deltax = 14
+    legend.colorNamePairs = [(color, name) for name, color in series]
+    drawing.add(legend)
+
     bar = VerticalBarChart()
-    bar.x = 45
-    bar.y = 24
-    bar.width = chart_width - 45 - legend_w
-    bar.height = chart_height - 55
+    bar.x = 55
+    bar.y = 30
+    bar.width = chart_width - 80
+    bar.height = legend_y - 46
     bar.data = trend_data
     bar.categoryAxis.categoryNames = months
-    bar.categoryAxis.labels.fontSize = 7
-    bar.valueAxis.labels.fontSize = 7
+    bar.categoryAxis.labels.fontSize = 11
+    bar.categoryAxis.labels.fontName = "Helvetica-Bold"
+    bar.valueAxis.labels.fontSize = 9
     bar.valueAxis.valueMin = 0
     bar.valueAxis.forceZero = True
-    bar.groupSpacing = 6
-    bar.barSpacing = 1
+    bar.groupSpacing = 22
+    bar.barSpacing = 3
+    bar.barLabels.fontSize = 7.5
+    bar.barLabelFormat = "%d"
+    bar.barLabels.dy = 4
     for i, (_, color) in enumerate(series):
         bar.bars[i].fillColor = color
     drawing.add(bar)
 
-    legend = Legend()
-    legend.x = chart_width - legend_w + 10
-    legend.y = chart_height - 22
-    legend.dx = 7
-    legend.dy = 7
-    legend.fontSize = 6.5
-    legend.alignment = "right"
-    legend.columnMaximum = 4
-    legend.deltay = 9
-    legend.colorNamePairs = [(color, name) for name, color in series]
-    drawing.add(legend)
-
     return drawing
 
 
-def _build_severity_pie(severity_counts, chart_width, chart_height):
-    # Renders the Healthy/Mild/Moderate/Severe split as a native ReportLab
-    # pie, using the same tier colors as the "Disease Severity Distribution"
-    # donut on the web Reports page (severityPie canvas in reports.js), so
-    # that section of the PDF isn't numbers-only.
-    from reportlab.graphics.shapes import Drawing, String
+def _build_donut(drawing, cx, cy, radius, data, colors_, cutout=0.65,
+                  center_title=None, center_subtitle=None):
+    # Draws a circular donut centered at (cx, cy): a Pie forced into a
+    # perfect circle (equal width/height -- the old code used chart_width
+    # and chart_height independently, which is what produced the "oblong"
+    # egg-shaped pie) with a same-color-as-page hole punched in the middle
+    # to fake a cutout, since ReportLab's Pie has no native donut mode.
+    # cutout=0.65 matches the Chart.js `cutout: "65%"` used by the
+    # doughnuts on the web Dashboard/Reports pages (dashboard.js /
+    # reports.js) so the PDF and the web app look like the same design.
+    from reportlab.graphics.shapes import String, Circle
     from reportlab.graphics.charts.piecharts import Pie
+    from reportlab.lib import colors as rl_colors
+
+    diameter = radius * 2
+    pie = Pie()
+    pie.x = cx - radius
+    pie.y = cy - radius
+    pie.width = diameter
+    pie.height = diameter
+    pie.data = data
+    pie.labels = ["" for _ in data]
+    pie.simpleLabels = 0
+    pie.sideLabels = 0
+    pie.slices.strokeWidth = 1.5
+    pie.slices.strokeColor = rl_colors.white
+    pie.slices.fontSize = 0
+    for i, color in enumerate(colors_):
+        pie.slices[i].fillColor = color
+    drawing.add(pie)
+
+    drawing.add(Circle(cx, cy, radius * cutout, fillColor=rl_colors.white, strokeColor=None))
+
+    if center_title:
+        drawing.add(String(cx, cy + (1 if center_subtitle else -4), center_title,
+                            fontSize=15, fontName="Helvetica-Bold", textAnchor="middle",
+                            fillColor=rl_colors.HexColor("#1a2535")))
+    if center_subtitle:
+        drawing.add(String(cx, cy - 13, center_subtitle,
+                            fontSize=7.5, fontName="Helvetica", textAnchor="middle",
+                            fillColor=rl_colors.HexColor("#6b7280")))
+
+
+def _build_pie_chart(disease_stats, chart_width, chart_height, total=None):
+    # Disease Distribution: a circular donut on the left (real cutout, not
+    # an oval pie) plus a proper legend column on the right instead of the
+    # old leader-line labels, which collided whenever one disease (usually
+    # Healthy) dominates and the rest are thin slivers -- exactly what the
+    # per-farm data here looks like.
+    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.graphics.charts.legends import Legend
+    from reportlab.lib import colors as rl_colors
+
+    nonzero = [d for d in disease_stats if d["count"] > 0]
+
+    drawing = Drawing(chart_width, chart_height)
+    drawing.add(String(chart_width / 2, chart_height - 14, "Disease Distribution",
+                        fontSize=11, fontName="Helvetica-Bold", textAnchor="middle"))
+    if not nonzero:
+        drawing.add(String(chart_width / 2, chart_height / 2, "No data",
+                            fontSize=9, textAnchor="middle"))
+        return drawing
+
+    radius = min(chart_width * 0.19, (chart_height - 30) / 2)
+    cx = chart_width * 0.27
+    cy = (chart_height - 16) / 2 + 4
+    total = total if total else sum(d["count"] for d in nonzero)
+
+    _build_donut(
+        drawing, cx, cy, radius,
+        data=[d["count"] for d in nonzero],
+        colors_=[rl_colors.HexColor(d["color"]) for d in nonzero],
+        center_title=f"{total:,}",
+        center_subtitle="trees scanned",
+    )
+
+    legend = Legend()
+    legend.x = chart_width * 0.52
+    legend.y = chart_height - 34
+    legend.dx = 9
+    legend.dy = 9
+    legend.fontSize = 8.5
+    legend.alignment = "right"
+    legend.columnMaximum = len(nonzero)
+    legend.deltay = 15
+    legend.colorNamePairs = [
+        (rl_colors.HexColor(d["color"]), f'{d["name"]} — {d["count"]} ({d["pct"]}%)')
+        for d in nonzero
+    ]
+    drawing.add(legend)
+    return drawing
+
+
+def _build_severity_pie(severity_counts, chart_width, chart_height, total=None):
+    # Severity Distribution donut: same circular-cutout style as the disease
+    # distribution chart above, using the exact tier colors from
+    # SEVERITY_COLORS in reports.js. No leader-line labels or legend here on
+    # purpose -- the Severity Distribution table already printed directly
+    # above this chart carries the exact counts, so the donut's job is just
+    # the at-a-glance shape, with the headline "% Healthy" in the center.
+    from reportlab.graphics.shapes import Drawing, String
     from reportlab.lib import colors as rl_colors
 
     tiers = [
@@ -1552,27 +1628,25 @@ def _build_severity_pie(severity_counts, chart_width, chart_height):
     nonzero = [(name, v, color) for name, v, color in tiers if v > 0]
 
     drawing = Drawing(chart_width, chart_height)
-    drawing.add(String(chart_width / 2, chart_height - 12, "Severity Distribution",
-                        fontSize=10, fontName="Helvetica-Bold", textAnchor="middle"))
-    if nonzero:
-        pie = Pie()
-        pie.x = chart_width * 0.22
-        pie.y = 10
-        pie.width = chart_width * 0.56
-        pie.height = chart_height * 0.75
-        pie.data = [v for _, v, _ in nonzero]
-        pie.labels = [f"{l} ({v})" for l, v, _ in nonzero]
-        pie.slices.strokeWidth = 1
-        pie.slices.strokeColor = rl_colors.white
-        pie.simpleLabels = 0
-        pie.sideLabels = 1
-        for i, (_, _, color) in enumerate(nonzero):
-            pie.slices[i].fillColor = color
-            pie.slices[i].fontSize = 6.5
-        drawing.add(pie)
-    else:
+    drawing.add(String(chart_width / 2, chart_height - 14, "Severity Distribution",
+                        fontSize=11, fontName="Helvetica-Bold", textAnchor="middle"))
+    if not nonzero:
         drawing.add(String(chart_width / 2, chart_height / 2, "No data",
                             fontSize=9, textAnchor="middle"))
+        return drawing
+
+    total = total if total else sum(v for _, v, _ in nonzero)
+    healthy_n = severity_counts.get("Healthy", 0)
+    healthy_pct = round(healthy_n / total * 100, 1) if total else 0
+    radius = min(chart_width * 0.32, (chart_height - 30) / 2)
+
+    _build_donut(
+        drawing, chart_width / 2, (chart_height - 16) / 2 + 4, radius,
+        data=[v for _, v, _ in nonzero],
+        colors_=[color for _, _, color in nonzero],
+        center_title=f"{healthy_pct}%",
+        center_subtitle="Healthy",
+    )
     return drawing
 
 
@@ -1741,9 +1815,9 @@ def export_pdf(request):
     # Severity donut — visual counterpart to the table above, matching the
     # "Disease Severity Distribution" chart on the web Reports page (same
     # tier colors) so this section isn't numbers-only in the PDF.
-    sev_pie_h = 1.7 * inch
-    sev_pie_w = content_width * 0.45
-    sev_pie_drawing = _build_severity_pie(severity_counts, sev_pie_w, sev_pie_h)
+    sev_pie_h = 2.3 * inch
+    sev_pie_w = 3.4 * inch
+    sev_pie_drawing = _build_severity_pie(severity_counts, sev_pie_w, sev_pie_h, total=total)
     sev_pie_frame = KeepInFrame(sev_pie_w, sev_pie_h, [sev_pie_drawing])
     sev_pie_row = Table([[sev_pie_frame]], colWidths=[content_width])
     sev_pie_row.setStyle(TableStyle([
@@ -1756,9 +1830,9 @@ def export_pdf(request):
     # Disease distribution pie — centered, full width available since the
     # trend bar chart (previously squeezed beside it) now gets its own
     # full-width row below with much more room to breathe.
-    pie_h = 2.0 * inch
-    pie_w = content_width * 0.55
-    pie_drawing = _build_pie_chart(disease_stats, pie_w, pie_h)
+    pie_h = 2.6 * inch
+    pie_w = 5.6 * inch
+    pie_drawing = _build_pie_chart(disease_stats, pie_w, pie_h, total=total)
     pie_frame = KeepInFrame(pie_w, pie_h, [pie_drawing])
     pie_row = Table([[pie_frame]], colWidths=[content_width])
     pie_row.setStyle(TableStyle([
