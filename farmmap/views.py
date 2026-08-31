@@ -600,6 +600,12 @@ def dashboard(request):
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
     severity_counts = _get_severity_counts(request, farm)
+    # Bar-fill percentages for the Severity Breakdown panel, relative to
+    # the largest tier so the bars are visually comparable (same approach
+    # _get_most_affected_farms uses for its bar_pct field).
+    severity_max = max(severity_counts.values()) or 1
+    severity_bar_pcts = {k: round(v / severity_max * 100, 1) for k, v in severity_counts.items()}
+    confidence_summary = _get_confidence_summary(request, farm)
     trees = list(
         _get_trees(request, farm).select_related("farm")
         .prefetch_related(
@@ -621,6 +627,8 @@ def dashboard(request):
         "page": "dashboard",
         "total": total, "counts": counts, "pcts": pcts, "diseased": diseased,
         "severity_counts": severity_counts,
+        "severity_bar_pcts": severity_bar_pcts,
+        "confidence_summary": confidence_summary,
         "healthy_count": counts["Healthy"],
         "areas_with_cases": Farm.objects.filter(
             owner=request.user, trees__disease__isnull=False
@@ -1489,10 +1497,15 @@ def _build_trend_chart(monthly, disease_stats, chart_width, chart_height):
     drawing.add(String(chart_width / 2, chart_height - 12, "Monthly Detection Trend",
                         fontSize=10, fontName="Helvetica-Bold", textAnchor="middle"))
 
+    # Reserve a real column on the right for the legend instead of letting
+    # it sit almost on top of the bars: with up to 8 disease classes laid
+    # out 2-columns-of-4, ~70pt (the previous reservation) isn't enough
+    # room and the second legend column was spilling off the page edge.
+    legend_w = 155
     bar = VerticalBarChart()
     bar.x = 45
     bar.y = 24
-    bar.width = chart_width - 65
+    bar.width = chart_width - 45 - legend_w
     bar.height = chart_height - 55
     bar.data = trend_data
     bar.categoryAxis.categoryNames = months
@@ -1507,7 +1520,7 @@ def _build_trend_chart(monthly, disease_stats, chart_width, chart_height):
     drawing.add(bar)
 
     legend = Legend()
-    legend.x = chart_width - 70
+    legend.x = chart_width - legend_w + 10
     legend.y = chart_height - 22
     legend.dx = 7
     legend.dy = 7
@@ -1518,6 +1531,81 @@ def _build_trend_chart(monthly, disease_stats, chart_width, chart_height):
     legend.colorNamePairs = [(color, name) for name, color in series]
     drawing.add(legend)
 
+    return drawing
+
+
+def _build_severity_pie(severity_counts, chart_width, chart_height):
+    # Renders the Healthy/Mild/Moderate/Severe split as a native ReportLab
+    # pie, using the same tier colors as the "Disease Severity Distribution"
+    # donut on the web Reports page (severityPie canvas in reports.js), so
+    # that section of the PDF isn't numbers-only.
+    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.graphics.charts.piecharts import Pie
+    from reportlab.lib import colors as rl_colors
+
+    tiers = [
+        ("Healthy", severity_counts.get("Healthy", 0), rl_colors.HexColor("#28a745")),
+        ("Mild", severity_counts.get("Mild", 0), rl_colors.HexColor("#fbbf24")),
+        ("Moderate", severity_counts.get("Moderate", 0), rl_colors.HexColor("#f97316")),
+        ("Severe", severity_counts.get("Severe", 0), rl_colors.HexColor("#dc2626")),
+    ]
+    nonzero = [(name, v, color) for name, v, color in tiers if v > 0]
+
+    drawing = Drawing(chart_width, chart_height)
+    drawing.add(String(chart_width / 2, chart_height - 12, "Severity Distribution",
+                        fontSize=10, fontName="Helvetica-Bold", textAnchor="middle"))
+    if nonzero:
+        pie = Pie()
+        pie.x = chart_width * 0.22
+        pie.y = 10
+        pie.width = chart_width * 0.56
+        pie.height = chart_height * 0.75
+        pie.data = [v for _, v, _ in nonzero]
+        pie.labels = [f"{l} ({v})" for l, v, _ in nonzero]
+        pie.slices.strokeWidth = 1
+        pie.slices.strokeColor = rl_colors.white
+        pie.simpleLabels = 0
+        pie.sideLabels = 1
+        for i, (_, _, color) in enumerate(nonzero):
+            pie.slices[i].fillColor = color
+            pie.slices[i].fontSize = 6.5
+        drawing.add(pie)
+    else:
+        drawing.add(String(chart_width / 2, chart_height / 2, "No data",
+                            fontSize=9, textAnchor="middle"))
+    return drawing
+
+
+def _build_most_affected_chart(most_affected, chart_width, chart_height):
+    # Renders the "Most Affected Areas" farm ranking as a native ReportLab
+    # horizontal bar chart. This panel exists on the web Reports page (as
+    # HTML bar rows driven by _get_most_affected_farms) but was previously
+    # missing from the PDF export entirely -- export_pdf() never called
+    # _get_most_affected_farms(), so the data never reached the PDF at all.
+    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.graphics.charts.barcharts import HorizontalBarChart
+    from reportlab.lib import colors as rl_colors
+
+    drawing = Drawing(chart_width, chart_height)
+    drawing.add(String(chart_width / 2, chart_height - 12, "Most Affected Areas (diseased tree count)",
+                        fontSize=10, fontName="Helvetica-Bold", textAnchor="middle"))
+    if most_affected:
+        bar = HorizontalBarChart()
+        bar.x = 110
+        bar.y = 10
+        bar.width = chart_width - 130
+        bar.height = chart_height - 34
+        bar.data = [[m["diseased"] for m in most_affected]]
+        bar.categoryAxis.categoryNames = [m["label"] for m in most_affected]
+        bar.categoryAxis.labels.fontSize = 7
+        bar.valueAxis.labels.fontSize = 7
+        bar.valueAxis.valueMin = 0
+        bar.valueAxis.forceZero = True
+        bar.bars[0].fillColor = rl_colors.HexColor("#dc2626")
+        drawing.add(bar)
+    else:
+        drawing.add(String(chart_width / 2, chart_height / 2, "No farms registered yet",
+                            fontSize=9, textAnchor="middle"))
     return drawing
 
 
@@ -1542,6 +1630,7 @@ def export_pdf(request):
     effectiveness, _recent_ivs = _get_intervention_effectiveness(request, farm)
     disease_breakdown = _get_disease_breakdown(request, farm)
     confidence_summary = _get_confidence_summary(request, farm)
+    most_affected = _get_most_affected_farms(request)
     key_insights = _get_key_insights(total, counts, pcts, diseased, effectiveness, disease_breakdown, confidence_summary)
     recommendations = _get_recommendations(disease_breakdown, effectiveness)
     generated_at = timezone.now()
@@ -1647,11 +1736,26 @@ def export_pdf(request):
     ]))
     elements.append(Paragraph("Severity Distribution", styles["Heading4"]))
     elements.append(severity_table)
-    elements.append(Spacer(1, 14))
+    elements.append(Spacer(1, 8))
 
-    # Severity pie — centered, full width available since the trend bar
-    # chart (previously squeezed beside it) now gets its own full-width
-    # row below with much more room to breathe.
+    # Severity donut — visual counterpart to the table above, matching the
+    # "Disease Severity Distribution" chart on the web Reports page (same
+    # tier colors) so this section isn't numbers-only in the PDF.
+    sev_pie_h = 1.7 * inch
+    sev_pie_w = content_width * 0.45
+    sev_pie_drawing = _build_severity_pie(severity_counts, sev_pie_w, sev_pie_h)
+    sev_pie_frame = KeepInFrame(sev_pie_w, sev_pie_h, [sev_pie_drawing])
+    sev_pie_row = Table([[sev_pie_frame]], colWidths=[content_width])
+    sev_pie_row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+    ]))
+    elements.append(sev_pie_row)
+    elements.append(Spacer(1, 12))
+
+    # Disease distribution pie — centered, full width available since the
+    # trend bar chart (previously squeezed beside it) now gets its own
+    # full-width row below with much more room to breathe.
     pie_h = 2.0 * inch
     pie_w = content_width * 0.55
     pie_drawing = _build_pie_chart(disease_stats, pie_w, pie_h)
@@ -1672,6 +1776,17 @@ def export_pdf(request):
     trend_frame = KeepInFrame(content_width, trend_h, [trend_drawing])
     elements.append(trend_frame)
     elements.append(Spacer(1, 14))
+
+    # Most Affected Areas — this panel exists on the web Reports page but
+    # was previously dropped from the PDF export entirely: export_pdf()
+    # never called _get_most_affected_farms(). Added here for parity.
+    if most_affected:
+        elements.append(Paragraph("Most Affected Areas", styles["Heading4"]))
+        affected_h = 2.2 * inch
+        affected_drawing = _build_most_affected_chart(most_affected, content_width, affected_h)
+        affected_frame = KeepInFrame(content_width, affected_h, [affected_drawing])
+        elements.append(affected_frame)
+        elements.append(Spacer(1, 14))
 
     # Per-farm breakdown (only when viewing all farms)
     if farm_summaries:
