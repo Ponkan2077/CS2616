@@ -1488,7 +1488,7 @@ def _build_trend_chart(monthly, disease_stats, chart_width, chart_height):
     legend.alignment = "right"
     legend.boxAnchor = "n"
     legend.columnMaximum = 1
-    legend.deltax = 14
+    legend.deltax = 24
     legend.colorNamePairs = [(color, name) for name, color in series]
     drawing.add(legend)
 
@@ -1506,9 +1506,10 @@ def _build_trend_chart(monthly, disease_stats, chart_width, chart_height):
     bar.valueAxis.forceZero = True
     bar.groupSpacing = 22
     bar.barSpacing = 3
-    bar.barLabels.fontSize = 7.5
+    bar.barLabels.fontSize = 9.5
+    bar.barLabels.fontName = "Helvetica-Bold"
     bar.barLabelFormat = "%d"
-    bar.barLabels.dy = 4
+    bar.barLabels.dy = 6
     for i, (_, color) in enumerate(series):
         bar.bars[i].fillColor = color
     drawing.add(bar)
@@ -1665,14 +1666,14 @@ def _build_most_affected_chart(most_affected, chart_width, chart_height):
                         fontSize=10, fontName="Helvetica-Bold", textAnchor="middle"))
     if most_affected:
         bar = HorizontalBarChart()
-        bar.x = 110
+        bar.x = 130
         bar.y = 10
-        bar.width = chart_width - 130
+        bar.width = chart_width - 155
         bar.height = chart_height - 34
         bar.data = [[m["diseased"] for m in most_affected]]
         bar.categoryAxis.categoryNames = [m["label"] for m in most_affected]
-        bar.categoryAxis.labels.fontSize = 7
-        bar.valueAxis.labels.fontSize = 7
+        bar.categoryAxis.labels.fontSize = 9.5
+        bar.valueAxis.labels.fontSize = 9
         bar.valueAxis.valueMin = 0
         bar.valueAxis.forceZero = True
         bar.bars[0].fillColor = rl_colors.HexColor("#dc2626")
