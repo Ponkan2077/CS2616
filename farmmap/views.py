@@ -1636,13 +1636,17 @@ def _build_donut(drawing, cx, cy, radius, data, colors_, cutout=0.65,
 
 
 def _build_pie_chart(disease_stats, chart_width, chart_height, total=None):
-    # Disease Distribution: a circular donut on the left (real cutout, not
-    # an oval pie) plus a proper legend column on the right instead of the
-    # old leader-line labels, which collided whenever one disease (usually
-    # Healthy) dominates and the rest are thin slivers -- exactly what the
-    # per-farm data here looks like.
-    from reportlab.graphics.shapes import Drawing, String
-    from reportlab.graphics.charts.legends import Legend
+    # Disease Distribution: main donut on the right (every category, full
+    # 100% -- nothing removed) with a legend row along the bottom (color
+    # chip + name, wrapped grid). On the left, a second donut -- same
+    # shape, just enlarged -- redraws only the categories under 10% of the
+    # grand total, re-normalized against each other so a 3.0% slice and a
+    # 0.7% slice (both invisible slivers next to Healthy's ~88%) become
+    # clearly different-sized wedges again. This is threshold-based (<10%
+    # of the total), not a hardcoded exclusion of "Healthy" -- whichever
+    # categories happen to be small this time are the ones that get
+    # magnified, so it still works if Healthy itself is ever the small one.
+    from reportlab.graphics.shapes import Drawing, String, Rect
     from reportlab.lib import colors as rl_colors
 
     nonzero = [d for d in disease_stats if d["count"] > 0]
@@ -1655,44 +1659,91 @@ def _build_pie_chart(disease_stats, chart_width, chart_height, total=None):
                             fontSize=9, textAnchor="middle"))
         return drawing
 
-    # Positioned from the donut outward (radius + fixed margins) rather than
-    # as flat fractions of chart_width, so growing chart_width -- which is
-    # exactly what happened below, this chart now spans the full report
-    # width instead of ~5.6in -- hands the freed-up space to the legend
-    # (bigger swatches/font) instead of just spreading the donut further
-    # from the text.
-    top_margin = 34
-    radius = min(chart_width * 0.16, (chart_height - top_margin) / 2 - 6)
-    cx = radius + 34
-    cy = (chart_height - top_margin) / 2 + 2
     total = total if total else sum(d["count"] for d in nonzero)
 
-    _build_donut(
-        drawing, cx, cy, radius,
-        data=[d["count"] for d in nonzero],
-        colors_=[rl_colors.HexColor(d["color"]) for d in nonzero],
-        center_title=f"{total:,}",
-        center_subtitle="trees scanned",
-    )
+    # Bottom legend: every category as a color chip + label, in a row-major
+    # wrapped grid (reads left-to-right, top-to-bottom) rather than a tall
+    # single column.
+    legend_cols = 4
+    legend_rows = -(-len(nonzero) // legend_cols)  # ceil
+    legend_row_h = 20
+    legend_h = legend_rows * legend_row_h + 12
+    col_w = chart_width / legend_cols
+    swatch = 10
+    for i, d in enumerate(nonzero):
+        col, row = i % legend_cols, i // legend_cols
+        lx = col * col_w + 10
+        ly = legend_h - 12 - row * legend_row_h
+        drawing.add(Rect(lx, ly, swatch, swatch,
+                          fillColor=rl_colors.HexColor(d["color"]), strokeColor=None))
+        drawing.add(String(lx + swatch + 5, ly + 1, f'{d["name"]} — {d["count"]} ({d["pct"]}%)',
+                            fontSize=8.5, fontName="Helvetica", fillColor=rl_colors.HexColor("#1a2535")))
 
-    # Legend gets the rest of the row's width. Swatch size, font size, and
-    # row spacing are all bumped up from the old 8.5pt/9px cramped version
-    # now that there's room for it.
-    legend = Legend()
-    legend.x = cx + radius + 44
-    legend.y = chart_height - 46
-    legend.dx = 14
-    legend.dy = 14
-    legend.fontName = "Helvetica"
-    legend.fontSize = 12.5
-    legend.alignment = "right"
-    legend.columnMaximum = len(nonzero)
-    legend.deltay = 23
-    legend.colorNamePairs = [
-        (rl_colors.HexColor(d["color"]), f'{d["name"]} — {d["count"]} ({d["pct"]}%)')
-        for d in nonzero
-    ]
-    drawing.add(legend)
+    top_margin = 30
+    mid_top = chart_height - top_margin
+    mid_h = mid_top - legend_h
+
+    # Only worth a separate magnified chart once there are at least two
+    # small slices to tell apart from each other -- a single lonely small
+    # slice isn't hard to identify on its own.
+    small = sorted((d for d in nonzero if d["pct"] < 10), key=lambda d: d["count"], reverse=True)
+    show_small = len(small) >= 2
+    label_h = 22  # room for the sub-title above each donut
+    donut_top = mid_top - label_h
+    donut_bottom = legend_h + 6
+    vertical_room = donut_top - donut_bottom
+
+    if show_small:
+        # Both donuts drawn at the same size and centered as a single pair
+        # within the full chart width (equal margins left/right of the
+        # pair) instead of splitting the width into fixed left/right zones
+        # -- that's what was pushing the main donut off-center with a big
+        # dead gap in the middle.
+        r = min(vertical_room / 2, 80)
+        gap = 60
+        pair_w = 4 * r + gap
+        left_margin = max(10, (chart_width - pair_w) / 2)
+        cy = donut_bottom + vertical_room / 2
+
+        small_cx = left_margin + r
+        main_cx = left_margin + 3 * r + gap
+
+        drawing.add(String(small_cx, mid_top - 10, "Categories Under 10%, Magnified",
+                            fontSize=8.5, fontName="Helvetica-Bold", textAnchor="middle",
+                            fillColor=rl_colors.HexColor("#374151")))
+        drawing.add(String(main_cx, mid_top - 10, "All Categories (100%)",
+                            fontSize=8.5, fontName="Helvetica-Bold", textAnchor="middle",
+                            fillColor=rl_colors.HexColor("#374151")))
+
+        small_total = sum(d["count"] for d in small)
+        _build_donut(
+            drawing, small_cx, cy, r,
+            data=[d["count"] for d in small],
+            colors_=[rl_colors.HexColor(d["color"]) for d in small],
+            center_title=f"{small_total:,}",
+            center_subtitle="< 10% each",
+        )
+        _build_donut(
+            drawing, main_cx, cy, r,
+            data=[d["count"] for d in nonzero],
+            colors_=[rl_colors.HexColor(d["color"]) for d in nonzero],
+            center_title=f"{total:,}",
+            center_subtitle="trees scanned",
+        )
+    else:
+        # No small-slice cluster worth magnifying -- a single donut,
+        # centered in the full chart width.
+        radius = min(vertical_room / 2, 95)
+        cx = chart_width / 2
+        cy = donut_bottom + vertical_room / 2
+        _build_donut(
+            drawing, cx, cy, radius,
+            data=[d["count"] for d in nonzero],
+            colors_=[rl_colors.HexColor(d["color"]) for d in nonzero],
+            center_title=f"{total:,}",
+            center_subtitle="trees scanned",
+        )
+
     return drawing
 
 
@@ -2005,11 +2056,10 @@ def export_pdf(request):
     elements.append(sev_pie_row)
     elements.append(Spacer(1, 12))
 
-    # Disease distribution pie — now actually sized to use the full-width
-    # row available (previously drawn at 5.6in in a 10in-wide row, leaving
-    # most of that space empty), so the legend can run at a readable font
-    # size instead of the old cramped 8.5pt text.
-    pie_h = 3.1 * inch
+    # Disease distribution: main donut + magnified disease-only breakdown
+    # bars + bottom legend now needs more vertical room than a plain
+    # donut+side-legend did.
+    pie_h = 3.7 * inch
     pie_w = content_width - 0.4 * inch
     pie_drawing = _build_pie_chart(disease_stats, pie_w, pie_h, total=total)
     pie_frame = KeepInFrame(pie_w, pie_h, [pie_drawing])
