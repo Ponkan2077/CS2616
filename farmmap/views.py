@@ -1648,16 +1648,23 @@ def _build_pie_chart(disease_stats, chart_width, chart_height, total=None):
     nonzero = [d for d in disease_stats if d["count"] > 0]
 
     drawing = Drawing(chart_width, chart_height)
-    drawing.add(String(chart_width / 2, chart_height - 14, "Disease Distribution",
-                        fontSize=11, fontName="Helvetica-Bold", textAnchor="middle"))
+    drawing.add(String(chart_width / 2, chart_height - 16, "Disease Distribution",
+                        fontSize=13, fontName="Helvetica-Bold", textAnchor="middle"))
     if not nonzero:
         drawing.add(String(chart_width / 2, chart_height / 2, "No data",
                             fontSize=9, textAnchor="middle"))
         return drawing
 
-    radius = min(chart_width * 0.19, (chart_height - 30) / 2)
-    cx = chart_width * 0.27
-    cy = (chart_height - 16) / 2 + 4
+    # Positioned from the donut outward (radius + fixed margins) rather than
+    # as flat fractions of chart_width, so growing chart_width -- which is
+    # exactly what happened below, this chart now spans the full report
+    # width instead of ~5.6in -- hands the freed-up space to the legend
+    # (bigger swatches/font) instead of just spreading the donut further
+    # from the text.
+    top_margin = 34
+    radius = min(chart_width * 0.16, (chart_height - top_margin) / 2 - 6)
+    cx = radius + 34
+    cy = (chart_height - top_margin) / 2 + 2
     total = total if total else sum(d["count"] for d in nonzero)
 
     _build_donut(
@@ -1668,15 +1675,19 @@ def _build_pie_chart(disease_stats, chart_width, chart_height, total=None):
         center_subtitle="trees scanned",
     )
 
+    # Legend gets the rest of the row's width. Swatch size, font size, and
+    # row spacing are all bumped up from the old 8.5pt/9px cramped version
+    # now that there's room for it.
     legend = Legend()
-    legend.x = chart_width * 0.52
-    legend.y = chart_height - 34
-    legend.dx = 9
-    legend.dy = 9
-    legend.fontSize = 8.5
+    legend.x = cx + radius + 44
+    legend.y = chart_height - 46
+    legend.dx = 14
+    legend.dy = 14
+    legend.fontName = "Helvetica"
+    legend.fontSize = 12.5
     legend.alignment = "right"
     legend.columnMaximum = len(nonzero)
-    legend.deltay = 15
+    legend.deltay = 23
     legend.colorNamePairs = [
         (rl_colors.HexColor(d["color"]), f'{d["name"]} — {d["count"]} ({d["pct"]}%)')
         for d in nonzero
@@ -1858,7 +1869,9 @@ def export_pdf(request):
     from reportlab.lib.styles import getSampleStyleSheet
     from django.http import HttpResponse
 
-    trees, label = _export_rows(request)
+    # Only the filename label is needed now that the Tree-Level Detail
+    # table (which used to consume the actual tree queryset) is removed.
+    _, label = _export_rows(request)
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
     disease_stats = _get_full_disease_stats(request, farm)
@@ -1992,11 +2005,12 @@ def export_pdf(request):
     elements.append(sev_pie_row)
     elements.append(Spacer(1, 12))
 
-    # Disease distribution pie — centered, full width available since the
-    # trend bar chart (previously squeezed beside it) now gets its own
-    # full-width row below with much more room to breathe.
-    pie_h = 2.6 * inch
-    pie_w = 5.6 * inch
+    # Disease distribution pie — now actually sized to use the full-width
+    # row available (previously drawn at 5.6in in a 10in-wide row, leaving
+    # most of that space empty), so the legend can run at a readable font
+    # size instead of the old cramped 8.5pt text.
+    pie_h = 3.1 * inch
+    pie_w = content_width - 0.4 * inch
     pie_drawing = _build_pie_chart(disease_stats, pie_w, pie_h, total=total)
     pie_frame = KeepInFrame(pie_w, pie_h, [pie_drawing])
     pie_row = Table([[pie_frame]], colWidths=[content_width])
@@ -2119,35 +2133,6 @@ def export_pdf(request):
         compare_drawing = _build_intervention_by_disease_chart(intervention_by_disease, content_width, compare_h)
         elements.append(compare_drawing)
         elements.append(Spacer(1, 14))
-
-    # Per-tree table — capped to a page-friendly sample since a full
-    # multi-thousand-row dump makes the PDF slow to generate and awkward
-    # to read. CSV/Excel exports remain uncapped for the complete dataset.
-    PDF_TREE_ROW_LIMIT = 75
-    tree_list = list(trees[:PDF_TREE_ROW_LIMIT])
-    total_tree_count = trees.count()
-
-    heading = "Tree-Level Detail"
-    if total_tree_count > PDF_TREE_ROW_LIMIT:
-        heading += f" (showing {PDF_TREE_ROW_LIMIT} of {total_tree_count} — use CSV/Excel export for the full list)"
-    elements.append(Paragraph(heading, styles["Heading4"]))
-
-    tree_rows = [["Tree ID", "Farm", "Disease", "Conf. %", "Date Scanned"]]
-    for t in tree_list:
-        tree_rows.append([t.tree_id, t.farm.farm_id, t.disease, f"{t.confidence}%", str(t.date_scanned)])
-
-    col_fractions = [0.16, 0.18, 0.32, 0.16, 0.18]
-    tree_table = Table(tree_rows, colWidths=[content_width * f for f in col_fractions], repeatRows=1)
-    tree_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-    ]))
-    elements.append(tree_table)
-    elements.append(Spacer(1, 14))
 
     # Recent interventions
     if intervention_qs:

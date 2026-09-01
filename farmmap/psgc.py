@@ -20,10 +20,15 @@ def _load(name):
 
 @lru_cache(maxsize=1)
 def get_regions():
-    return sorted(
-        [{"code": r["region_code"], "name": r["region_name"]} for r in _load("region.json")],
-        key=lambda r: r["name"],
-    )
+    # Sorted by the source file's own "id" (I, II, III, IV-A, IV-B, V, VI,
+    # VII, VIII, IX, X, XI, XII, NCR, CAR, ARMM, XIII) -- the standard PSGC
+    # region sequence. Sorting by name instead (the old behavior) broke
+    # this order, since "IX" and "IV-B" sort alphabetically before "V" as
+    # plain strings.
+    return [
+        {"code": r["region_code"], "name": r["region_name"]}
+        for r in sorted(_load("region.json"), key=lambda r: r["id"])
+    ]
 
 
 @lru_cache(maxsize=1)
