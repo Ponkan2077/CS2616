@@ -1,0 +1,26 @@
+# --- Local database (SQLite) ---
+db.sqlite3
+db.sqlite3.bak
+db.sqlite3-journal
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Django ---
+*.log
+local_settings.py
+
+# --- Environment / secrets ---
+.env
+.env.*
+venv/
+env/
+.venv/
+
+# --- Editor / OS cruft ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
