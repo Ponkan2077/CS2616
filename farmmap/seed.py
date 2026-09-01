@@ -22,6 +22,26 @@ TREES_PER_FARM = 1500
 INSPECTORS = ["J. Reyes", "M. Santos", "P. Cruz", "A. Lopez"]
 ACTIONS = [a for a, _ in Intervention.ACTION_CHOICES]
 
+# Illustrative per-action recovery probabilities for demo data ONLY -- these
+# are NOT derived from real agronomic research, just plausible-looking
+# numbers so seeded interventions actually vary in outcome instead of every
+# tree staying at whatever disease it started with. Without this, every
+# intervention type in the Reports/PDF "effectiveness" breakdown reads
+# 0% recovered, because nothing ever made a treated tree's current disease
+# flip to Healthy. Tune freely -- these have no basis beyond "reasonable
+# spread of numbers for a working demo."
+ACTION_RECOVERY_RATES = {
+    "Fungicide Application": 0.60,
+    "Bark Removal": 0.50,
+    "Root Treatment": 0.45,
+    "Soil Treatment": 0.35,
+    "Tapping Suspended": 0.40,
+    "Quarantine": 0.30,
+    "Uprooting": 0.10,
+    "Monitoring Only": 0.15,
+    "Other": 0.25,
+}
+
 # Reads the disease catalog fresh each run, rather than a hardcoded list --
 # if you've added/removed disease classes via the admin since the last
 # reseed, this picks that up automatically. Healthy trees are weighted at
@@ -308,6 +328,7 @@ for farm_id, farm in farms.items():
 
     scan_objs = []
     intervention_objs = []
+    recovered_trees = []  # trees whose final state flips to Healthy post-treatment
     for tree in created_trees:
         trajectory = build_scan_trajectory(tree.disease, tree.confidence, tree.date_scanned, inspection_rounds)
         for d, disease, confidence in trajectory:
@@ -319,15 +340,46 @@ for farm_id, farm in farms.items():
         # ~40% of diseased trees have at least one logged intervention.
         if tree.disease not in _HEALTHY_NAMES and random.random() < 0.4:
             iv_date = random_date(tree.date_scanned, min(tree.date_scanned + datetime.timedelta(days=30), SCAN_WINDOW_END))
+            action = random.choice(ACTIONS)
             intervention_objs.append(Intervention(
                 tree=tree, performed_by=demo_user,
-                action=random.choice(ACTIONS), date_performed=iv_date,
+                action=action, date_performed=iv_date,
                 notes="",
             ))
 
+            # Whether THIS tree recovers is a weighted coin flip on
+            # ACTION_RECOVERY_RATES. If it does, the tree's current state
+            # (and one more scan dated after the intervention) flips to
+            # Healthy -- otherwise it's left exactly as already generated
+            # above, i.e. still showing its original disease.
+            if random.random() < ACTION_RECOVERY_RATES.get(action, 0.25):
+                recovery_date = min(
+                    iv_date + datetime.timedelta(days=random.randint(7, 45)),
+                    SCAN_WINDOW_END,
+                )
+                healthy_name = random.choice(_HEALTHY_NAMES) if _HEALTHY_NAMES else tree.disease
+                healthy_confidence = round(random.uniform(90, 99.5), 1)
+                scan_objs.append(ScanHistory(
+                    tree=tree, date=recovery_date, disease=healthy_name,
+                    confidence=healthy_confidence, inspector=random.choice(INSPECTORS),
+                ))
+                tree.disease = healthy_name
+                tree.confidence = healthy_confidence
+                tree.severity_score = compute_severity_score(healthy_name, healthy_confidence)
+                tree.date_scanned = recovery_date
+                tree.recommended_action = recommended_action_for(healthy_name, tree.severity_score)
+                recovered_trees.append(tree)
+
     ScanHistory.objects.bulk_create(scan_objs, batch_size=1000)
     Intervention.objects.bulk_create(intervention_objs, batch_size=500)
-    print(f"Bulk-created {len(scan_objs)} scan records and {len(intervention_objs)} interventions for {farm_id}")
+    if recovered_trees:
+        RubberTree.objects.bulk_update(
+            recovered_trees,
+            ["disease", "confidence", "severity_score", "date_scanned", "recommended_action"],
+            batch_size=500,
+        )
+    print(f"Bulk-created {len(scan_objs)} scan records and {len(intervention_objs)} interventions for {farm_id} "
+          f"({len(recovered_trees)} recovered post-intervention)")
 
 print("\nSeed complete.")
 print(f"  Demo user: demo / demo12345 (only set on first creation)")

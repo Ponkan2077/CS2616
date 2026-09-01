@@ -91,6 +91,86 @@ def _get_intervention_effectiveness(request, farm=None):
     return effectiveness, recent
 
 
+def _get_intervention_effectiveness_by_disease(request, farm=None):
+    # Same recovery-proxy metric as _get_intervention_effectiveness above
+    # (tree.disease == "Healthy" today), but broken out per disease so a
+    # reader can see which intervention actually worked best for THIS
+    # disease, not just overall. "The disease being treated" is taken from
+    # the tree's most recent scan on or before the intervention's date --
+    # i.e. whatever the diagnosis was that prompted the intervention --
+    # falling back to the tree's current disease if no earlier scan exists.
+    # Interventions on trees that were already Healthy at that point are
+    # excluded, since there's no disease response to measure.
+    #
+    # Returns {disease_name: [{"action", "treated", "recovered",
+    # "recovery_pct"}, ...]}, each list sorted by treated count desc.
+    qs = Intervention.objects.select_related("tree").filter(tree__farm__owner=request.user)
+    if farm:
+        qs = qs.filter(tree__farm=farm)
+    interventions = list(qs)
+    if not interventions:
+        return {}
+
+    tree_ids = {iv.tree_id for iv in interventions}
+    history_by_tree = {}
+    for h in ScanHistory.objects.filter(tree_id__in=tree_ids).order_by("tree_id", "-date"):
+        history_by_tree.setdefault(h.tree_id, []).append(h)
+
+    by_disease = {}
+    for iv in interventions:
+        treated_disease = None
+        for h in history_by_tree.get(iv.tree_id, []):
+            if h.date <= iv.date_performed:
+                treated_disease = h.disease
+                break
+        if not treated_disease:
+            treated_disease = iv.tree.disease
+        if treated_disease == "Healthy":
+            continue
+
+        bucket = by_disease.setdefault(treated_disease, {})
+        row = bucket.setdefault(iv.action, {"action": iv.action, "treated": 0, "recovered": 0})
+        row["treated"] += 1
+        if iv.tree.disease == "Healthy":
+            row["recovered"] += 1
+
+    result = {}
+    for disease, actions in by_disease.items():
+        rows = list(actions.values())
+        for r in rows:
+            r["recovery_pct"] = round(r["recovered"] / r["treated"] * 100, 1) if r["treated"] else 0
+        rows.sort(key=lambda r: r["treated"], reverse=True)
+        result[disease] = rows
+    return result
+
+
+def _get_best_intervention_per_disease(by_disease, min_sample=3):
+    # Collapses the per-disease breakdown above into one "what actually
+    # worked" row per disease: the action with the highest recovery rate
+    # for that disease. Prefers actions tried on at least `min_sample`
+    # trees so a single lucky recovery (100% of 1) doesn't outrank a
+    # consistent performer over a dozen trees; falls back to whatever was
+    # tried most if nothing clears that bar, and flags the row as
+    # low-sample so the report doesn't overstate confidence in it.
+    best = []
+    for disease, rows in by_disease.items():
+        if not rows:
+            continue
+        reliable = [r for r in rows if r["treated"] >= min_sample]
+        pool = reliable if reliable else rows
+        top = max(pool, key=lambda r: (r["recovery_pct"], r["treated"]))
+        best.append({
+            "disease": disease,
+            "best_action": top["action"],
+            "recovery_pct": top["recovery_pct"],
+            "recovered": top["recovered"],
+            "treated": top["treated"],
+            "low_sample": top["treated"] < min_sample,
+        })
+    best.sort(key=lambda r: r["recovery_pct"], reverse=True)
+    return best
+
+
 def _get_confidence_summary(request, farm=None):
     # One-number reliability snapshot for the Key Insights list: how
     # confident the model was on average, and how many detections fell
@@ -1450,71 +1530,66 @@ def export_excel(request):
 
 
 def _build_trend_chart(monthly, disease_stats, chart_width, chart_height):
-    # Renders the monthly detection trend as a native ReportLab bar chart,
-    # limited to the most recent 3 months. The previous version plotted the
-    # entire scan history (15+ months) squeezed into one landscape-page
-    # chart, which made individual bars unreadable. Only diseases that
-    # actually occurred in this 3-month window get a legend entry, and the
-    # legend now sits in its own horizontal row under the title instead of
-    # a side column, so it's never competing with the bars for space.
+    # Renders the monthly detection trend as one native ReportLab bar chart
+    # PER MONTH (most recent 3), meant to be stacked one-per-row instead of
+    # 3 month-groups squeezed side by side in a single chart. The old
+    # grouped layout gave each disease only a sliver of page width, which
+    # is what was pushing the tallest bar's value label up into the shared
+    # legend row above it. Each row here gets the full page width to
+    # itself, bars are labeled directly underneath by disease name, and
+    # there's no legend at all -- nothing left for a label to collide with.
+    #
+    # Returns a list of Drawings, one per month (oldest first), each sized
+    # (chart_width, chart_height). Caller stacks them as separate flowables.
     from reportlab.graphics.shapes import Drawing, String
     from reportlab.graphics.charts.barcharts import VerticalBarChart
-    from reportlab.graphics.charts.legends import Legend
     from reportlab.lib import colors as rl_colors
 
     recent = monthly[-3:] if monthly else []
-    months = [m["month"] for m in recent]
     series = [(d["name"], rl_colors.HexColor(d["color"])) for d in disease_stats
               if any(m["diseases"].get(d["name"], 0) for m in recent)]
 
-    drawing = Drawing(chart_width, chart_height)
-    drawing.add(String(chart_width / 2, chart_height - 14, "Monthly Detection Trend (last 3 months)",
-                        fontSize=11, fontName="Helvetica-Bold", textAnchor="middle"))
-
     if not recent or not series:
+        drawing = Drawing(chart_width, chart_height)
         drawing.add(String(chart_width / 2, chart_height / 2, "No scan history in this window",
                             fontSize=9, textAnchor="middle"))
-        return drawing
+        return [drawing]
 
-    trend_data = [[m["diseases"].get(name, 0) for m in recent] for name, _ in series]
+    drawings = []
+    for m in recent:
+        values = [m["diseases"].get(name, 0) for name, _ in series]
+        peak = max(values) if values else 0
 
-    legend_y = chart_height - 34
-    legend = Legend()
-    legend.x = chart_width / 2
-    legend.y = legend_y
-    legend.dx = 8
-    legend.dy = 8
-    legend.fontSize = 8
-    legend.alignment = "right"
-    legend.boxAnchor = "n"
-    legend.columnMaximum = 1
-    legend.deltax = 24
-    legend.colorNamePairs = [(color, name) for name, color in series]
-    drawing.add(legend)
+        drawing = Drawing(chart_width, chart_height)
+        drawing.add(String(chart_width / 2, chart_height - 16, m["month"],
+                            fontSize=13, fontName="Helvetica-Bold", textAnchor="middle"))
 
-    bar = VerticalBarChart()
-    bar.x = 55
-    bar.y = 30
-    bar.width = chart_width - 80
-    bar.height = legend_y - 46
-    bar.data = trend_data
-    bar.categoryAxis.categoryNames = months
-    bar.categoryAxis.labels.fontSize = 11
-    bar.categoryAxis.labels.fontName = "Helvetica-Bold"
-    bar.valueAxis.labels.fontSize = 9
-    bar.valueAxis.valueMin = 0
-    bar.valueAxis.forceZero = True
-    bar.groupSpacing = 22
-    bar.barSpacing = 3
-    bar.barLabels.fontSize = 9.5
-    bar.barLabels.fontName = "Helvetica-Bold"
-    bar.barLabelFormat = "%d"
-    bar.barLabels.dy = 6
-    for i, (_, color) in enumerate(series):
-        bar.bars[i].fillColor = color
-    drawing.add(bar)
+        bar = VerticalBarChart()
+        bar.x = 50
+        bar.y = 22
+        bar.width = chart_width - 70
+        bar.height = chart_height - 58
+        bar.data = [values]
+        bar.categoryAxis.categoryNames = [name for name, _ in series]
+        bar.categoryAxis.labels.fontSize = 9
+        bar.valueAxis.labels.fontSize = 9
+        bar.valueAxis.valueMin = 0
+        bar.valueAxis.forceZero = True
+        # Headroom above the tallest bar (25% of its own height) so the
+        # value label printed above it never runs into the chart title.
+        bar.valueAxis.valueMax = peak * 1.25 if peak else 1
+        bar.groupSpacing = 8
+        bar.barWidth = 18
+        bar.barLabels.fontSize = 10
+        bar.barLabels.fontName = "Helvetica-Bold"
+        bar.barLabelFormat = "%d"
+        bar.barLabels.dy = 6
+        for i, (_, color) in enumerate(series):
+            bar.bars[(0, i)].fillColor = color
+        drawing.add(bar)
+        drawings.append(drawing)
 
-    return drawing
+    return drawings
 
 
 def _build_donut(drawing, cx, cy, radius, data, colors_, cutout=0.65,
@@ -1666,14 +1741,14 @@ def _build_most_affected_chart(most_affected, chart_width, chart_height):
                         fontSize=10, fontName="Helvetica-Bold", textAnchor="middle"))
     if most_affected:
         bar = HorizontalBarChart()
-        bar.x = 130
+        bar.x = 145
         bar.y = 10
-        bar.width = chart_width - 155
+        bar.width = chart_width - 170
         bar.height = chart_height - 34
         bar.data = [[m["diseased"] for m in most_affected]]
         bar.categoryAxis.categoryNames = [m["label"] for m in most_affected]
-        bar.categoryAxis.labels.fontSize = 9.5
-        bar.valueAxis.labels.fontSize = 9
+        bar.categoryAxis.labels.fontSize = 12
+        bar.valueAxis.labels.fontSize = 10
         bar.valueAxis.valueMin = 0
         bar.valueAxis.forceZero = True
         bar.bars[0].fillColor = rl_colors.HexColor("#dc2626")
@@ -1681,6 +1756,93 @@ def _build_most_affected_chart(most_affected, chart_width, chart_height):
     else:
         drawing.add(String(chart_width / 2, chart_height / 2, "No farms registered yet",
                             fontSize=9, textAnchor="middle"))
+    return drawing
+
+
+def _build_intervention_by_disease_chart(by_disease, chart_width, chart_height):
+    # Grouped bar chart comparing each intervention action's recovery rate
+    # across diseases -- "did action A help disease X more than action B
+    # did, compared to disease Y" in one view, complementing the per-
+    # disease summary table below it. Only the top 4 intervention actions
+    # by total trees treated are shown as series (not all 9 possible
+    # actions), so bars/legend stay readable instead of cramming in every
+    # action type regardless of how rarely it's used.
+    #
+    # Bars are recovery_pct (0-100), a fixed scale, so headroom above the
+    # tallest possible bar is guaranteed -- unlike the old monthly trend
+    # chart, an unusually large disease/action pair can't push a value
+    # label into the legend the way an unbounded tree-count bar could.
+    from reportlab.graphics.shapes import Drawing, String
+    from reportlab.graphics.charts.barcharts import VerticalBarChart
+    from reportlab.graphics.charts.legends import Legend
+    from reportlab.lib import colors as rl_colors
+
+    drawing = Drawing(chart_width, chart_height)
+    drawing.add(String(chart_width / 2, chart_height - 14, "Recovery Rate by Intervention, per Disease",
+                        fontSize=11, fontName="Helvetica-Bold", textAnchor="middle"))
+
+    diseases = list(by_disease.keys())
+    if not diseases:
+        drawing.add(String(chart_width / 2, chart_height / 2, "No intervention data yet",
+                            fontSize=9, textAnchor="middle"))
+        return drawing
+
+    totals = {}
+    for rows in by_disease.values():
+        for r in rows:
+            totals[r["action"]] = totals.get(r["action"], 0) + r["treated"]
+    top_actions = [a for a, _ in sorted(totals.items(), key=lambda kv: kv[1], reverse=True)[:4]]
+
+    palette = [rl_colors.HexColor(c) for c in ["#2563eb", "#16a34a", "#f59e0b", "#dc2626"]]
+    action_colors = {a: palette[i % len(palette)] for i, a in enumerate(top_actions)}
+
+    def best_pct(d):
+        return max((r["recovery_pct"] for r in by_disease[d] if r["action"] in top_actions), default=0)
+    diseases.sort(key=best_pct, reverse=True)
+
+    series_data = []
+    for action in top_actions:
+        row_values = []
+        for disease in diseases:
+            match = next((r for r in by_disease[disease] if r["action"] == action), None)
+            row_values.append(match["recovery_pct"] if match else 0)
+        series_data.append(row_values)
+
+    legend_y = chart_height - 32
+    legend = Legend()
+    legend.x = chart_width / 2
+    legend.y = legend_y
+    legend.dx = 8
+    legend.dy = 8
+    legend.fontSize = 8.5
+    legend.alignment = "right"
+    legend.boxAnchor = "n"
+    legend.columnMaximum = 1
+    legend.deltax = 20
+    legend.colorNamePairs = [(action_colors[a], a) for a in top_actions]
+    drawing.add(legend)
+
+    bar = VerticalBarChart()
+    bar.x = 45
+    bar.y = 24
+    bar.width = chart_width - 65
+    bar.height = legend_y - 42
+    bar.data = series_data
+    bar.categoryAxis.categoryNames = diseases
+    bar.categoryAxis.labels.fontSize = 9
+    bar.valueAxis.labels.fontSize = 9
+    bar.valueAxis.valueMin = 0
+    bar.valueAxis.valueMax = 115  # fixed headroom -- recovery_pct can't exceed 100
+    bar.valueAxis.labelTextFormat = "%d%%"
+    bar.groupSpacing = 14
+    bar.barSpacing = 2
+    bar.barLabels.fontSize = 7.5
+    bar.barLabelFormat = "%d%%"
+    bar.barLabels.dy = 4
+    for i, action in enumerate(top_actions):
+        bar.bars[i].fillColor = action_colors[action]
+    drawing.add(bar)
+
     return drawing
 
 
@@ -1703,6 +1865,8 @@ def export_pdf(request):
     severity_counts = _get_severity_counts(request, farm)
     monthly = _get_monthly_trend(request, farm)
     effectiveness, _recent_ivs = _get_intervention_effectiveness(request, farm)
+    intervention_by_disease = _get_intervention_effectiveness_by_disease(request, farm)
+    best_intervention_per_disease = _get_best_intervention_per_disease(intervention_by_disease)
     disease_breakdown = _get_disease_breakdown(request, farm)
     confidence_summary = _get_confidence_summary(request, farm)
     most_affected = _get_most_affected_farms(request)
@@ -1843,14 +2007,17 @@ def export_pdf(request):
     elements.append(pie_row)
     elements.append(Spacer(1, 10))
 
-    # Monthly detection trend — a grouped bar chart, given the full report
-    # width and taller height so month labels and the 4-series legend
-    # aren't cramped the way they were when sharing a row with the pie.
-    trend_h = 2.6 * inch
-    trend_drawing = _build_trend_chart(monthly, disease_stats, content_width, trend_h)
-    trend_frame = KeepInFrame(content_width, trend_h, [trend_drawing])
-    elements.append(trend_frame)
-    elements.append(Spacer(1, 14))
+    # Monthly detection trend — one row per month (last 3), each given the
+    # full report width so every disease bar is legible on its own, instead
+    # of 3 month-groups sharing one chart. Appended as plain Drawings (not
+    # KeepInFrame) so the doc template page-breaks normally between rows
+    # instead of cramming a row into whatever space is left on the page.
+    elements.append(Paragraph("Monthly Detection Trend (last 3 months)", styles["Heading4"]))
+    trend_row_h = 1.9 * inch
+    for trend_drawing in _build_trend_chart(monthly, disease_stats, content_width, trend_row_h):
+        elements.append(trend_drawing)
+        elements.append(Spacer(1, 6))
+    elements.append(Spacer(1, 8))
 
     # Most Affected Areas — this panel exists on the web Reports page but
     # was previously dropped from the PDF export entirely: export_pdf()
@@ -1914,6 +2081,43 @@ def export_pdf(request):
         ]))
         elements.append(Paragraph("Intervention Effectiveness", styles["Heading4"]))
         elements.append(eff_table)
+        elements.append(Spacer(1, 14))
+
+    # Most Effective Intervention per Disease — the overall table above
+    # answers "which action gets used most", but not "which action
+    # actually works for THIS disease". This breaks that out: one summary
+    # row per disease (its single best-performing action), then a grouped
+    # chart comparing the top actions side by side across every disease.
+    if best_intervention_per_disease:
+        best_rows = [["Disease", "Most Effective Intervention", "Recovery Rate", "Trees Treated"]] + [
+            [b["disease"], b["best_action"] + (" *" if b["low_sample"] else ""),
+             f"{b['recovery_pct']}%", str(b["treated"])]
+            for b in best_intervention_per_disease
+        ]
+        best_table = Table(best_rows, colWidths=[content_width * f for f in [0.28, 0.34, 0.19, 0.19]])
+        best_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a2535")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+            ("ALIGN", (0, 0), (0, -1), "LEFT"),
+            ("ALIGN", (1, 0), (-1, -1), "CENTER"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        elements.append(Paragraph("Most Effective Intervention per Disease", styles["Heading4"]))
+        elements.append(best_table)
+        if any(b["low_sample"] for b in best_intervention_per_disease):
+            elements.append(Spacer(1, 4))
+            elements.append(Paragraph(
+                "* Based on fewer than 3 treated trees — preliminary, not yet a reliable sample.",
+                styles["Normal"],
+            ))
+        elements.append(Spacer(1, 14))
+
+        compare_h = 2.6 * inch
+        compare_drawing = _build_intervention_by_disease_chart(intervention_by_disease, content_width, compare_h)
+        elements.append(compare_drawing)
         elements.append(Spacer(1, 14))
 
     # Per-tree table — capped to a page-friendly sample since a full
