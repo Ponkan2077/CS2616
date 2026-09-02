@@ -184,7 +184,7 @@
             <span class="badge bg-danger rounded-pill">{{ notifications|length }}</span>
           </div>
           {% for n in notifications %}
-          <a href="{{ n.url }}" class="notif-item">
+          <a href="{{ n.url }}" class="notif-item" data-tree-pk="{{ n.tree_pk }}" data-date-scanned="{{ n.date_scanned }}">
             <i class="bi {{ n.icon }} fs-5 mt-1" style="color:{{ n.color }};"></i>
             <div class="flex-grow-1">
               <div>{{ n.msg }}</div>
