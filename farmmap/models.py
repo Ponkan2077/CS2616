@@ -527,3 +527,27 @@ class UserSettings(models.Model):
             d.name for d in get_disease_lookup().values()
             if not d.is_healthy and d.name not in self.notify_muted_diseases
         ]
+
+
+class NotificationDismissal(models.Model):
+    """Tracks which bell notifications a user has already clicked, so a
+    dismissed one stops reappearing in the dropdown/badge count.
+
+    Notifications themselves aren't stored rows -- _build_notifications()
+    in views.py derives them fresh each request from recently-scanned
+    RubberTree rows. So "dismissed" is tracked separately here, keyed by
+    (user, tree, date_scanned) rather than just (user, tree): a
+    notification is really "this tree's scan from this date", so if the
+    tree gets rescanned later (a new date_scanned, even for the same
+    disease persisting), that's a fresh event worth surfacing again
+    instead of staying silently dismissed forever."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="dismissed_notifications")
+    tree = models.ForeignKey(RubberTree, on_delete=models.CASCADE, related_name="notification_dismissals")
+    date_scanned = models.DateField()
+    dismissed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("user", "tree", "date_scanned")
+
+    def __str__(self):
+        return f"{self.user.username} dismissed {self.tree.tree_id} ({self.date_scanned})"

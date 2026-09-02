@@ -42,6 +42,34 @@ ACTION_RECOVERY_RATES = {
     "Other": 0.25,
 }
 
+# Which of the 9 action choices are actually plausible for a given disease,
+# so seeded interventions don't pair e.g. "Root Treatment" with Pink Disease
+# (a bark/stem disease with no root involvement). Derived from each
+# DiseaseClass's own recommendation_mild/moderate/severe text in the seed
+# migrations (0004/0007) -- root-rot diseases get root/soil actions,
+# bark/trunk diseases get fungicide/bark/tapping actions, and Brown Bast
+# (a physiological tapping disorder, not a fungal infection) never gets
+# Fungicide Application since its own "severe" recommendation says
+# explicitly that fungicide won't help it. "Quarantine", "Monitoring Only",
+# and "Other" are left out of Brown Bast/Dry Crust since neither is a
+# spreading pathogen, but are otherwise broadly applicable. Diseases not
+# listed here (e.g. any added later via the admin) fall back to the full
+# ACTIONS list rather than being blocked from getting interventions at all.
+ACTIONS_BY_DISEASE = {
+    "Pink Disease": ["Fungicide Application", "Bark Removal", "Tapping Suspended",
+                      "Quarantine", "Monitoring Only", "Other"],
+    "Stem Bleeding": ["Fungicide Application", "Bark Removal", "Tapping Suspended",
+                       "Quarantine", "Monitoring Only", "Other"],
+    "Canker Disease": ["Bark Removal", "Fungicide Application", "Tapping Suspended",
+                        "Quarantine", "Monitoring Only", "Other"],
+    "White Root Rot": ["Root Treatment", "Soil Treatment", "Uprooting",
+                        "Quarantine", "Monitoring Only", "Other"],
+    "Red Root Rot": ["Root Treatment", "Soil Treatment", "Uprooting",
+                      "Quarantine", "Monitoring Only", "Other"],
+    "Brown Bast": ["Tapping Suspended", "Soil Treatment", "Monitoring Only", "Other"],
+    "Dry Crust": ["Tapping Suspended", "Soil Treatment", "Monitoring Only", "Other"],
+}
+
 # Reads the disease catalog fresh each run, rather than a hardcoded list --
 # if you've added/removed disease classes via the admin since the last
 # reseed, this picks that up automatically. Healthy trees are weighted at
@@ -340,7 +368,7 @@ for farm_id, farm in farms.items():
         # ~40% of diseased trees have at least one logged intervention.
         if tree.disease not in _HEALTHY_NAMES and random.random() < 0.4:
             iv_date = random_date(tree.date_scanned, min(tree.date_scanned + datetime.timedelta(days=30), SCAN_WINDOW_END))
-            action = random.choice(ACTIONS)
+            action = random.choice(ACTIONS_BY_DISEASE.get(tree.disease, ACTIONS))
             intervention_objs.append(Intervention(
                 tree=tree, performed_by=demo_user,
                 action=action, date_performed=iv_date,

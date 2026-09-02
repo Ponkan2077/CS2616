@@ -7,6 +7,7 @@ urlpatterns = [
     # Core pages
     path('', views.dashboard, name='dashboard'),
     path('ping/', views.ping, name='ping'),
+    path('api/notifications/dismiss/', views.dismiss_notification, name='dismiss_notification'),
     path('map/', views.farm_map, name='farm_map'),
     path('map/marker/<str:tree_id>/', views.tree_marker_detail, name='tree_marker_detail'),
     path('detection/', views.disease_detection, name='disease_detection'),

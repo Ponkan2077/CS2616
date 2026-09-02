@@ -11,7 +11,10 @@ from django.urls import reverse
 from django.utils import timezone
 from django.core.paginator import Paginator
 from django.db.models import Count, Q, Prefetch, Min, Max, Avg, Exists, OuterRef
-from .models import Farm, RubberTree, ScanHistory, Intervention, DiseaseClass, UserSettings, get_disease_lookup
+from .models import (
+    Farm, RubberTree, ScanHistory, Intervention, DiseaseClass, UserSettings,
+    NotificationDismissal, get_disease_lookup,
+)
 from .imaging import resize_for_storage
 from . import ai_inference
 from . import storage_stats
@@ -348,7 +351,10 @@ def _build_notifications(request):
     # Builds clickable notifications from the user's most recently scanned
     # diseased trees, filtered by their notification preferences (which
     # disease types, and how many days back counts as "recent") from
-    # UserSettings -- see the Settings page.
+    # UserSettings -- see the Settings page. Trees the user has already
+    # clicked/dismissed (NotificationDismissal, keyed by tree + that exact
+    # date_scanned) are excluded so a read notification doesn't keep
+    # reappearing on every page load.
     user_settings, _ = UserSettings.objects.get_or_create(user=request.user)
     enabled_diseases = user_settings.enabled_diseases()
     if not enabled_diseases:
@@ -356,14 +362,20 @@ def _build_notifications(request):
 
     today = timezone.localdate()
     cutoff = today - timezone.timedelta(days=user_settings.notify_lookback_days)
+    dismissed = set(
+        NotificationDismissal.objects.filter(user=request.user)
+        .values_list("tree_id", "date_scanned")
+    )
     diseased_trees = (
         RubberTree.objects.select_related("farm")
         .filter(farm__owner=request.user, disease__in=enabled_diseases, date_scanned__gte=cutoff)
-        .order_by("-date_scanned")[:6]
+        .order_by("-date_scanned")[:6 + len(dismissed)]
     )
     notifications = []
     disease_lookup = get_disease_lookup()
     for t in diseased_trees:
+        if (t.pk, t.date_scanned) in dismissed:
+            continue
         dc = disease_lookup.get(t.disease)
         color = dc.color_hex if dc else "#22c55e"
         days_ago = (today - t.date_scanned).days
@@ -373,8 +385,41 @@ def _build_notifications(request):
             "msg": f"{t.disease} detected at Tree {t.tree_id}",
             "time": _humanize_days_ago(days_ago),
             "url": reverse("tree_details", args=[t.tree_id]),
+            # Internal numeric pk (NOT the human-readable tree.tree_id string
+            # used in the URL above) -- this is what NotificationDismissal's
+            # FK and the dismiss endpoint below key off of.
+            "tree_pk": t.pk,
+            "date_scanned": t.date_scanned.isoformat(),
         })
+        if len(notifications) == 6:
+            break
     return notifications
+
+
+@login_required
+def dismiss_notification(request):
+    # Marks one notification read/dismissed so it stops showing up in the
+    # bell dropdown and badge count. Called via fetch() from main.js right
+    # before it follows the notification's link -- see notif-item handling
+    # there. Silently no-ops (still 200s) on a repeat dismiss of the same
+    # tree/date_scanned pair instead of erroring, since a double-click or a
+    # retry shouldn't surface an error to the user.
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+
+    tree_pk = request.POST.get("tree_pk")
+    date_scanned = request.POST.get("date_scanned")
+    if not tree_pk or not date_scanned:
+        return JsonResponse({"error": "tree_pk and date_scanned are required"}, status=400)
+
+    tree = RubberTree.objects.filter(pk=tree_pk, farm__owner=request.user).first()
+    if not tree:
+        return JsonResponse({"error": "not found"}, status=404)
+
+    NotificationDismissal.objects.get_or_create(
+        user=request.user, tree=tree, date_scanned=date_scanned,
+    )
+    return JsonResponse({"ok": True})
 
 
 def _get_farm_or_none(request):
