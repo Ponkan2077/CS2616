@@ -96,7 +96,37 @@ function rgAttachPinScaling(map, markerList) {
   rescale();
 }
 
+/* ============================================================
+   NOTIFICATIONS — clicking a bell dropdown item marks it
+   dismissed (server-side, via NotificationDismissal) before
+   following its link, so it doesn't reappear in the list/badge
+   count on the next page. The dismiss call is awaited first
+   (rather than fired with sendBeacon alongside the navigation)
+   so it's guaranteed to be committed before the next page's
+   notifications are rendered -- otherwise the two requests could
+   race and the just-clicked notification would still show up.
+   Navigation still proceeds via .finally() even if the dismiss
+   call fails, so a network hiccup never blocks the user from
+   reaching the tree page they clicked through to.
+   ============================================================ */
 document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.notif-item[data-tree-pk]').forEach(item => {
+    item.addEventListener('click', function (e) {
+      e.preventDefault();
+      const destination = this.href;
+      fetch('/api/notifications/dismiss/', {
+        method: 'POST',
+        headers: {
+          'X-CSRFToken': getCsrfToken(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `tree_pk=${encodeURIComponent(this.dataset.treePk)}&date_scanned=${encodeURIComponent(this.dataset.dateScanned)}`,
+      }).finally(() => {
+        window.location.href = destination;
+      });
+    });
+  });
+
   const hamburger = document.getElementById('hamburger');
   const overlay = document.getElementById('sidebar-overlay');
   const closeBtn = document.getElementById('sidebar-close');
