@@ -27,9 +27,11 @@
       {% endfor %}
     </select>
   </form>
+  {% if not map_locked %}
   <div class="text-muted" style="font-size:11px;">
     <i class="bi bi-info-circle"></i> Zoom in freely — zooming out is limited to this farm's bounds.
   </div>
+  {% endif %}
 </div>
 
 <!-- Stats -->
@@ -62,19 +64,60 @@
   </div>
 </div>
 
-<div class="card-rg">
-  <!-- Toolbar -->
-  <div class="card-body-rg d-flex flex-wrap gap-2 align-items-center" style="padding-bottom:14px;border-bottom:1px solid var(--border);">
-    <div class="search-wrap">
-      <i class="bi bi-search"></i>
-      <input type="text" id="map-search" class="form-control-rg" placeholder="Search Tree ID…">
+{% if map_locked %}
+<!-- Not enough GPS data yet: say exactly how many more locations unlock the
+     live map (threshold: FARM_MAP_MIN_GPS_POINTS in settings.py). -->
+<div class="card-rg map-locked" id="map-locked" role="status">
+  <div class="map-locked-icon" aria-hidden="true"><i class="bi bi-geo-alt"></i></div>
+  <div class="map-locked-main">
+    {% if map_status.reason == "collinear" %}
+    <h2 class="map-locked-title">Need 1 more GPS location that isn't in line with the others</h2>
+    <p class="map-locked-text">
+      {{ map_farm.name }} has {{ map_status.usable }} GPS location{{ map_status.usable|pluralize }}, but they all sit on one straight line, so they can't outline the farm.
+      Scan a tree somewhere off to the side.
+    </p>
+    {% else %}
+    <h2 class="map-locked-title">Need {{ map_status.needed }} more GPS location{{ map_status.needed|pluralize }} to show the live map</h2>
+    <p class="map-locked-text">
+      {% if map_status.usable == 0 %}
+      {{ map_farm.name }} has no GPS locations yet. The map needs {{ map_status.required }} to draw the farm border and heatmap.
+      {% else %}
+      {{ map_farm.name }} has {{ map_status.usable }} of the {{ map_status.required }} GPS locations the map needs to draw the farm border and heatmap.
+      {% endif %}
+      Scan trees at different spots on the farm. Each new spot counts once.
+    </p>
+    {% endif %}
+
+    {% if map_status.reason != "collinear" %}
+    {# Not shown when the count is already met: a full bar next to "need 1 more" would contradict the message. #}
+    <div class="map-locked-progress">
+      <div class="progress-track" role="progressbar" aria-label="GPS locations collected"
+           aria-valuemin="0" aria-valuemax="{{ map_status.required }}" aria-valuenow="{% if map_status.usable > map_status.required %}{{ map_status.required }}{% else %}{{ map_status.usable }}{% endif %}">
+        <div class="progress-fill" style="width:{{ map_progress_pct }}%;"></div>
+      </div>
+      <span class="progress-count">{% if map_status.usable > map_status.required %}{{ map_status.required }}{% else %}{{ map_status.usable }}{% endif %} of {{ map_status.required }}</span>
     </div>
-    <select id="map-filter" class="select-filter-rg">
-      <option value="">All Diseases</option>
-      {% for d in disease_stats %}
-      <option value="{{ d.name }}">{{ d.name }}</option>
-      {% endfor %}
-    </select>
+    {% endif %}
+
+    {% if map_status.ignored %}
+    <p class="map-locked-note">
+      <i class="bi bi-exclamation-triangle"></i>
+      {{ map_status.ignored }} tree{{ map_status.ignored|pluralize }} not counted because the GPS reading looked invalid or far from the rest of the farm.
+    </p>
+    {% endif %}
+
+    <div class="map-locked-actions">
+      <a href="{% url 'disease_detection' %}" class="btn btn-sm btn-primary"><i class="bi bi-camera"></i> Scan a tree</a>
+      <a href="{% url 'bulk_upload' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-images"></i> Upload photos in bulk</a>
+    </div>
+  </div>
+</div>
+
+{% else %}
+
+<div class="card-rg map-card">
+  <!-- Toolbar -->
+  <div class="map-toolbar">
     <div class="view-toggle" role="group" aria-label="Map view mode">
       <button type="button" id="view-markers-btn" class="view-toggle-btn active">
         <i class="bi bi-geo-alt-fill"></i> Markers
@@ -86,69 +129,131 @@
         <i class="bi bi-clipboard2-pulse-fill"></i> Interventions
       </button>
     </div>
+    <div class="search-wrap">
+      <i class="bi bi-search"></i>
+      <input type="text" id="map-search" class="form-control-rg" placeholder="Search tree ID" aria-label="Search tree ID">
+    </div>
+    <select id="map-filter" class="select-filter-rg" aria-label="Filter by disease">
+      <option value="">All Diseases</option>
+      {% for d in disease_stats %}
+      <option value="{{ d.name }}">{{ d.name }}</option>
+      {% endfor %}
+    </select>
     <button id="map-reset" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-arrow-counterclockwise"></i> Reset
     </button>
   </div>
 
-  <!-- Map -->
-  <div id="map-container" class="map-container-rg"></div>
+  <!-- Map + floating panels (panels sit below the map on small screens) -->
+  <div class="map-stage">
+    <div id="map-container" class="map-container-rg"></div>
 
-  <!-- Legend: marker view -->
-  <div id="legend-markers" class="p-3 border-top d-flex flex-wrap gap-3 align-items-center" style="font-size:12px;">
-    <strong>Legend:</strong>
-    {% for d in disease_stats %}
-    <span><span class="legend-dot" style="background:{{ d.color }};"></span>{{ d.name }}</span>
-    {% endfor %}
-    <span><span class="legend-dot-farm"></span>Farm Boundary</span>
-    <span class="text-muted"><i class="bi bi-circle"></i> Numbered bubbles are clusters — tap one to zoom in; individual trees appear as you zoom.</span>
-    <span class="text-muted ms-auto"><i class="bi bi-cursor-fill"></i> Tap a tree marker to load its details</span>
-  </div>
-
-  <!-- Legend: heatmap view (severity gradient, hidden by default) -->
-  <div id="legend-heatmap" class="p-3 border-top d-flex flex-wrap align-items-center gap-3" style="font-size:12px;display:none;">
-    <strong>Heatmap:</strong>
-    <span id="heatmap-disease-label" style="font-weight:600;">—</span>
-    <div class="heatmap-scale">
-      <div class="heatmap-gradient-bar">
-        <span class="tick"></span>
-        <span class="tick"></span>
-      </div>
-      <div class="heatmap-scale-labels">
-        <span>Mild</span>
-        <span>Moderate</span>
-        <span>Severe</span>
-      </div>
+    <div id="map-empty" class="map-empty" hidden>
+      <div class="map-empty-title" id="map-empty-title"></div>
+      <div class="map-empty-body" id="map-empty-body"></div>
     </div>
-    <span class="text-muted">Color reflects each tree's severity score, not how many diseased trees are nearby — yellow patches are mild cases, red patches are severe ones.</span>
-  </div>
 
-  <!-- Legend: interventions view (only diseased trees shown, colored by
-       whether an intervention has been logged; hidden by default) -->
-  <div id="legend-interventions" class="p-3 border-top d-flex flex-wrap gap-3 align-items-center" style="font-size:12px;display:none;">
-    <strong>Interventions:</strong>
-    <span><span class="legend-dot" style="background:#22c55e;"></span>Action Taken</span>
-    <span><span class="legend-dot" style="background:#ef4444;"></span>Needs Action</span>
-    <span class="text-muted">Only diseased trees are shown in this view — healthy trees don't need an intervention.</span>
+    <!-- Panel: marker view — legend rows double as disease filters -->
+    <aside id="panel-markers" class="map-panel" aria-label="Map legend">
+      <button type="button" class="map-panel-head" aria-expanded="true">
+        <span>Diseases on this farm</span><i class="bi bi-chevron-up" aria-hidden="true"></i>
+      </button>
+      <div class="map-panel-body">
+        <ul class="legend-list">
+          {% for d in disease_stats %}
+          <li>
+            <button type="button" class="legend-row" data-disease="{{ d.name }}" aria-pressed="false">
+              <span class="legend-dot" style="background:{{ d.color }};"></span>
+              <span class="legend-name">{{ d.name }}</span>
+              <span class="legend-count">{{ d.count }}</span>
+            </button>
+          </li>
+          {% endfor %}
+        </ul>
+        <div class="legend-boundary"><span class="legend-dot-farm"></span>Farm boundary</div>
+        <p class="map-panel-hint">Tap a disease to show only those trees. Numbered bubbles group nearby trees; zoom in to split them.</p>
+      </div>
+    </aside>
+
+    <!-- Panel: heatmap view -->
+    <aside id="panel-heatmap" class="map-panel" aria-label="Heatmap controls and legend" hidden>
+      <button type="button" class="map-panel-head" aria-expanded="true">
+        <span>Severity heatmap</span><i class="bi bi-chevron-up" aria-hidden="true"></i>
+      </button>
+      <div class="map-panel-body">
+        <div id="heat-chips" class="heat-chips" role="group" aria-label="Disease to map"></div>
+
+        <div class="heat-scale">
+          <div id="heat-ramp" class="heat-ramp" role="img" aria-label="Severity scale from 0 to 100"></div>
+          <div class="heat-tier-labels">
+            <span><b>Mild</b><small>0–33</small></span>
+            <span><b>Moderate</b><small>34–66</small></span>
+            <span><b>Severe</b><small>67–100</small></span>
+          </div>
+        </div>
+        <p class="map-panel-hint">Color shows the most severe tree nearby, not how many trees are affected. Dots are individual trees.</p>
+
+        <dl class="heat-stats">
+          <div><dt>Trees</dt><dd id="heat-stat-count">0</dd></div>
+          <div><dt>Avg severity</dt><dd id="heat-stat-mean">0</dd></div>
+          <div><dt>Peak severity</dt><dd id="heat-stat-peak">0</dd></div>
+        </dl>
+
+        <div id="heat-tiers" class="heat-tiers" aria-label="Trees by severity tier">
+          <div class="heat-tier-bar" id="heat-tier-bar"></div>
+          <div class="heat-tier-key">
+            <span><i style="background:var(--sev-mild)"></i>Mild <b id="heat-tier-mild">0</b></span>
+            <span><i style="background:var(--sev-moderate)"></i>Moderate <b id="heat-tier-moderate">0</b></span>
+            <span><i style="background:var(--sev-severe)"></i>Severe <b id="heat-tier-severe">0</b></span>
+          </div>
+        </div>
+
+        <button type="button" id="heat-locate" class="btn btn-sm btn-primary w-100">
+          <i class="bi bi-crosshair"></i> Go to worst case
+        </button>
+        <div id="heat-worst" class="heat-worst" hidden></div>
+
+        <label class="heat-spread" for="heat-spread">
+          <span>Spread</span>
+          <input type="range" id="heat-spread" min="0.5" max="2.5" step="0.1" value="1">
+        </label>
+      </div>
+    </aside>
+
+    <!-- Panel: interventions view -->
+    <aside id="panel-interventions" class="map-panel" aria-label="Interventions legend" hidden>
+      <button type="button" class="map-panel-head" aria-expanded="true">
+        <span>Interventions</span><i class="bi bi-chevron-up" aria-hidden="true"></i>
+      </button>
+      <div class="map-panel-body">
+        <p class="iv-summary"><b id="iv-done">0</b> of <b id="iv-total">0</b> diseased trees shown have an action logged.</p>
+        <div class="progress-track" role="presentation"><div class="progress-fill progress-fill-ok" id="iv-bar" style="width:0%;"></div></div>
+        <ul class="legend-list">
+          <li class="legend-row legend-row-static"><span class="legend-dot" style="background:#22c55e;"></span><span class="legend-name">Action taken</span><span class="legend-count" id="iv-count-done">0</span></li>
+          <li class="legend-row legend-row-static"><span class="legend-dot" style="background:#ef4444;"></span><span class="legend-name">Needs action</span><span class="legend-count" id="iv-count-todo">0</span></li>
+        </ul>
+        <p class="map-panel-hint">Healthy trees are hidden here because they don't need an intervention.</p>
+      </div>
+    </aside>
   </div>
 </div>
+{% endif %}
 {% endif %}
 {% endblock %}
 
 {% block extra_scripts %}
-{% if not no_farms %}
+{% if not no_farms and not map_locked %}
 <script>
   const FARM_MAP_DATA = {
     markers: {{ markers_json|safe }},
     bounds: {{ map_bounds|safe }},
     boundaryPolygon: {{ map_farm_boundary|safe }},
-    farmId: '{{ map_farm.farm_id }}',
+    farmId: '{{ map_farm.farm_id|escapejs }}',
     farmName: '{{ map_farm.name|escapejs }}',
     farmOwner: '{{ map_farm.owner_name|escapejs }}',
     diseaseColors: {{ disease_colors_json|safe }}
   };
 </script>
-<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 {% load static %}
 <script src="{% static 'js/farm_map.js' %}?v={{ STATIC_VERSION }}"></script>
