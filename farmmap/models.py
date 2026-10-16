@@ -1,9 +1,74 @@
+import math
+import statistics
+
+from django.conf import settings
 from django.db import models
 from django.db.models import Avg
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
+
+
+_METERS_PER_DEG_LAT = 111320.0
+
+# Default for how many distinct, usable GPS locations a farm needs before the
+# live map is shown (see Farm.get_map_status). Override with
+# FARM_MAP_MIN_GPS_POINTS in project/settings.py.
+#
+# Why 5: 3 non-collinear points is the mathematical minimum for any farm
+# border at all, but a 3-point "farm" is just a triangle and a heatmap over
+# it says nothing. 5 gives a border with real shape and enough points for a
+# heatmap pattern, while still unlocking after a handful of scans.
+DEFAULT_MIN_GPS_POINTS = 5
+
+# Two readings closer than this are one location for counting purposes (GPS
+# caching can reuse one fix across a whole scanning session, and phone GPS
+# is only good to a few meters anyway). 5 decimal places is about 1.1 m.
+_LOCATION_DEDUPE_DECIMALS = 5
+
+
+def get_min_gps_points():
+    return max(int(getattr(settings, "FARM_MAP_MIN_GPS_POINTS", DEFAULT_MIN_GPS_POINTS)), 3)
+
+
+def _clean_points(points):
+    # Filters a farm's tree coordinates down to the ones the boundary and
+    # map bounds should actually be built from. One bad GPS fix (a 0,0
+    # "null island" reading, an out-of-range value, or a stray point far
+    # from everything else) would otherwise stretch the convex hull and the
+    # zoom lock across the whole map, so the farm shrinks to a speck and its
+    # border looks wrong. Those trees still show up as markers; they just
+    # don't get to define the farm's outline.
+    valid = []
+    for lat, lng in points:
+        if lat is None or lng is None:
+            continue
+        lat, lng = float(lat), float(lng)
+        if not (math.isfinite(lat) and math.isfinite(lng)):
+            continue
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            continue
+        if abs(lat) < 1e-4 and abs(lng) < 1e-4:
+            continue
+        valid.append((lat, lng))
+
+    # Too few points to tell an outlier from a normal spread.
+    if len(valid) < 4:
+        return valid
+
+    med_lat = statistics.median(p[0] for p in valid)
+    med_lng = statistics.median(p[1] for p in valid)
+    cos_lat = max(math.cos(math.radians(med_lat)), 0.01)
+    dists = [
+        math.hypot((lat - med_lat) * _METERS_PER_DEG_LAT, (lng - med_lng) * _METERS_PER_DEG_LAT * cos_lat)
+        for lat, lng in valid
+    ]
+    # Generous on purpose: a real farm that is simply large or elongated
+    # keeps all its trees; only points far beyond the farm's own spread
+    # (and at least 1 km out) are dropped.
+    limit = max(1000.0, 8 * statistics.median(dists))
+    return [p for p, d in zip(valid, dists) if d <= limit]
 
 
 def _convex_hull(points):
@@ -32,14 +97,24 @@ def _convex_hull(points):
     return lower[:-1] + upper[:-1]
 
 
-def _expand_polygon(hull, center_lat, center_lng, factor=1.06):
-    # Scales each hull point outward from the farm's center by a small
-    # factor, so the drawn boundary sits just outside the outermost trees
-    # instead of passing directly through them.
-    return [
-        [center_lat + (lat - center_lat) * factor, center_lng + (lng - center_lng) * factor]
-        for lat, lng in hull
-    ]
+def _expand_polygon(hull, center_lat, center_lng, factor=1.06, min_margin_m=10.0):
+    # Pushes each hull point outward from the farm's center, so the drawn
+    # boundary sits just outside the outermost trees instead of passing
+    # directly through them. The push is at least `factor` (a percentage of
+    # the point's distance from the center) AND at least `min_margin_m`
+    # meters -- a pure percentage left a small farm's border only a couple
+    # of meters past its edge trees, i.e. underneath their markers.
+    # Every point moves along its own ray from the center, so the expanded
+    # polygon always fully contains the original hull.
+    cos_lat = max(math.cos(math.radians(center_lat)), 0.01)
+    expanded = []
+    for lat, lng in hull:
+        d_lat = lat - center_lat
+        d_lng = lng - center_lng
+        dist_m = math.hypot(d_lat * _METERS_PER_DEG_LAT, d_lng * _METERS_PER_DEG_LAT * cos_lat)
+        scale = max(factor, 1 + min_margin_m / dist_m) if dist_m > 0 else factor
+        expanded.append([center_lat + d_lat * scale, center_lng + d_lng * scale])
+    return expanded
 
 
 class Farm(models.Model):
@@ -128,7 +203,47 @@ class Farm(models.Model):
             return self.center_lat, self.center_lng
         return agg["avg_lat"], agg["avg_lng"]
 
-    def get_boundary_polygon(self):
+    def get_map_status(self, points=None):
+        # Decides whether this farm has enough GPS data to show the live map.
+        # Counts distinct, usable locations only -- the same filtered set the
+        # boundary is built from (_clean_points), de-duplicated -- so a farm
+        # with 50 scans that all share 2 GPS fixes (or are all 0,0) still
+        # reads as having 2 locations, not 50. Pass `points` (a list of
+        # (lat, lng)) if the caller already queried them.
+        #
+        # Returns a dict:
+        #   ready     -- True when the live map can be drawn
+        #   required  -- the minimum (get_min_gps_points())
+        #   usable    -- distinct usable locations found
+        #   needed    -- how many more locations to unlock the map (0 if ready)
+        #   ignored   -- trees left out for an invalid / far-off GPS reading
+        #   total     -- trees on the farm
+        #   reason    -- "" when ready, "count" when short on locations, or
+        #                "collinear" when there are enough but they all sit on
+        #                one line, so they can't enclose an area
+        raw = list(self.trees.values_list("lat", "lng")) if points is None else list(points)
+        usable_points = _clean_points(raw)
+        distinct = {
+            (round(lat, _LOCATION_DEDUPE_DECIMALS), round(lng, _LOCATION_DEDUPE_DECIMALS))
+            for lat, lng in usable_points
+        }
+        required = get_min_gps_points()
+        usable = len(distinct)
+        needed = max(required - usable, 0)
+        reason = "count" if needed else ""
+        if not needed and len(_convex_hull(usable_points)) < 3:
+            needed, reason = 1, "collinear"
+        return {
+            "ready": needed == 0,
+            "required": required,
+            "usable": usable,
+            "needed": needed,
+            "ignored": len(raw) - len(usable_points),
+            "total": len(raw),
+            "reason": reason,
+        }
+
+    def get_boundary_polygon(self, points=None):
         # Returns the convex hull of this farm's tree coordinates as a list
         # of [lat, lng] points, forming a boundary that actually follows the
         # shape of the planted area instead of a fixed-radius circle. Falls
@@ -140,9 +255,15 @@ class Farm(models.Model):
         # a real way this happens) would pass a raw-count check but still
         # collapse to a 2-point non-polygon. Exactly-collinear points
         # degenerate the same way and are caught by the same check.
-        points = list(self.trees.values_list("lat", "lng"))
-        center_lat, center_lng = self.get_center()
+        points = _clean_points(self.trees.values_list("lat", "lng") if points is None else points)
         hull = _convex_hull(points) if points else []
+        if points:
+            # Center of the usable trees only -- get_center() averages every
+            # tree, so a single bad GPS fix would drag it off the farm.
+            center_lat = sum(p[0] for p in points) / len(points)
+            center_lng = sum(p[1] for p in points) / len(points)
+        else:
+            center_lat, center_lng = self.center_lat, self.center_lng
         if len(hull) < 3:
             pad = max(self.boundary_radius_m, 200) / 111000
             return [
