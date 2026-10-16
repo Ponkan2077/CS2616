@@ -23,6 +23,13 @@
   --white-root:     #d0995f;
   --stem:           #fb7185;
 
+  /* Severity tiers (Mild < 34, Moderate < 67, Severe >= 67). Chosen for
+     contrast on dark surfaces; the farm map heatmap ramp (farm_map.js,
+     SEVERITY_STOPS) starts each tier on these same colors. */
+  --sev-mild:       #fde047;
+  --sev-moderate:   #fb923c;
+  --sev-severe:     #ef4444;
+
   --healthy-bg:     rgba(52,211,153,.14);   --healthy-text:    #4ade80;
   --pink-bg:        rgba(248,113,113,.14);  --pink-text:       #f87171;
   --white-root-bg:  rgba(208,153,95,.16);   --white-root-text: #e0aa6f;
@@ -343,27 +350,7 @@ body {
 .view-toggle-btn.active { background: var(--primary); color: #fff; }
 .view-toggle-btn:hover:not(.active) { background: rgba(255,255,255,.06); }
 
-.heatmap-scale { display: flex; flex-direction: column; gap: 3px; }
-.heatmap-gradient-bar {
-  position: relative;
-  display: block; width: 180px; height: 16px; border-radius: 5px;
-  background: linear-gradient(to right, #fde047, #fb923c, #f97316, #dc2626, #b91c1c, #7f1d1d);
-  border: 1px solid rgba(255,255,255,.25);
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
-}
-.heatmap-gradient-bar .tick {
-  position: absolute; top: -2px; bottom: -2px; width: 1px;
-  background: rgba(255,255,255,.55);
-}
-.heatmap-gradient-bar .tick:nth-child(1) { left: 33.333%; }
-.heatmap-gradient-bar .tick:nth-child(2) { left: 66.666%; }
-.heatmap-scale-labels {
-  display: flex; justify-content: space-between; width: 180px;
-  font-size: 10px; font-weight: 600; color: var(--text-muted);
-}
-.heatmap-scale-labels span:nth-child(1) { color: #fbbf24; }
-.heatmap-scale-labels span:nth-child(2) { color: #fb923c; }
-.heatmap-scale-labels span:nth-child(3) { color: #dc2626; }
+.view-toggle-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 
 /* ============================================================
    MAP CONTAINERS
@@ -389,7 +376,181 @@ body {
 }
 .legend-dot-farm {
   display: inline-block; width: 12px; height: 12px; border-radius: 3px;
-  background: #0d6efd44; border: 2px solid #0d6efd; margin-right: 4px;
+  background: rgba(124,180,255,.16); border: 2px dashed #7cb4ff; margin-right: 4px;
+}
+
+/* ============================================================
+   FARM MAP — toolbar, stage, floating panels, empty/locked states
+   ============================================================ */
+.map-toolbar {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+}
+.map-toolbar .search-wrap { flex: 1 1 180px; max-width: 320px; }
+
+.map-stage { --map-h: clamp(360px, 64vh, 680px); position: relative; isolation: isolate; }
+.map-stage .map-container-rg {
+  height: var(--map-h); min-height: 0; max-height: none; background: #151c28;
+}
+
+/* Floating panel (legend / heatmap controls / interventions summary) */
+.map-panel {
+  position: absolute; top: 12px; right: 12px; z-index: 1100;
+  width: 280px; max-height: calc(var(--map-h) - 24px); overflow-y: auto;
+  background: rgba(17,25,38,.92);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.4);
+  font-size: 12px; color: var(--text-main);
+}
+.map-panel[hidden] { display: none; }
+.map-panel-head {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 14px; background: none; border: 0; color: var(--text-main);
+  font-size: 13px; font-weight: 700; cursor: pointer; text-align: left;
+}
+.map-panel-head i { color: var(--text-muted); transition: transform .15s; }
+.map-panel-head[aria-expanded="false"] i { transform: rotate(180deg); }
+.map-panel-head:focus-visible, .legend-row:focus-visible, .heat-chip:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: -2px;
+}
+.map-panel-body { padding: 0 14px 14px; }
+.map-panel.is-collapsed .map-panel-body { display: none; }
+.map-panel-hint { margin: 8px 0 0; color: var(--text-muted); font-size: 11.5px; line-height: 1.45; }
+
+/* Legend rows (buttons in the marker panel: they filter by disease) */
+.legend-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.legend-row {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  background: transparent; border: 1px solid transparent; border-radius: 8px;
+  color: var(--text-main); font-size: 12px; text-align: left; cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.legend-row .legend-dot { margin: 0; flex: none; }
+.legend-name { flex: 1; }
+.legend-count { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.legend-row:hover { background: rgba(255,255,255,.06); }
+.legend-row[aria-pressed="true"] { background: rgba(59,130,246,.18); border-color: rgba(59,130,246,.5); }
+.legend-row-static { cursor: default; }
+.legend-row-static:hover { background: transparent; }
+.legend-boundary { display: flex; align-items: center; gap: 8px; padding: 6px 8px; color: var(--text-muted); }
+.legend-boundary .legend-dot-farm { margin: 0; }
+
+/* Heatmap panel */
+.heat-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.heat-chip {
+  display: inline-flex; align-items: baseline; gap: 6px; padding: 4px 10px;
+  background: var(--card-bg-alt); border: 1px solid var(--border); border-radius: 999px;
+  color: var(--text-main); font-size: 11.5px; font-weight: 600; cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.heat-chip span { color: var(--text-muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+.heat-chip:hover:not(:disabled):not([aria-pressed="true"]) { background: rgba(255,255,255,.08); }
+.heat-chip[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
+.heat-chip[aria-pressed="true"] span { color: rgba(255,255,255,.85); }
+.heat-chip:disabled { opacity: .4; cursor: not-allowed; }
+
+.heat-ramp {
+  position: relative; height: 12px; border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.18);
+}
+/* Tier boundaries on the ramp: Moderate starts at 34, Severe at 67. */
+.heat-ramp::before, .heat-ramp::after {
+  content: ""; position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: rgba(17,25,38,.95);
+}
+.heat-ramp::before { left: 34%; }
+.heat-ramp::after  { left: 67%; }
+.heat-tier-labels { display: grid; grid-template-columns: 34fr 33fr 33fr; margin-top: 6px; }
+.heat-tier-labels span { display: flex; flex-direction: column; }
+.heat-tier-labels b { font-size: 11.5px; font-weight: 600; }
+.heat-tier-labels small { font-size: 10.5px; color: var(--text-muted); }
+
+.heat-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0; }
+.heat-stats dt { font-size: 10.5px; font-weight: 500; color: var(--text-muted); }
+.heat-stats dd { margin: 0; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.heat-tiers { margin-bottom: 14px; }
+.heat-tier-bar { display: flex; gap: 2px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--border); }
+.heat-tier-bar span { display: block; min-width: 3px; }
+.heat-tier-key { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 7px; color: var(--text-muted); }
+.heat-tier-key i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+.heat-tier-key b { color: var(--text-main); font-variant-numeric: tabular-nums; }
+
+.heat-worst { margin-top: 8px; color: var(--text-muted); font-size: 11.5px; }
+.heat-worst a { color: #7cb4ff; }
+.heat-spread { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; color: var(--text-muted); font-size: 11.5px; }
+.heat-spread input { flex: 1; accent-color: var(--primary); }
+
+/* Interventions panel + shared progress bar */
+.iv-summary { margin: 0 0 8px; color: var(--text-muted); }
+.iv-summary b { color: var(--text-main); font-variant-numeric: tabular-nums; }
+.progress-track { flex: 1; height: 8px; border-radius: 4px; background: rgba(255,255,255,.1); overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 4px; background: var(--primary); transition: width .3s ease; }
+.progress-fill-ok { background: #22c55e; }
+#panel-interventions .progress-track { margin-bottom: 10px; }
+
+/* Heatmap canvas (drawn by SeverityHeatLayer in farm_map.js) */
+.rg-heat-canvas { position: absolute; pointer-events: none; }
+
+/* Message over the map when a search/filter matches nothing */
+.map-empty {
+  position: absolute; left: 50%; top: calc(var(--map-h) / 2); transform: translate(-50%, -50%);
+  z-index: 1000; display: flex; flex-direction: column; gap: 3px; text-align: center;
+  max-width: min(320px, 80%); padding: 12px 18px; pointer-events: none;
+  background: rgba(17,25,38,.94); border: 1px solid var(--border); border-radius: 12px;
+}
+.map-empty[hidden] { display: none; }
+.map-empty-title { font-size: 13px; font-weight: 700; }
+.map-empty-body { font-size: 12px; color: var(--text-muted); }
+
+/* Not enough GPS data yet */
+.map-locked { display: flex; gap: 18px; align-items: flex-start; padding: 24px; }
+.map-locked-icon {
+  flex: none; width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center;
+  background: rgba(59,130,246,.14); color: #7cb4ff; font-size: 22px;
+}
+.map-locked-title { margin: 0 0 6px; font-size: 17px; font-weight: 700; line-height: 1.3; }
+.map-locked-text { margin: 0 0 14px; max-width: 62ch; color: var(--text-muted); font-size: 13px; line-height: 1.55; }
+.map-locked-progress { display: flex; align-items: center; gap: 12px; max-width: 420px; }
+.progress-count { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.map-locked-note { margin: 12px 0 0; font-size: 12px; color: #fbbf24; }
+.map-locked-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+
+/* Tree popup (class applied via bindPopup's className so other pages'
+   Leaflet popups keep the default look) */
+.rg-popup .leaflet-popup-content-wrapper {
+  background: var(--card-bg); color: var(--text-main); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,.45);
+}
+.rg-popup .leaflet-popup-tip { background: var(--card-bg); }
+.rg-popup .leaflet-popup-content { margin: 12px 14px; min-width: 200px; font-size: 12px; line-height: 1.45; }
+.rg-popup a.leaflet-popup-close-button { color: var(--text-muted); }
+.tp-head { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 700; padding-right: 14px; }
+.tp-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(255,255,255,.4); }
+.tp-disease { margin: 2px 0 8px; color: var(--text-muted); }
+.tp-meter { height: 4px; margin: 0 0 10px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.tp-meter i { display: block; height: 100%; border-radius: 2px; }
+.tp-grid { display: grid; grid-template-columns: auto 1fr; gap: 3px 14px; margin: 0; }
+.tp-grid dt { color: var(--text-muted); font-weight: 400; }
+.tp-grid dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tp-note { margin-top: 10px; padding: 6px 8px; border-radius: 8px; font-size: 11.5px; }
+.tp-note.ok { background: var(--healthy-bg); color: var(--healthy-text); }
+.tp-note.todo { background: rgba(251,191,36,.12); color: #fbbf24; }
+.rg-popup a.tp-link {
+  display: block; margin-top: 10px; padding: 6px 10px; text-align: center; border-radius: 8px;
+  background: var(--primary); color: #fff; font-weight: 600; text-decoration: none;
+}
+.rg-popup a.tp-link:hover { background: var(--primary-dark); }
+
+/* Panels drop below the map on small screens instead of covering it */
+@media (max-width: 767.98px) {
+  .map-panel {
+    position: static; width: auto; max-height: none; margin: 10px;
+    background: var(--card-bg-alt); box-shadow: none;
+    -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  .map-locked { flex-direction: column; padding: 18px; }
 }
 
 /* ============================================================
@@ -577,7 +738,7 @@ body {
   display: flex; align-items: center; justify-content: center;
   color: #0f1722; font-weight: 800; font-family: inherit;
   border: 3px solid rgba(15,23,34,.55);
-  box-shadow: 0 2px 8px rgba(0,0,0,.45);
+  box-shadow: 0 0 0 4px rgba(255,255,255,.14), 0 2px 8px rgba(0,0,0,.45);
   cursor: pointer;
 }
 .cluster-bubble.cluster-sm { font-size: 12px; }
