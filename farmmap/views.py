@@ -1,4 +1,5 @@
 import json
+import math
 import datetime
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import JsonResponse
@@ -769,37 +770,57 @@ def dashboard(request):
     return render(request, "dashboard.html", ctx)
 
 
-def _farm_map_bounds(farm):
-    # Returns a bounding box around a farm's actual trees (falling back to
-    # its boundary radius if it has no trees yet), used to zoom-lock any
-    # map so the user can zoom in freely but not zoom out past their own
-    # farm's extent. Shared by farm_map and the reports page map.
-    bounds = farm.trees.aggregate(
-        min_lat=Min("lat"), max_lat=Max("lat"),
-        min_lng=Min("lng"), max_lng=Max("lng"),
-    )
-    if bounds["min_lat"] is None:
-        center_lat, center_lng = farm.get_center()
-        deg_pad = max(farm.boundary_radius_m, 200) / 111000
-        bounds = {
-            "min_lat": center_lat - deg_pad, "max_lat": center_lat + deg_pad,
-            "min_lng": center_lng - deg_pad, "max_lng": center_lng + deg_pad,
-        }
-    else:
-        # Guard against a zero-height/width box (e.g. every tree shares
-        # the same lat or lng so far) -- Leaflet's fitBounds/setMaxBounds
-        # on a truly zero-area box can zoom to an unusable extreme. Must
-        # match get_boundary_polygon()'s own fallback size (not a small
-        # fixed value): otherwise the map fits/zooms tighter than that
-        # square, pushing its edges off-screen so the boundary never
-        # actually looks like it's there.
-        min_pad = max(farm.boundary_radius_m, 200) / 111000
-        if bounds["max_lat"] - bounds["min_lat"] < min_pad:
-            bounds["min_lat"] -= min_pad
-            bounds["max_lat"] += min_pad
-        if bounds["max_lng"] - bounds["min_lng"] < min_pad:
-            bounds["min_lng"] -= min_pad
-            bounds["max_lng"] += min_pad
+# Smallest width/height (meters) the farm map will frame, so a tiny farm
+# doesn't open zoomed in to a few trees.
+_MIN_MAP_SPAN_M = 120.0
+
+
+def _farm_map_bounds(farm, polygon=None):
+    # Returns a bounding box used to zoom-lock the farm map so the user can
+    # zoom in freely but not zoom out past their own farm's extent.
+    #
+    # Built from the farm's boundary polygon (plus a little breathing room),
+    # NOT from the raw min/max of the tree coordinates: the polygon is drawn
+    # outside the outermost trees, so a box fitted to the trees alone sat
+    # inside the border -- the map opened with the border's edge cut off and
+    # maxBounds stopped the user from panning far enough to see it. Pass the
+    # polygon in if the caller already has it, to avoid computing it twice.
+    if polygon is None:
+        polygon = farm.get_boundary_polygon()
+    lats = [p[0] for p in polygon]
+    lngs = [p[1] for p in polygon]
+    bounds = {
+        "min_lat": min(lats), "max_lat": max(lats),
+        "min_lng": min(lngs), "max_lng": max(lngs),
+    }
+
+    # Guard against a tiny box (e.g. every tree within a few meters of each
+    # other) -- Leaflet's fitBounds on a near-zero-area box zooms to an
+    # unusable extreme. If a side is shorter than _MIN_MAP_SPAN_M, widen it
+    # evenly around its middle up to that size. (This used to ADD a full
+    # 200 m on each side to any farm narrower than 200 m, which made a
+    # normal ~160 m farm open at about a third of the screen -- a speck.)
+    mid_lat = (bounds["min_lat"] + bounds["max_lat"]) / 2
+    min_lat_span = _MIN_MAP_SPAN_M / 111320.0
+    min_lng_span = _MIN_MAP_SPAN_M / (111320.0 * max(math.cos(math.radians(mid_lat)), 0.01))
+
+    def at_least(lo, hi, span):
+        if hi - lo >= span:
+            return lo, hi
+        mid = (lo + hi) / 2
+        return mid - span / 2, mid + span / 2
+
+    bounds["min_lat"], bounds["max_lat"] = at_least(bounds["min_lat"], bounds["max_lat"], min_lat_span)
+    bounds["min_lng"], bounds["max_lng"] = at_least(bounds["min_lng"], bounds["max_lng"], min_lng_span)
+
+    # Breathing room so the border line isn't flush against the viewport
+    # edge when the map first fits to these bounds.
+    pad_lat = (bounds["max_lat"] - bounds["min_lat"]) * 0.05
+    pad_lng = (bounds["max_lng"] - bounds["min_lng"]) * 0.05
+    bounds["min_lat"] -= pad_lat
+    bounds["max_lat"] += pad_lat
+    bounds["min_lng"] -= pad_lng
+    bounds["max_lng"] += pad_lng
     return bounds
 
 
@@ -826,12 +847,6 @@ def farm_map(request):
         return render(request, "farm_map.html", ctx)
 
     total, counts, pcts, diseased = map_farm.get_stats()
-    trees_qs = map_farm.trees.annotate(
-        has_intervention=Exists(Intervention.objects.filter(tree=OuterRef("pk")))
-    )
-    markers_json = json.dumps([t.to_marker_dict() for t in trees_qs])
-    bounds = _farm_map_bounds(map_farm)
-    boundary_polygon = json.dumps(map_farm.get_boundary_polygon())
 
     # Built fresh from the live DiseaseClass catalog (not the fixed-key
     # counts dict above) so the filter dropdown, legend, and top-disease
@@ -849,6 +864,14 @@ def farm_map(request):
             top_disease = {"name": d.name, "count": n, "color": d.color_hex}
     disease_colors = {d["name"]: d["color"] for d in disease_stats}
 
+    # The live map only makes sense once the farm has enough distinct GPS
+    # locations to draw a real border and a meaningful heatmap (see
+    # Farm.get_map_status / FARM_MAP_MIN_GPS_POINTS). Below that, the page
+    # shows how many more are needed instead of a misleading placeholder
+    # map. One query for the coordinates, shared with the border below.
+    raw_points = list(map_farm.trees.values_list("lat", "lng"))
+    map_status = map_farm.get_map_status(raw_points)
+
     # Uses the sidebar's own selected_farm (not map_farm) for shared
     # context, so the sidebar dropdown never appears to change just from
     # visiting this page.
@@ -857,14 +880,25 @@ def farm_map(request):
         "page": "farm_map",
         "map_farm": map_farm,
         "all_user_farms": all_user_farms,
-        "markers_json": markers_json,
-        "map_bounds": json.dumps(bounds),
-        "map_farm_boundary": boundary_polygon,
+        "map_status": map_status,
+        "map_locked": not map_status["ready"],
+        "map_progress_pct": min(100, round(map_status["usable"] / map_status["required"] * 100)),
         "total": total, "counts": counts, "diseased": diseased,
         "disease_stats": disease_stats,
         "top_disease": top_disease,
-        "disease_colors_json": json.dumps(disease_colors),
     })
+
+    if map_status["ready"]:
+        trees_qs = map_farm.trees.annotate(
+            has_intervention=Exists(Intervention.objects.filter(tree=OuterRef("pk")))
+        )
+        farm_polygon = map_farm.get_boundary_polygon(raw_points)
+        ctx.update({
+            "markers_json": json.dumps([t.to_marker_dict() for t in trees_qs]),
+            "map_bounds": json.dumps(_farm_map_bounds(map_farm, farm_polygon)),
+            "map_farm_boundary": json.dumps(farm_polygon),
+            "disease_colors_json": json.dumps(disease_colors),
+        })
     return render(request, "farm_map.html", ctx)
 
 
@@ -1070,6 +1104,15 @@ def save_detection(request):
         tree_lat = tree_lng = None
     if tree_lat is None or tree_lng is None:
         return fail("This scan is missing a GPS location and can't be saved. Retake the photo somewhere the camera/GPS can get a location.")
+    # float() happily accepts "nan"/"inf", and a failed GPS fix often comes
+    # through as 0,0. Any of those would warp the farm's boundary and map
+    # bounds for every tree on the farm, so reject them here.
+    if (
+        not (math.isfinite(tree_lat) and math.isfinite(tree_lng))
+        or not (-90 <= tree_lat <= 90 and -180 <= tree_lng <= 180)
+        or (abs(tree_lat) < 1e-4 and abs(tree_lng) < 1e-4)
+    ):
+        return fail("This scan's GPS location isn't valid (it looks like a failed GPS fix) and can't be saved. Retake the photo somewhere the camera/GPS can get a location.")
 
     captured_at = None
     captured_at_raw = request.POST.get("captured_at", "").strip()
