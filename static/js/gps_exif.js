@@ -129,6 +129,20 @@ async function extractGPSFromFile(file) {
           const lat = gps.latRef === "S" ? -gps.lat : gps.lat;
           const lng = gps.lngRef === "W" ? -gps.lng : gps.lng;
 
+          // Some cameras write a GPS block even with no fix, as 0,0 (or
+          // garbage). Treating that as a real location produced bulk groups
+          // pinned at 0.00000,0.00000 that the server then rejects as a
+          // failed GPS fix -- same rules as save_detection() in views.py,
+          // so "no usable GPS" is decided here, up front, instead.
+          if (
+            !Number.isFinite(lat) || !Number.isFinite(lng)
+            || lat < -90 || lat > 90 || lng < -180 || lng > 180
+            || (Math.abs(lat) < 1e-4 && Math.abs(lng) < 1e-4)
+          ) {
+            console.log("[GPS DEBUG] extractGPSFromFile() EXIF GPS present but not a usable fix:", { lat, lng });
+            return null;
+          }
+
           // DateTimeOriginal (0x9003), best-effort -- missing/unparsable
           // just means no capturedAt, not a failure of the GPS read.
           let capturedAt = null;
