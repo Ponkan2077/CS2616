@@ -370,7 +370,9 @@ def _build_notifications(request):
     diseased_trees = (
         RubberTree.objects.select_related("farm")
         .filter(farm__owner=request.user, disease__in=enabled_diseases, date_scanned__gte=cutoff)
-        .order_by("-date_scanned")[:6 + len(dismissed)]
+        # "-pk" breaks same-day ties (a bulk upload saves many trees on one
+        # date) so the 6 shown are the newest, not an arbitrary 6.
+        .order_by("-date_scanned", "-pk")[:6 + len(dismissed)]
     )
     notifications = []
     disease_lookup = get_disease_lookup()
@@ -413,12 +415,19 @@ def dismiss_notification(request):
     if not tree_pk or not date_scanned:
         return JsonResponse({"error": "tree_pk and date_scanned are required"}, status=400)
 
+    # A malformed value used to reach the ORM and surface as a 500 HTML page.
+    try:
+        tree_pk = int(tree_pk)
+        scan_date = datetime.date.fromisoformat(date_scanned)
+    except ValueError:
+        return JsonResponse({"error": "tree_pk must be a number and date_scanned must be YYYY-MM-DD"}, status=400)
+
     tree = RubberTree.objects.filter(pk=tree_pk, farm__owner=request.user).first()
     if not tree:
         return JsonResponse({"error": "not found"}, status=404)
 
     NotificationDismissal.objects.get_or_create(
-        user=request.user, tree=tree, date_scanned=date_scanned,
+        user=request.user, tree=tree, date_scanned=scan_date,
     )
     return JsonResponse({"ok": True})
 
@@ -1126,6 +1135,22 @@ def save_detection(request):
         farm = Farm.objects.get(pk=farm_pk, owner=request.user)
     except (Farm.DoesNotExist, ValueError, TypeError):
         return fail("This scan has no valid farm attached and can't be saved.")
+
+    # Retried syncs must not save the same scan twice. If a sync request
+    # reached this point and saved, but the phone lost signal before the
+    # response arrived, the queued item is (correctly) retried -- and with an
+    # auto-generated tree ID that would create a second tree at the same
+    # spot. Same farm + same photo timestamp + same coordinates can only be
+    # that retry (two phones in one farm would differ in position), so it's
+    # answered as already saved, before spending another AI call on it.
+    if captured_at is not None:
+        already_saved = RubberTree.objects.filter(
+            farm=farm, captured_at=captured_at, lat=tree_lat, lng=tree_lng,
+        ).first()
+        if already_saved:
+            if is_ajax:
+                return JsonResponse({"ok": True, "tree_id": already_saved.tree_id, "verb": "already saved"})
+            return redirect("tree_details", tree_id=already_saved.tree_id)
 
     root_image_resized = None
     trunk_image_resized = None

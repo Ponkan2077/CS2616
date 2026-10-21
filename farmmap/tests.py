@@ -315,3 +315,95 @@ class FarmMapPageGateTests(MapGateTestCase):
         response = self.get_map()
         self.assertEqual(response.context["total"], 2)
         self.assertContains(response, "stat-box")
+
+
+class SyncAndNotificationTests(TestCase):
+    """Server-side behavior behind the offline bulk-upload sync and the
+    notification bell (client-side parts live in static/js)."""
+
+    def setUp(self):
+        self.user = User.objects.create_user("owner", password="pw")
+        self.farm = Farm.objects.create(owner=self.user, farm_id="F1", name="Farm One", owner_name="Owner")
+        self.client.login(username="owner", password="pw")
+
+    def _save(self, **overrides):
+        data = {
+            "farm_pk": self.farm.pk, "tree_id": "", "disease": "Healthy", "confidence": "90",
+            "lat": "6.9214", "lng": "122.079", "captured_at": "2026-10-16T09:15:30.250Z",
+        }
+        data.update(overrides)
+        return self.client.post(reverse("save_detection"), data, HTTP_X_REQUESTED_WITH="XMLHttpRequest")
+
+    def test_retried_sync_does_not_create_a_second_tree(self):
+        first = self._save()
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["verb"], "saved")
+        retry = self._save()  # same photo timestamp + coordinates, tree ID still auto
+        self.assertEqual(retry.status_code, 200)
+        self.assertEqual(retry.json()["verb"], "already saved")
+        self.assertEqual(retry.json()["tree_id"], first.json()["tree_id"])
+        self.assertEqual(RubberTree.objects.count(), 1)
+
+    def test_different_position_or_time_is_still_a_new_tree(self):
+        self._save()
+        self.assertEqual(self._save(lng="122.0791").json()["verb"], "saved")
+        self.assertEqual(self._save(captured_at="2026-10-16T09:16:30.250Z").json()["verb"], "saved")
+        self.assertEqual(RubberTree.objects.count(), 3)
+
+    def test_scan_without_a_timestamp_is_never_deduplicated(self):
+        self._save(captured_at="")
+        self.assertEqual(self._save(captured_at="").json()["verb"], "saved")
+        self.assertEqual(RubberTree.objects.count(), 2)
+
+    def _diseased_tree(self, n, date):
+        return RubberTree.objects.create(
+            farm=self.farm, tree_id=f"F1-T{n}", lat=6.92, lng=122.07,
+            disease="Pink Disease", confidence=80, date_scanned=date,
+        )
+
+    def test_dismiss_rejects_malformed_input_instead_of_crashing(self):
+        tree = self._diseased_tree(1, datetime.date.today())
+        url = reverse("dismiss_notification")
+        self.assertEqual(self.client.post(url, {"tree_pk": "abc", "date_scanned": "2026-10-16"}).status_code, 400)
+        self.assertEqual(self.client.post(url, {"tree_pk": tree.pk, "date_scanned": "not-a-date"}).status_code, 400)
+        self.assertEqual(self.client.post(url, {"tree_pk": 99999, "date_scanned": "2026-10-16"}).status_code, 404)
+
+    def test_dismissed_notification_disappears_from_the_bell(self):
+        from .models import DiseaseClass
+        DiseaseClass.objects.get_or_create(name="Pink Disease", defaults={"is_healthy": False})
+        tree = self._diseased_tree(1, datetime.date.today())
+        page = self.client.get(reverse("dashboard"))
+        self.assertEqual([n["tree_pk"] for n in page.context["notifications"]], [tree.pk])
+        dismissed = self.client.post(reverse("dismiss_notification"),
+                                     {"tree_pk": tree.pk, "date_scanned": tree.date_scanned.isoformat()})
+        self.assertEqual(dismissed.status_code, 200)
+        page = self.client.get(reverse("dashboard"))
+        self.assertEqual(page.context["notifications"], [])
+
+    def test_same_day_notifications_show_the_newest_first(self):
+        from .models import DiseaseClass
+        DiseaseClass.objects.get_or_create(name="Pink Disease", defaults={"is_healthy": False})
+        today = datetime.date.today()
+        trees = [self._diseased_tree(n, today) for n in range(1, 9)]
+        page = self.client.get(reverse("dashboard"))
+        shown = [n["tree_pk"] for n in page.context["notifications"]]
+        self.assertEqual(shown, [t.pk for t in reversed(trees)][:6])
+
+    def test_pages_load_shared_scripts_once_and_in_order(self):
+        for name in ("dashboard", "disease_detection", "bulk_upload"):
+            html = self.client.get(reverse(name)).content.decode()
+            self.assertEqual(html.count("js/csrf.js"), 1, name)
+            self.assertEqual(html.count("js/offline_queue.js"), 1, name)
+            self.assertLess(html.index("js/csrf.js"), html.index("js/main.js"), name)
+
+    def test_take_photo_page_has_no_offline_queue_ui(self):
+        html = self.client.get(reverse("disease_detection")).content.decode()
+        self.assertNotIn("pending-scans-section", html)
+        self.assertNotIn("serviceWorker", html)
+        self.assertIn("location-enable-btn", html)
+
+    def test_bulk_page_has_queue_ui_and_registers_the_offline_shell(self):
+        html = self.client.get(reverse("bulk_upload")).content.decode()
+        self.assertIn("pending-scans-section", html)
+        self.assertIn("sync-now-btn", html)
+        self.assertIn("enableOfflineShell", html)
