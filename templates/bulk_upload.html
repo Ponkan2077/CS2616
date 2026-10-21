@@ -14,12 +14,33 @@
 {% csrf_token %}
 {{ farm_centers|json_script:"farm-centers-data" }}
 
+<!-- Shown/hidden by offline_queue.js (it toggles the d-flex class, so d-flex
+     is NOT in this class list -- Bootstrap's !important display utilities
+     would otherwise keep the banner visible). -->
+<div id="offline-banner" class="alert alert-warning py-2 align-items-center gap-2" style="display:none;font-size:12.5px;">
+  <i class="bi bi-wifi-off"></i>
+  <span>You're offline — you can still group photos and press Save. Trees are stored on this device and sync automatically once you're back online. Photos without their own GPS need a map pick, which needs a connection.</span>
+</div>
+
+<!-- Trees queued on this device, waiting to sync. Populated client-side from
+     IndexedDB, see offline_queue.js. -->
+<div class="card-rg mb-3" id="pending-scans-section" style="display:none;">
+  <div class="card-header-rg d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-cloud-arrow-up"></i> Pending Sync <span class="badge bg-secondary ms-1" id="pending-scans-count">0</span></span>
+    <button class="btn btn-sm btn-outline-primary" id="sync-now-btn" style="font-size:11.5px;">
+      <i class="bi bi-arrow-repeat"></i> Sync Now
+    </button>
+  </div>
+  <div class="card-body-rg py-1" id="pending-scans-list"></div>
+</div>
+
 <div class="card-rg mb-3">
   <div class="card-header-rg"><i class="bi bi-images"></i> Select Photos</div>
   <div class="card-body-rg">
     <div class="text-muted mb-3" style="font-size:12.5px;">
       Pick every root and trunk photo from this farm visit at once. They're grouped into trees automatically by
-      timestamp (and GPS, when a photo has it) — review the groups below before saving.
+      timestamp (and GPS, when a photo has it) — review the groups below before saving. No signal? Save anyway:
+      trees are kept on this device and sync automatically when you're back online.
     </div>
     <div class="row g-2 mb-3">
       <div class="col-12 col-sm-6">
@@ -67,6 +88,9 @@
       </div>
       <div class="modal-body">
         <div class="text-muted mb-2" style="font-size:12px;">This group had no GPS on its own — tap the map where this tree actually is.</div>
+        <div id="bulk-location-offline-note" class="mb-2" style="display:none;font-size:11.5px;color:#fbbf24;">
+          <i class="bi bi-wifi-off"></i> You're offline, so the map background won't load. Only use this if you know the exact spot.
+        </div>
         <div id="bulk-location-map" style="height:300px;border-radius:8px;"></div>
       </div>
       <div class="modal-footer" style="border-color:var(--border);">
@@ -82,9 +106,16 @@
 <script>
   window.AI_ENABLED = {{ ai_enabled|yesno:"true,false" }};
 </script>
-<script src="{% static 'js/csrf.js' %}?v={{ STATIC_VERSION }}"></script>
+<!-- csrf.js and offline_queue.js are loaded globally from base.html now. -->
 <script src="{% static 'js/image_utils.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/gps_exif.js' %}?v={{ STATIC_VERSION }}"></script>
-<script src="{% static 'js/offline_queue.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/bulk_detection.js' %}?v={{ STATIC_VERSION }}"></script>
+<script>
+  // Makes THIS page load with no signal: registers /detection/sw.js (a view,
+  // not a static file, so its scope covers /detection/ -- see the comment at
+  // the top of static/js/sw.js) and has it cache the page plus every
+  // stylesheet/script/font it just loaded. Open this page once with signal
+  // before heading out to the farm.
+  window.addEventListener("load", () => enableOfflineShell("{% url 'service_worker_js' %}"));
+</script>
 {% endblock %}

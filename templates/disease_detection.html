@@ -11,13 +11,18 @@
   {% endfor %}
 {% endif %}
 
-<div id="offline-banner" class="alert alert-warning py-2 d-flex align-items-center gap-2" style="display:none;font-size:12.5px;">
-  <i class="bi bi-wifi-off"></i> You're offline — captured scans are saved on this device and will sync automatically once you're back online.
+<!-- Take Photo is online-only: the GPS fix and the AI analysis both need a
+     connection. Shown/hidden by offline_queue.js (it toggles the d-flex
+     class, so d-flex is NOT in this class list -- Bootstrap's !important
+     display utilities would otherwise keep the banner visible). -->
+<div id="offline-banner" class="alert alert-warning py-2 align-items-center gap-2" style="display:none;font-size:12.5px;">
+  <i class="bi bi-wifi-off"></i>
+  <span>You're offline — Take Photo and Analyze need a connection. To prepare photos without signal, use <a href="{% url 'bulk_upload' %}" class="alert-link">Bulk Upload</a>: it queues them on this device and syncs once you're back online.</span>
 </div>
 
-<!-- Asked first, not at save time -- a scan captured (or queued offline)
-     with no farm attached has nowhere valid to save to, so the rest of
-     the flow stays locked (see step-locked below) until this is set. -->
+<!-- Asked first, not at save time -- a scan captured with no farm attached
+     has nowhere valid to save to, so the rest of the flow stays locked
+     (see step-locked below) until this is set. -->
 <div class="card-rg mb-3">
   <div class="card-header-rg"><i class="bi bi-geo-alt-fill"></i> Farm</div>
   <div class="card-body-rg">
@@ -31,10 +36,8 @@
 </div>
 
 <!-- Tree ID entered here, not after analysis -- the old spot only became
-     visible once a live result came back, so an offline capture (which
-     skips straight to queueScanOffline(), see disease_detection.js) never
-     showed it. form="save-form" keeps this in the native submit for the
-     online path too, same pattern as the Farm select above. -->
+     visible once a live result came back. form="save-form" keeps this in
+     the native submit, same pattern as the Farm select above. -->
 <div class="card-rg mb-3">
   <div class="card-header-rg"><i class="bi bi-grid-3x3-gap-fill"></i> Tree ID</div>
   <div class="card-body-rg">
@@ -49,22 +52,15 @@
 </div>
 
 <!-- Checked once on page load, before the user even picks a photo -- see
-     checkLocationAvailability() in disease_detection.js. Catches a denied/
-     blocked location permission immediately instead of only discovering it
-     after a photo comes back with no usable GPS. -->
-<div id="location-banner" class="alert alert-danger py-2 d-flex align-items-center gap-2" style="display:none;font-size:12.5px;cursor:pointer;" title="Tap to re-check">
-  <i class="bi bi-geo-alt-fill"></i> <span id="location-banner-text"></span>
-</div>
-
-<!-- Pending Scans: populated client-side from IndexedDB, see offline_queue.js -->
-<div class="card-rg mb-3" id="pending-scans-section" style="display:none;">
-  <div class="card-header-rg d-flex justify-content-between align-items-center">
-    <span><i class="bi bi-cloud-arrow-up"></i> Pending Sync <span class="badge bg-secondary ms-1" id="pending-scans-count">0</span></span>
-    <button class="btn btn-sm btn-outline-primary" id="sync-now-btn" style="font-size:11.5px;">
-      <i class="bi bi-arrow-repeat"></i> Sync Now
-    </button>
-  </div>
-  <div class="card-body-rg py-1" id="pending-scans-list"></div>
+     checkLocationAvailability() in disease_detection.js. Two states:
+     amber with an "Enable location" button when permission hasn't been
+     decided yet (the button raises the browser's prompt from a tap), red
+     when it's blocked. Shown/hidden by toggling d-flex from JS, so d-flex
+     is NOT in this class list (Bootstrap's !important display utilities
+     would otherwise keep it permanently visible, even when empty). -->
+<div id="location-banner" class="alert alert-danger py-2 align-items-center gap-2" style="display:none;font-size:12.5px;cursor:pointer;" title="Tap to re-check">
+  <i class="bi bi-geo-alt-fill"></i> <span id="location-banner-text" class="flex-grow-1"></span>
+  <button type="button" id="location-enable-btn" class="btn btn-sm btn-light flex-shrink-0" style="display:none;font-size:11.5px;">Enable location</button>
 </div>
 
 <!-- Workflow strip -->
@@ -250,21 +246,10 @@
   // after both photos are captured, when no model endpoint is set.
   window.AI_ENABLED = {{ ai_enabled|yesno:"true,false" }};
 </script>
-<script src="{% static 'js/csrf.js' %}?v={{ STATIC_VERSION }}"></script>
+<!-- csrf.js and offline_queue.js are loaded globally from base.html now.
+     This page no longer registers the service worker: it's online-only,
+     and a cached copy of it would only dead-end the user offline. -->
 <script src="{% static 'js/image_utils.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/gps_exif.js' %}?v={{ STATIC_VERSION }}"></script>
-<script src="{% static 'js/offline_queue.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/disease_detection.js' %}?v={{ STATIC_VERSION }}"></script>
-<script>
-  // Registered from /detection/sw.js (a view, not a static file) so its
-  // scope covers the whole /detection/ path -- see the comment at the
-  // top of static/js/sw.js for why that matters.
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("{% url 'service_worker_js' %}", { scope: "/detection/" }).catch(() => {
-      // Offline page-shell caching just won't be available this session --
-      // the capture form still works fine as long as the page was already
-      // loaded once, so this isn't fatal.
-    });
-  }
-</script>
 {% endblock %}
