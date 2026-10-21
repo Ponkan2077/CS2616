@@ -3,12 +3,24 @@
    the real AI model for analysis, and uploads both resized images
    directly to cloud storage via a presigned URL (falling back to
    attaching them to the save form's file inputs for a normal multipart
-   submission if direct upload isn't available). */
+   submission if direct upload isn't available).
+
+   This page is ONLINE-ONLY. A live GPS fix for Take Photo and the AI
+   analysis both need a connection, so there is no offline queue here --
+   photos prepared without signal go through Bulk Upload instead (see
+   offline_queue.js). */
 
 let rootImageFile = null;   // resized File, ready to attach to the save form
 let trunkImageFile = null;
 let rootGPS = null;   // { lat, lng, source: 'exif' | 'device' } -- resolved per image
 let trunkGPS = null;
+
+// Where the browser's geolocation permission stands: "granted" | "prompt" |
+// "denied" | "unknown" (browser can't report it, e.g. older Safari).
+// Kept current by checkLocationAvailability() and its live onchange hook.
+// Take Photo only opens the camera once this is "granted" -- see
+// guardTakePhoto() for why the permission is asked for BEFORE the shot.
+let locationPermission = "unknown";
 
 // Direct-to-storage upload state. Uploads kick off in the background as
 // soon as the analysis result is shown, so they're usually
@@ -20,8 +32,8 @@ let directUploadPromise = null;
 
 // One-shot read of the device's current position, promisified. Used as a
 // fallback when a photo has no EXIF GPS of its own (see resolveImageGPS
-// below) -- this works fine offline too, since GPS hardware doesn't need
-// a data connection, only a permission grant and sky visibility.
+// below), and to trigger the browser's permission prompt up front (see
+// requestLocationPermission below).
 //
 // Returns { lat, lng, source: "device" } on success, or null with a
 // human-readable reason on failure -- distinguishing "you denied the
@@ -53,7 +65,7 @@ function getDeviceGPS() {
           2: "Couldn't get a GPS fix. Try moving to open sky, away from thick canopy or buildings.",
           3: "GPS location timed out. Try again, ideally with a clearer view of the sky.",
         };
-        resolve({ error: reasons[err.code] || "Couldn't get your device's location." });
+        resolve({ error: reasons[err.code] || "Couldn't get your device's location.", code: err.code });
       },
       // 15s (not the default 3 typical minimum) since a fix can genuinely
       // take longer under rubber tree canopy; maximumAge lets the trunk
@@ -102,20 +114,142 @@ async function resolveImageGPS(file, source) {
   return deviceGps;
 }
 
-// Hides the banner. Called after page-load check, a successful photo
-// capture, or a live permission change -- whichever happens first.
-function hideLocationBanner() {
-  const banner = document.getElementById("location-banner");
-  if (banner) banner.style.display = "none";
+// Shows/hides a Bootstrap flex element. The banners use "d-flex" for their
+// layout, and Bootstrap's display utilities are `display: ... !important`
+// -- so a plain style.display = "none" can NEVER hide them (that's why the
+// location banner used to sit on the page permanently, empty). Toggling
+// the class, backed by an !important inline override, is what works.
+function setFlexShown(el, shown) {
+  el.classList.toggle("d-flex", shown);
+  if (shown) el.style.removeProperty("display");
+  else el.style.setProperty("display", "none", "important");
 }
 
-function showLocationBanner(reason) {
+// Hides the banner. Called after page-load check, a successful device
+// location fix, or a live permission change -- whichever happens first.
+function hideLocationBanner() {
+  const banner = document.getElementById("location-banner");
+  if (banner) setFlexShown(banner, false);
+}
+
+// kind "prompt": permission hasn't been decided (or a fix just failed) --
+// amber, with an Enable/Try again button. kind "denied": blocked -- red,
+// no button (the browser won't re-prompt; only the site settings can fix it).
+function showLocationBanner(reason, kind, buttonLabel) {
   const banner = document.getElementById("location-banner");
   const bannerText = document.getElementById("location-banner-text");
+  const enableBtn = document.getElementById("location-enable-btn");
   if (!banner || !bannerText) return;
-  bannerText.textContent = `${reason || "Couldn't get your device's location."} Needed for Take Photo. On Android: browser menu → Settings → Sites and downloads → Site permissions → Location.`;
-  banner.style.display = "";
+  const isPrompt = kind === "prompt";
+  bannerText.textContent = isPrompt
+    ? (reason || "Location is needed to tag each photo with the tree's position.")
+    : `${reason || "Couldn't get your device's location."} Needed for Take Photo. On Android: browser menu → Settings → Sites and downloads → Site permissions → Location, and keep Precise location on for your browser.`;
+  banner.classList.toggle("alert-danger", !isPrompt);
+  banner.classList.toggle("alert-warning", isPrompt);
+  if (enableBtn) {
+    enableBtn.textContent = buttonLabel || "Enable location";
+    enableBtn.style.display = isPrompt ? "" : "none";
+  }
+  setFlexShown(banner, true);
 }
+
+// Asks for location permission on purpose, from a tap (the banner's button
+// or the first Take Photo tap), rather than leaving it to surface as a
+// surprise prompt AFTER the photo is taken -- by which point the camera app
+// has switched this page out and (on Android) the prompt/result can get
+// lost. Resolves true once a real fix came back.
+async function requestLocationPermission() {
+  const enableBtn = document.getElementById("location-enable-btn");
+  if (enableBtn) { enableBtn.disabled = true; enableBtn.textContent = "Waiting for location…"; }
+  const result = await getDeviceGPS(); // this call is what raises the browser's prompt
+  if (enableBtn) enableBtn.disabled = false;
+
+  if (result && !result.error) {
+    locationPermission = "granted";
+    hideLocationBanner();
+    return true;
+  }
+  // Re-read the real permission state to pick the right message: blocked
+  // needs the browser settings, but a granted permission that just couldn't
+  // get a fix (indoors, thick canopy) only needs another try.
+  await checkLocationAvailability();
+  if (locationPermission !== "denied") {
+    // Error code 1 while the permission is STILL undecided means the prompt
+    // was dismissed without choosing -- not that location is blocked, so
+    // don't send them to the browser settings for that.
+    const dismissed = result && result.code === 1 && locationPermission === "prompt";
+    showLocationBanner(
+      dismissed ? "Location wasn't allowed yet. Tap Try again and choose Allow when your browser asks."
+                : ((result && result.error) || "Couldn't get your location."),
+      "prompt", "Try again");
+  }
+  return false;
+}
+
+// Starts the GPS hardware warming up the moment Take Photo is tapped, so
+// the fix is usually already there when the camera returns instead of the
+// farmer waiting on it afterwards. The result is discarded here -- the
+// browser caches it, and getDeviceGPS()'s maximumAge reuses it.
+let lastGpsWarmUp = 0;
+function warmUpGps() {
+  if (!navigator.geolocation || Date.now() - lastGpsWarmUp < 10000) return;
+  lastGpsWarmUp = Date.now();
+  navigator.geolocation.getCurrentPosition(() => {}, () => {}, { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 });
+}
+
+function setCaptureStatus(kind, message, cssClass) {
+  const statusEl = document.getElementById(`${kind}-gps-status`);
+  if (!statusEl) return;
+  statusEl.textContent = message;
+  statusEl.className = `${cssClass || "text-muted"} mt-1`;
+  statusEl.style.fontSize = "11px";
+}
+
+// Runs on every Take Photo tap, BEFORE the camera opens. Blocks the tap
+// (preventDefault must happen synchronously, hence the state variables
+// instead of awaiting anything here) when:
+//  - the page is offline: Take Photo is online-only now -- a GPS fix and the
+//    AI analysis both need a connection. Bulk Upload is the offline route.
+//  - location isn't granted yet: asks for it now, then re-opens the camera
+//    (or asks for one more tap if the browser's tap-allowance has lapsed
+//    while the permission dialog was open).
+function guardTakePhoto(e, kind) {
+  if (window.rgOnline === false) {
+    e.preventDefault();
+    setCaptureStatus(kind, "You're offline. Take Photo needs a connection (GPS + analysis). Use Bulk Upload to prepare photos without signal.", "text-danger");
+    // The offline flag can be stale (or a slow connection can fail the 4s
+    // probe); re-check so a false "offline" clears on its own.
+    if (typeof updateConnectivityBanner === "function") updateConnectivityBanner();
+    return;
+  }
+  if (locationPermission !== "granted") {
+    e.preventDefault();
+    const input = e.currentTarget;
+    setCaptureStatus(kind, "Allow location access when your browser asks…", "text-muted");
+    requestLocationPermission().then(ok => {
+      if (!ok) {
+        setCaptureStatus(kind, "Location isn't available yet. See the message at the top of the page.", "text-danger");
+        return;
+      }
+      if (navigator.userActivation && navigator.userActivation.isActive) {
+        setCaptureStatus(kind, "", "text-muted");
+        input.click();
+      } else {
+        setCaptureStatus(kind, "Location is on. Tap Take Photo again.", "text-healthy");
+      }
+    });
+    return;
+  }
+  warmUpGps();
+}
+
+// Dims Take Photo while offline (it's blocked in guardTakePhoto either way).
+document.addEventListener("rg:connectivity", e => {
+  ["root-camera-input", "trunk-camera-input"].forEach(id => {
+    const label = document.getElementById(id)?.closest("label");
+    if (label) label.style.opacity = e.detail.online ? "" : ".5";
+  });
+});
 
 // Checked on page load so a blocked permission shows up immediately, not
 // only after Take Photo fails. Also listens for the permission changing
@@ -131,25 +265,44 @@ function showLocationBanner(reason) {
 // a slow poll happens to fail.
 function checkLocationAvailability() {
   if (!navigator.geolocation) {
-    showLocationBanner("This browser doesn't support device location.");
-    return;
+    locationPermission = "unsupported";
+    showLocationBanner("This browser doesn't support device location.", "denied");
+    return Promise.resolve();
+  }
+  if (window.isSecureContext === false) {
+    locationPermission = "unsupported";
+    showLocationBanner("Location only works on a secure (https) page.", "denied");
+    return Promise.resolve();
   }
   if (!navigator.permissions || !navigator.permissions.query) {
     // Can't read permission state on this browser (e.g. older Safari) --
-    // stay quiet rather than guess; a real problem still surfaces per-photo.
+    // stay quiet rather than guess. The first Take Photo tap asks for
+    // location anyway (see guardTakePhoto), so it's still requested up front.
+    locationPermission = "unknown";
     hideLocationBanner();
-    return;
+    return Promise.resolve();
   }
-  navigator.permissions.query({ name: "geolocation" }).then(status => {
-    if (status.state === "denied") {
-      showLocationBanner("Location permission was denied. Enable location for this site in your browser settings.");
-    } else {
-      // "granted" or "prompt" are both fine here -- "prompt" just means
-      // nothing has asked yet, which isn't an error either.
-      hideLocationBanner();
-    }
-    status.onchange = () => checkLocationAvailability();
-  }).catch(() => hideLocationBanner());
+  return navigator.permissions.query({ name: "geolocation" }).then(status => {
+    const apply = () => {
+      locationPermission = status.state;
+      if (status.state === "denied") {
+        showLocationBanner("Location permission is blocked for this site.", "denied");
+      } else if (status.state === "prompt") {
+        // Nothing has asked yet -- say so, with a button, instead of waiting
+        // for a prompt to surface after the photo is already taken.
+        showLocationBanner("Allow location so each photo can be tagged with the tree's position.", "prompt");
+      } else {
+        hideLocationBanner();
+      }
+    };
+    apply();
+    // Live: answering the prompt (or changing the site setting in another
+    // tab) updates the banner and Take Photo immediately.
+    status.onchange = apply;
+  }).catch(() => {
+    locationPermission = "unknown";
+    hideLocationBanner();
+  });
 }
 
 // Advances the workflow strip, marking prior steps done and the given step active.
@@ -242,9 +395,15 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
         statusEl.className = "text-danger mt-1";
         statusEl.style.fontSize = "11px";
       }
+      checkLocationAvailability(); // a blocked permission should also show in the banner, not only in this one status line
       return; // reject: image is not accepted, existing state (if any) is untouched
     }
-    if (gps) hideLocationBanner(); // any successful resolution, EXIF or device, means location isn't blocked right now
+    if (gps.source === "device") {
+      // A real device fix proves location is allowed right now. (An EXIF
+      // location says nothing about the permission, so it doesn't count.)
+      locationPermission = "granted";
+      hideLocationBanner();
+    }
 
     if (kind === "root") {
       rootImageFile = resizedFile;
@@ -311,26 +470,28 @@ async function runAnalysis() {
   formData.append("root_image", rootImageFile);
   formData.append("trunk_image", trunkImageFile);
 
-  let res;
   try {
-    res = await fetch("/detection/analyze/", {
-      method: "POST",
-      headers: { "X-CSRFToken": getCsrfToken() },
-      body: formData,
-    });
-  } catch (networkErr) {
-    // fetch() throwing here (as opposed to resolving with a bad status)
-    // means there's no network path at all right now -- analysis can't
-    // happen offline no matter what, so queue the scan instead of
-    // dead-ending with an error the user can't do anything about.
-    await queueScanOffline();
-    analyzeBtn.disabled = false;
-    analyzeBtn.innerHTML = '<i class="bi bi-cpu"></i> Analyze Images';
-    return;
-  }
-
-  try {
-    const data = await res.json();
+    let res;
+    try {
+      res = await fetch("/detection/analyze/", {
+        method: "POST",
+        headers: { "X-CSRFToken": getCsrfToken() },
+        body: formData,
+        credentials: "same-origin",
+      });
+    } catch (networkErr) {
+      // fetch() throwing (as opposed to resolving with a bad status) means
+      // there's no network path right now. Analysis is a live call to the
+      // AI model, so there's nothing to fall back to -- say so plainly.
+      // Photos can be prepared without signal through Bulk Upload instead.
+      throw new Error("Couldn't reach the server. Analysis needs a connection. Check your signal and try again, or use Bulk Upload to queue photos for later.");
+    }
+    // Session expired (or a stale CSRF token): Django bounces to /login/,
+    // which fetch follows and hands back as HTML.
+    if (res.redirected && /\/login\//.test(new URL(res.url).pathname)) {
+      throw new Error("Your session expired. Log in again, then retake or re-select your photos.");
+    }
+    const data = await res.json().catch(() => { throw new Error(`Analysis failed (${res.status}). Please try again.`); });
     if (!res.ok) throw new Error(data.error || `Analysis failed (${res.status})`);
     showResult(data.disease, data.confidence, data.root_condition, data.action);
     setWorkflowStep(3);
@@ -342,64 +503,6 @@ async function runAnalysis() {
     analyzeBtn.disabled = false;
     analyzeBtn.innerHTML = '<i class="bi bi-cpu"></i> Analyze Images';
   }
-}
-
-// Stores the current capture (both images + resolved GPS) in IndexedDB
-// via offline_queue.js, then resets the form so the farmer can keep
-// scanning the next tree right away instead of getting stuck. Analysis
-// itself happens later, at sync time, once there's a connection again.
-async function queueScanOffline() {
-  const farmPk = document.getElementById("save-farm-pk").value;
-  if (!farmPk) {
-    alert("Select a farm before scanning.");
-    return;
-  }
-  const chosenGps = rootGPS || trunkGPS;
-  await queueScan({
-    farmPk,
-    treeId: document.getElementById("save-tree-id").value.trim(),
-    rootBlob: rootImageFile,
-    trunkBlob: trunkImageFile,
-    lat: chosenGps.lat,
-    lng: chosenGps.lng,
-    gpsSource: chosenGps.source,
-    // Real photo capture time (EXIF/device), not queue time -- matters
-    // most exactly here, since offline scans can sit queued for hours.
-    capturedAt: chosenGps.capturedAt || Date.now(),
-  });
-  if (typeof renderPendingScans === "function") renderPendingScans();
-
-  const errorBox = document.getElementById("analyze-error");
-  errorBox.className = "alert alert-warning mt-2 py-2";
-  errorBox.style.fontSize = "12.5px";
-  errorBox.style.display = "";
-  errorBox.textContent = "No connection right now — this scan was saved on your device and will analyze and sync automatically once you're back online.";
-
-  resetCaptureForm();
-}
-
-// Clears the capture state back to a fresh scan, without a page reload
-// (so farm/tree-id typed so far, and the message above, both survive).
-function resetCaptureForm() {
-  rootImageFile = null;
-  trunkImageFile = null;
-  rootGPS = null;
-  trunkGPS = null;
-  ["root", "trunk"].forEach(kind => {
-    const previewImg = document.getElementById(`${kind}-preview-img`);
-    const dropZone = document.getElementById(`${kind}-drop-zone`);
-    const statusEl = document.getElementById(`${kind}-gps-status`);
-    previewImg.style.display = "none";
-    previewImg.src = "";
-    dropZone.classList.remove("has-image");
-    if (statusEl) statusEl.textContent = "";
-  });
-  document.getElementById("trunk-zone-wrapper").classList.add("step-locked");
-  document.getElementById("analyze-btn").disabled = true;
-  document.getElementById("save-lat").value = "";
-  document.getElementById("save-lng").value = "";
-  document.getElementById("save-captured-at").value = "";
-  setWorkflowStep(0);
 }
 
 // Populates and reveals the result panel, hides the class reference card,
@@ -464,6 +567,10 @@ function wireCaptureZone({ dropZoneId, fileInputId, cameraInputId, previewImgId,
     if (fileInput.files[0]) handleCapture(fileInput.files[0], { previewImgId, dropZoneId, kind, source: "file" });
   });
   if (cameraInput) {
+    // Fires for the Take Photo label tap AND for the drop zone's own
+    // cameraInput.click() above -- one place that decides whether the
+    // camera may open (online, location allowed).
+    cameraInput.addEventListener("click", e => guardTakePhoto(e, kind));
     cameraInput.addEventListener("change", () => {
       if (cameraInput.files[0]) handleCapture(cameraInput.files[0], { previewImgId, dropZoneId, kind, source: "camera" });
     });
@@ -484,10 +591,9 @@ function wireCaptureZone({ dropZoneId, fileInputId, cameraInputId, previewImgId,
 
 // Keeps Step 1 locked (see .step-locked in style.css) until a farm is
 // picked -- a scan captured with no farm attached has nowhere to save
-// to, whether it saves live or gets queued offline. Server-rendered
-// initial state (see disease_detection.html) already covers the common
-// case of a farm already selected app-wide; this just keeps it in sync
-// as the person changes the dropdown.
+// to. Server-rendered initial state (see disease_detection.html) already
+// covers the common case of a farm already selected app-wide; this just
+// keeps it in sync as the person changes the dropdown.
 function wireFarmGate() {
   const farmSelect = document.getElementById("save-farm-pk");
   const rootWrapper = document.getElementById("root-zone-wrapper");
@@ -508,6 +614,10 @@ document.addEventListener("DOMContentLoaded", () => {
   checkLocationAvailability();
   const locBanner = document.getElementById("location-banner");
   if (locBanner) locBanner.addEventListener("click", checkLocationAvailability);
+  // The banner's own button asks for permission (a tap, so the browser
+  // is allowed to show its prompt) rather than just re-reading the state.
+  const locEnableBtn = document.getElementById("location-enable-btn");
+  if (locEnableBtn) locEnableBtn.addEventListener("click", e => { e.stopPropagation(); requestLocationPermission(); });
   wireTreeIdPreview();
 });
 

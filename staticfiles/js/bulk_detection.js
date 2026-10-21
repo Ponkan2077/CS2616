@@ -1,3 +1,8 @@
+// Bulk Upload works with no signal: grouping, EXIF GPS and resizing are all
+// local, and "Save All" queues each tree on the device (IndexedDB, see
+// offline_queue.js) when there's no connection, then syncs it automatically
+// once there is one. Only the manual map picker needs a connection (tiles).
+//
 // Same thresholds discussed for auto-grouping: time gap is the primary
 // signal (GPS is often missing on Browse'd photos), distance only used
 // when both photos being compared actually have it.
@@ -83,7 +88,7 @@ async function handleBulkFiles(fileList) {
     rootIdx: null,
     trunkIdx: null,
     location: groupLocation(g.items),
-    status: "draft", // draft | processing | done | error
+    status: "draft", // draft | processing | done | queued (saved on device, will sync) | error
     errorMsg: "",
     savedTreeId: "",
   }));
@@ -121,11 +126,12 @@ function renderBulkGroups() {
     const statusBadge = {
       draft: "",
       processing: '<span class="badge-disease" style="background:#1e3a5f;color:#7cb8ff;"><i class="bi bi-arrow-repeat"></i> Saving…</span>',
-      done: `<span class="badge-disease" style="background:#1c3a2e;color:#4ade80;"><i class="bi bi-check-circle-fill"></i> Saved as ${g.savedTreeId}</span>`,
+      done: `<span class="badge-disease" style="background:#1c3a2e;color:#4ade80;"><i class="bi bi-check-circle-fill"></i> Saved as ${escapeHtml(g.savedTreeId)}</span>`,
+      queued: '<span class="badge-disease" style="background:#3b3020;color:#e0b84a;"><i class="bi bi-cloud-arrow-up"></i> Queued — syncs automatically</span>',
       error: `<span class="badge-disease" style="background:#3b1f24;color:#f87171;">Failed</span>`,
     }[g.status];
 
-    const errorLine = g.status === "error" ? `<div class="text-danger mt-1" style="font-size:11.5px;">${g.errorMsg}</div>` : "";
+    const errorLine = g.status === "error" ? `<div class="text-danger mt-1" style="font-size:11.5px;">${escapeHtml(g.errorMsg)}</div>` : "";
     const uncertainLine = g.uncertain
       ? `<div class="mb-2" style="font-size:11px;color:#fbbf24;"><i class="bi bi-exclamation-triangle-fill"></i> Borderline split from the previous tree — double-check this grouping.</div>`
       : "";
@@ -156,9 +162,12 @@ function renderBulkGroups() {
       </div>`;
   }).join("");
 
-  const readyCount = bulkGroups.filter(isGroupReady).length;
+  // Already-saved and already-queued trees aren't "ready to save" anymore.
+  const readyCount = bulkGroups.filter(g => isGroupReady(g) && g.status !== "done" && g.status !== "queued").length;
+  const queuedCount = bulkGroups.filter(g => g.status === "queued").length;
   document.getElementById("bulk-actions").style.display = bulkGroups.length ? "" : "none";
-  document.getElementById("bulk-summary").textContent = `${readyCount} of ${bulkGroups.length} trees ready to save`;
+  document.getElementById("bulk-summary").textContent =
+    `${readyCount} of ${bulkGroups.length} trees ready to save` + (queuedCount ? ` · ${queuedCount} queued` : "");
 }
 
 function findGroup(id) {
@@ -207,6 +216,12 @@ function handleBulkContainerClick(e) {
 }
 
 function openBulkLocationModal(groupId) {
+  // Bootstrap and Leaflet both come from CDNs; offline they're only there if
+  // sw.js cached them on an earlier visit.
+  if (typeof bootstrap === "undefined") {
+    alert("The map picker isn't available offline. Photos that carry their own GPS still work; for the rest, set the location once you're back online.");
+    return;
+  }
   bulkLocationTargetId = groupId;
   const modalEl = document.getElementById("bulk-location-modal");
   const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
@@ -214,6 +229,12 @@ function openBulkLocationModal(groupId) {
 }
 
 document.getElementById("bulk-location-modal").addEventListener("shown.bs.modal", () => {
+  const offlineNote = document.getElementById("bulk-location-offline-note");
+  if (offlineNote) offlineNote.style.display = window.rgOnline === false ? "" : "none";
+  if (typeof L === "undefined") {
+    document.getElementById("bulk-location-map").textContent = "The map couldn't load. Set this location once you're back online.";
+    return;
+  }
   const g = findGroup(bulkLocationTargetId);
   const farmPk = document.getElementById("bulk-farm-select").value;
   const fallback = bulkFarmCenters[farmPk] || [6.9214, 122.0790];
@@ -244,34 +265,79 @@ document.getElementById("bulk-location-confirm").addEventListener("click", () =>
   renderBulkGroups();
 });
 
-// Reuses syncOneScan (offline_queue.js) -- the exact same analyze-then-save
-// chain a live single-tree scan and an offline sync both already go
-// through, just fed one bulk group at a time instead of one IndexedDB record.
+// Online: runs each group through syncOneScan (offline_queue.js) -- the
+// exact same analyze-then-save chain the offline sync uses -- one group at
+// a time. Offline (or the moment the connection drops mid-batch): the group
+// is resized and stored in the on-device queue instead, and the global sync
+// in offline_queue.js saves it automatically once there's a connection.
 async function processBulkGroups() {
   const farmPk = document.getElementById("bulk-farm-select").value;
   if (!farmPk) { alert("Select a farm first."); return; }
 
-  const ready = bulkGroups.filter(g => isGroupReady(g) && g.status !== "done");
-  for (const g of ready) {
-    g.status = "processing";
-    renderBulkGroups();
-    try {
-      const rootFile = g.items[g.rootIdx].file;
-      const trunkFile = g.items[g.trunkIdx].file;
-      const [rootBlob, trunkBlob] = await Promise.all([resizeImageFile(rootFile), resizeImageFile(trunkFile)]);
-      const result = await syncOneScan({
-        farmPk, treeId: "",
-        rootBlob, trunkBlob,
-        lat: g.location.lat, lng: g.location.lng,
-        capturedAt: g.items[g.rootIdx].capturedAt,
-      });
-      g.status = "done";
-      g.savedTreeId = result.tree_id;
-    } catch (err) {
-      g.status = "error";
-      g.errorMsg = err.message || "Save failed";
+  const ready = bulkGroups.filter(g => isGroupReady(g) && g.status !== "done" && g.status !== "queued");
+  if (!ready.length) return;
+
+  const processBtn = document.getElementById("bulk-process-btn");
+  processBtn.disabled = true;
+  let online = await isActuallyOnline();
+  let queuedNow = 0;
+  try {
+    for (const g of ready) {
+      g.status = "processing";
+      g.errorMsg = "";
+      renderBulkGroups();
+      let stopBatch = false;
+      try {
+        const rootItem = g.items[g.rootIdx];
+        const trunkItem = g.items[g.trunkIdx];
+        const [rootBlob, trunkBlob] = await Promise.all([resizeImageFile(rootItem.file), resizeImageFile(trunkItem.file)]);
+        const record = {
+          farmPk, treeId: "",
+          rootBlob, trunkBlob,
+          lat: g.location.lat, lng: g.location.lng,
+          gpsSource: g.location.manual ? "manual" : "exif",
+          capturedAt: rootItem.capturedAt,
+        };
+
+        let saved = false;
+        if (online) {
+          try {
+            const result = await syncOneScan(record);
+            g.status = "done";
+            g.savedTreeId = result.tree_id;
+            saved = true;
+          } catch (err) {
+            if (!(err instanceof NetworkError)) throw err;
+            online = false; // connection dropped mid-batch -- queue this one and the rest
+          }
+        }
+        if (!saved) {
+          try {
+            await queueScan(record);
+          } catch (queueErr) {
+            throw new Error("Couldn't store this tree on the device (storage may be full or blocked). Free some space or save it once you're online.");
+          }
+          g.status = "queued";
+          queuedNow++;
+        }
+      } catch (err) {
+        g.status = "error";
+        g.errorMsg = err.message || "Save failed";
+        // Every remaining tree would fail the same way once the session is gone.
+        if (err instanceof SessionError) stopBatch = true;
+      }
+      renderBulkGroups();
+      if (stopBatch) break;
     }
-    renderBulkGroups();
+  } finally {
+    processBtn.disabled = false;
+    renderPendingScans();
+    if (queuedNow) {
+      rgToast(`${queuedNow} tree${queuedNow === 1 ? "" : "s"} saved on this device. They sync automatically once you're back online.`, "info");
+      // If the offline reading was a false alarm (slow signal), this syncs
+      // right away; if it's real, the probe fails fast and they just wait.
+      maybeAutoSync();
+    }
   }
 }
 

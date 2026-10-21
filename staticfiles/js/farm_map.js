@@ -2,9 +2,251 @@
 // visible markers into one <canvas> instead of one DOM element per tree.
 const FARM_MAP_CANVAS = L.canvas({ padding: 0.5 });
 
-// Builds one canvas-rendered circle marker for a tree, with the same
-// lazy-loaded popup detail (fetched only on click, cached afterward) as
-// before.
+// Escapes text before it goes into popup HTML (owner/inspector names come
+// from the database and shouldn't be trusted as markup).
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+  ));
+}
+
+// ------------------------------------------------------------
+// Severity scale
+// ------------------------------------------------------------
+// Same tier cutoffs as RubberTree.severity_label on the server and
+// everywhere else in the app: Mild < 34, Moderate < 67, Severe >= 67.
+const SEVERITY_MODERATE_FROM = 34;
+const SEVERITY_SEVERE_FROM = 67;
+
+function severityTier(score) {
+  if (score < SEVERITY_MODERATE_FROM) return 'mild';
+  if (score < SEVERITY_SEVERE_FROM) return 'moderate';
+  return 'severe';
+}
+
+// Heat ramp keyed on severity score. Each tier starts on its --sev-* color
+// from style.css (yellow, orange, red) and the top end runs to a hot red, so
+// the worst cases are the most vivid thing on a dark map. (The old ramp ended
+// in a dark maroon, #7f1d1d, which has about 1.6:1 contrast against a dark
+// basemap — the most severe trees were the hardest to see.)
+const SEVERITY_STOPS = [
+  { at: 0,   rgb: [253, 224, 71] },   // #fde047  mild
+  { at: 34,  rgb: [251, 146, 60] },   // #fb923c  moderate
+  { at: 67,  rgb: [239, 68, 68] },    // #ef4444  severe
+  { at: 100, rgb: [255, 46, 99] },    // #ff2e63  most severe
+];
+
+function severityRgb(score) {
+  const s = Math.min(Math.max(score, 0), 100);
+  for (let i = 1; i < SEVERITY_STOPS.length; i++) {
+    const a = SEVERITY_STOPS[i - 1], b = SEVERITY_STOPS[i];
+    if (s <= b.at) {
+      const t = (s - a.at) / (b.at - a.at);
+      return a.rgb.map((v, k) => Math.round(v + (b.rgb[k] - v) * t));
+    }
+  }
+  return SEVERITY_STOPS[SEVERITY_STOPS.length - 1].rgb;
+}
+
+// CSS gradient for the legend bar, built from the same stops the map uses so
+// the legend can never drift from what's drawn.
+function severityGradientCss() {
+  const stops = SEVERITY_STOPS.map(s => `rgb(${s.rgb.join(',')}) ${s.at}%`);
+  return `linear-gradient(to right, ${stops.join(', ')})`;
+}
+
+// ------------------------------------------------------------
+// SeverityHeatLayer
+// ------------------------------------------------------------
+// Replaces leaflet.heat. That plugin adds up the opacity of overlapping
+// points, so a dense patch of *mild* trees saturated toward the "severe"
+// color — the map showed how many trees were close together, not how bad
+// they were. And its radius was a fixed number of screen pixels, so the
+// blobs meant different real-world distances at every zoom level.
+//
+// This layer fixes both:
+//   * Each tree is a soft blob colored by ITS OWN severity, drawn from least
+//     to most severe so the worst case nearby always ends up on top. Color =
+//     the worst severity in the neighborhood; overlap never changes the hue.
+//   * The blob radius is a real distance in meters (converted to pixels at
+//     the current zoom), so the picture stays truthful as you zoom.
+// Blobs are pre-rendered sprites, so thousands of trees redraw instantly.
+const SeverityHeatLayer = L.Layer.extend({
+  options: { pane: 'heatPane', padding: 0.25 },
+
+  initialize(points, options) {
+    this._points = points;       // [{ lat, lng, sev }] sorted by sev ascending
+    this._spreadM = 14;          // blob radius in meters
+    this._sprites = {};
+    L.setOptions(this, options);
+  },
+
+  setSpread(meters) {
+    this._spreadM = meters;
+    this._draw();
+  },
+
+  onAdd(map) {
+    this._map = map;
+    this._canvas = L.DomUtil.create('canvas', 'rg-heat-canvas leaflet-zoom-animated');
+    map.getPane(this.options.pane).appendChild(this._canvas);
+    map.on('moveend resize', this._update, this);
+    if (map.options.zoomAnimation && L.Browser.any3d) map.on('zoomanim', this._onZoomAnim, this);
+    this._update();
+  },
+
+  onRemove(map) {
+    L.DomUtil.remove(this._canvas);
+    map.off('moveend resize', this._update, this);
+    map.off('zoomanim', this._onZoomAnim, this);
+  },
+
+  // Sizes and positions the canvas to cover the view plus some padding (so a
+  // small drag doesn't reveal blank edges), then redraws. Same approach as
+  // Leaflet's own canvas renderer.
+  _update() {
+    const map = this._map;
+    const pad = this.options.padding;
+    const size = map.getSize();
+    const min = map.containerPointToLayerPoint(size.multiplyBy(-pad)).round();
+    const full = size.multiplyBy(1 + pad * 2).round();
+    this._min = min;
+    this._center = map.getCenter();
+    this._zoom = map.getZoom();
+    this._dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    this._canvas.width = Math.round(full.x * this._dpr);
+    this._canvas.height = Math.round(full.y * this._dpr);
+    this._canvas.style.width = full.x + 'px';
+    this._canvas.style.height = full.y + 'px';
+    this._size = full;
+    L.DomUtil.setPosition(this._canvas, min);
+    this._draw();
+  },
+
+  // Keeps the canvas glued to the map during an animated zoom by scaling it
+  // with the tiles; the real redraw happens on moveend.
+  _onZoomAnim(e) {
+    const map = this._map;
+    const scale = map.getZoomScale(e.zoom, this._zoom);
+    const viewHalf = map.getSize().multiplyBy(0.5 + this.options.padding);
+    const currentCenterPoint = map.project(this._center, e.zoom);
+    const topLeftOffset = viewHalf.multiplyBy(-scale).add(currentCenterPoint)
+      .subtract(map._getNewPixelOrigin(e.center, e.zoom));
+    L.DomUtil.setTransform(this._canvas, topLeftOffset, scale);
+  },
+
+  // Blob radius in pixels: the real-world spread converted at the current
+  // zoom, kept within a range that stays visible zoomed out and doesn't
+  // flood the screen zoomed in.
+  _radiusPx() {
+    const lat = this._map.getCenter().lat;
+    const metersPerPx = 40075016.686 * Math.cos(lat * Math.PI / 180)
+      / (256 * Math.pow(2, this._map.getZoom()));
+    return Math.min(Math.max(this._spreadM / metersPerPx, 7), 140);
+  },
+
+  // One pre-rendered radial blob per 5-point severity step.
+  _sprite(sev) {
+    const bucket = Math.round(sev / 5);
+    if (this._sprites[bucket]) return this._sprites[bucket];
+    const S = 96;
+    const score = Math.min(bucket * 5, 100);
+    const [r, g, b] = severityRgb(score);
+    // More severe = more opaque as well as hotter, so prominence rises with
+    // severity even though yellow is a lighter color than red.
+    const alpha = 0.42 + 0.5 * (score / 100);
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const ctx = c.getContext('2d');
+    const grad = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+    grad.addColorStop(0,    `rgba(${r},${g},${b},${alpha})`);
+    grad.addColorStop(0.45, `rgba(${r},${g},${b},${alpha * 0.62})`);
+    grad.addColorStop(1,    `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, S, S);
+    this._sprites[bucket] = c;
+    return c;
+  },
+
+  _draw() {
+    if (!this._map || !this._canvas || !this._min) return;
+    const map = this._map;
+    const ctx = this._canvas.getContext('2d');
+    const w = this._size.x, h = this._size.y;
+    ctx.setTransform(this._dpr, 0, 0, this._dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+
+    const R = this._radiusPx();
+    const screen = [];
+    for (const p of this._points) {
+      const pt = map.latLngToLayerPoint([p.lat, p.lng]).subtract(this._min);
+      if (pt.x < -R || pt.y < -R || pt.x > w + R || pt.y > h + R) continue;
+      screen.push({ x: pt.x, y: pt.y, sev: p.sev });
+    }
+    for (const p of screen) ctx.drawImage(this._sprite(p.sev), p.x - R, p.y - R, R * 2, R * 2);
+
+    // Small dots so you can still see the individual trees under the glow.
+    ctx.fillStyle = 'rgba(255,255,255,.72)';
+    ctx.beginPath();
+    for (const p of screen) { ctx.moveTo(p.x + 1.7, p.y); ctx.arc(p.x, p.y, 1.7, 0, Math.PI * 2); }
+    ctx.fill();
+  },
+});
+
+// Median distance (meters) from a tree to its nearest neighbor. Used to size
+// the heat blobs from how closely this farm is actually planted, so they
+// overlap just enough to read as a continuous surface. Sampled so a farm
+// with thousands of trees stays instant.
+function medianNearestNeighborMeters(points) {
+  if (points.length < 2) return 6;
+  const ky = 111320;
+  const kx = 111320 * Math.cos(points[0].lat * Math.PI / 180);
+  const xs = points.map(p => p.lng * kx);
+  const ys = points.map(p => p.lat * ky);
+  const step = Math.max(1, Math.floor(points.length / 400));
+  const nearest = [];
+  for (let i = 0; i < points.length; i += step) {
+    let best = Infinity;
+    for (let j = 0; j < points.length; j++) {
+      if (j === i) continue;
+      const dx = xs[i] - xs[j], dy = ys[i] - ys[j];
+      const d = dx * dx + dy * dy;
+      if (d < best) best = d;
+    }
+    nearest.push(Math.sqrt(best));
+  }
+  nearest.sort((a, b) => a - b);
+  return nearest[nearest.length >> 1];
+}
+
+// ------------------------------------------------------------
+// Markers, popups, clusters
+// ------------------------------------------------------------
+const LOADING_POPUP_HTML = '<div class="tp-disease" style="margin:0;">Loading…</div>';
+const POPUP_ERROR_HTML = '<div class="tp-note todo">Failed to load details. Try again.</div>';
+
+// Wires the lazy-loaded popup (fetched only on click, cached afterward).
+function attachTreePopup(marker, tree, detailCache) {
+  marker.bindPopup(LOADING_POPUP_HTML, { maxWidth: 270, className: 'rg-popup' });
+  marker.on('popupopen', async () => {
+    if (detailCache[tree.tree_id]) {
+      marker.setPopupContent(buildPopupHtml(detailCache[tree.tree_id]));
+      return;
+    }
+    try {
+      const res = await fetch(`/map/marker/${encodeURIComponent(tree.tree_id)}/`);
+      if (!res.ok) throw new Error('fetch failed');
+      const detail = await res.json();
+      detailCache[tree.tree_id] = detail;
+      marker.setPopupContent(buildPopupHtml(detail));
+    } catch (err) {
+      marker.setPopupContent(POPUP_ERROR_HTML);
+    }
+  });
+}
+
+// Builds one canvas-rendered circle marker for a tree.
 function buildTreeCircleMarker(tree, detailCache) {
   const marker = L.circleMarker([tree.lat, tree.lng], {
     renderer: FARM_MAP_CANVAS,
@@ -18,31 +260,13 @@ function buildTreeCircleMarker(tree, detailCache) {
   marker.treeId = tree.tree_id;
   marker.diseaseKey = tree.disease;
   marker.diseaseColor = tree.color;
-
-  marker.bindPopup('<div style="font-size:12px;padding:4px;">Loading…</div>', { maxWidth: 270 });
-  marker.on('popupopen', async () => {
-    if (detailCache[tree.tree_id]) {
-      marker.setPopupContent(buildPopupHtml(detailCache[tree.tree_id]));
-      return;
-    }
-    try {
-      const res = await fetch(`/map/marker/${tree.tree_id}/`);
-      if (!res.ok) throw new Error('fetch failed');
-      const detail = await res.json();
-      detailCache[tree.tree_id] = detail;
-      marker.setPopupContent(buildPopupHtml(detail));
-    } catch (err) {
-      marker.setPopupContent('<div style="font-size:12px;color:#dc3545;padding:4px;">Failed to load details. Try again.</div>');
-    }
-  });
-
+  attachTreePopup(marker, tree, detailCache);
   return marker;
 }
 
 // Builds one canvas-rendered circle marker colored by intervention status
 // instead of disease -- used only in Interventions mode, and only for
-// diseased trees (healthy trees have nothing to intervene on). Shares the
-// same lazy-loaded popup as the regular marker.
+// diseased trees (healthy trees have nothing to intervene on).
 function buildInterventionCircleMarker(tree, detailCache) {
   const marker = L.circleMarker([tree.lat, tree.lng], {
     renderer: FARM_MAP_CANVAS,
@@ -56,52 +280,49 @@ function buildInterventionCircleMarker(tree, detailCache) {
   marker.treeId = tree.tree_id;
   marker.diseaseKey = tree.disease;
   marker.needsAction = !tree.has_intervention;
-
-  marker.bindPopup('<div style="font-size:12px;padding:4px;">Loading…</div>', { maxWidth: 270 });
-  marker.on('popupopen', async () => {
-    if (detailCache[tree.tree_id]) {
-      marker.setPopupContent(buildPopupHtml(detailCache[tree.tree_id]));
-      return;
-    }
-    try {
-      const res = await fetch(`/map/marker/${tree.tree_id}/`);
-      if (!res.ok) throw new Error('fetch failed');
-      const detail = await res.json();
-      detailCache[tree.tree_id] = detail;
-      marker.setPopupContent(buildPopupHtml(detail));
-    } catch (err) {
-      marker.setPopupContent('<div style="font-size:12px;color:#dc3545;padding:4px;">Failed to load details. Try again.</div>');
-    }
-  });
-
+  attachTreePopup(marker, tree, detailCache);
   return marker;
 }
 
 // Builds the popup HTML from a full tree detail payload fetched on demand.
 function buildPopupHtml(tree) {
+  const confidence = Math.max(0, Math.min(100, Number(tree.confidence) || 0));
+  const color = tree.color || '#94a3b8';
+  const rows = [
+    ['Confidence', `${confidence}%`],
+    tree.severity_label ? ['Severity', tree.severity_label] : null,
+    ['Scanned', tree.date_scanned],
+    ['Managed by', tree.farm_owner],
+    tree.inspector ? ['Last inspected by', tree.inspector] : null,
+  ].filter(Boolean);
+
+  let note = '';
+  if (tree.latest_intervention) {
+    const more = tree.intervention_count > 1 ? `, ${tree.intervention_count} actions in total` : '';
+    note = `<div class="tp-note ok"><i class="bi bi-check-circle-fill"></i> ${esc(tree.latest_intervention)} (${esc(tree.latest_intervention_date)}${more})</div>`;
+  } else if (tree.disease !== 'Healthy') {
+    note = '<div class="tp-note todo">No intervention logged yet</div>';
+  }
+
   return `
-    <div style="font-weight:700;font-size:14px;">${tree.tree_id}</div>
-    <div style="font-size:12px;">Disease: <b>${tree.disease}</b></div>
-    <div style="font-size:12px;">Confidence: <b>${tree.confidence}%</b></div>
-    <div style="font-size:12px;">Scanned: ${tree.date_scanned}</div>
-    <hr style="margin:6px 0;border-color:#eee;">
-    <div style="font-size:11px;color:#666;"><i>Managed by ${tree.farm_owner}</i></div>
-    ${tree.inspector ? `<div style="font-size:11px;color:#666;">Last inspected by ${tree.inspector}</div>` : ''}
-    ${tree.latest_intervention ? `
-      <div style="font-size:11px;color:#166534;margin-top:4px;">
-        <i class="bi bi-check-circle-fill"></i> ${tree.latest_intervention} (${tree.latest_intervention_date})
-        ${tree.intervention_count > 1 ? ` · ${tree.intervention_count} total actions` : ''}
-      </div>` : `<div style="font-size:11px;color:#92400e;margin-top:4px;">No interventions logged yet</div>`}
-    <a href="/inventory/${tree.tree_id}/" style="display:inline-block;margin-top:8px;padding:4px 10px;
-      background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;font-size:11px;">View Details</a>
+    <div class="tp-head"><span class="tp-dot" style="background:${esc(color)};"></span>${esc(tree.tree_id)}</div>
+    <div class="tp-disease">${esc(tree.disease)}</div>
+    <div class="tp-meter" aria-hidden="true"><i style="width:${confidence}%;background:${esc(color)};"></i></div>
+    <dl class="tp-grid">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+    ${note}
+    <a class="tp-link" href="/inventory/${encodeURIComponent(tree.tree_id)}/">View details</a>
   `;
 }
 
+function clusterSizing(count) {
+  if (count >= 250) return { sizeClass: 'cluster-lg', px: 58 };
+  if (count >= 40) return { sizeClass: 'cluster-md', px: 46 };
+  return { sizeClass: 'cluster-sm', px: 36 };
+}
+
 // Cluster bubble icon — colored by whichever disease dominates that
-// cluster's child markers (trivial/uniform when a single category filter
-// is active; a real mix only when "All Diseases" is selected), sized in
-// three tiers so a 900-tree cluster visibly reads as "bigger" than a
-// 12-tree one.
+// cluster's child markers, sized in three tiers so a 900-tree cluster
+// visibly reads as "bigger" than a 12-tree one.
 function makeClusterIcon(cluster) {
   const children = cluster.getAllChildMarkers();
   const count = children.length;
@@ -124,10 +345,7 @@ function makeClusterIcon(cluster) {
   const color = (dominantMarker && dominantMarker.diseaseColor) || '#4ade80';
   const mixed = Object.keys(tally).length > 1;
 
-  let sizeClass = 'cluster-sm', px = 36;
-  if (count >= 250) { sizeClass = 'cluster-lg'; px = 58; }
-  else if (count >= 40) { sizeClass = 'cluster-md'; px = 46; }
-
+  const { sizeClass, px } = clusterSizing(count);
   return L.divIcon({
     html: `<div class="cluster-bubble ${sizeClass}" style="background:${color};${mixed ? 'border-style:dashed;' : ''}">${count}</div>`,
     className: 'marker-cluster-custom',
@@ -144,11 +362,7 @@ function makeInterventionClusterIcon(cluster) {
   const count = children.length;
   const anyNeedsAction = children.some(m => m.needsAction);
   const color = anyNeedsAction ? '#ef4444' : '#22c55e';
-
-  let sizeClass = 'cluster-sm', px = 36;
-  if (count >= 250) { sizeClass = 'cluster-lg'; px = 58; }
-  else if (count >= 40) { sizeClass = 'cluster-md'; px = 46; }
-
+  const { sizeClass, px } = clusterSizing(count);
   return L.divIcon({
     html: `<div class="cluster-bubble ${sizeClass}" style="background:${color};">${count}</div>`,
     className: 'marker-cluster-custom',
@@ -156,49 +370,12 @@ function makeInterventionClusterIcon(cluster) {
   });
 }
 
-// Severity gradient aligned to the same Mild < 34, Moderate < 67, Severe
-// >= 67 tier boundaries used everywhere else in the app (severity_label),
-// so a hotspot's color lines up with what "Mild/Moderate/Severe" means
-// elsewhere: yellow for mild, orange through the moderate range, dark red
-// for severe. The severe end runs through two darker red stops (red-600
-// -> red-700 -> red-900) instead of stopping at a lighter red-500, so the
-// most severe cases read as unmistakably dark red/maroon on the map
-// rather than blending with the moderate-orange range.
-const SEVERITY_HEAT_GRADIENT = {
-  0.05: '#fde047', 0.34: '#fb923c', 0.55: '#f97316', 0.67: '#dc2626', 0.85: '#b91c1c', 1.0: '#7f1d1d',
-};
-
-// Builds a heat layer for a single disease type only, using each tree's
-// severity_score (0-100, the model's affected-area/severity estimate —
-// NOT how many trees are nearby) as the heat weight. This makes the
-// heatmap represent how severe each case is, not how many overlapping
-// diseased trees happen to sit in one spot — a cluster of many Mild
-// cases should read as a soft yellow patch, not a solid red blob just
-// because there are lots of them.
-function buildHeatLayerForDisease(markers, disease) {
-  const points = markers
-    .filter(t => t.disease === disease)
-    .map(t => {
-      const weight = Math.min(Math.max((t.severity_score || 0) / 100, 0.05), 1.0);
-      return [t.lat, t.lng, weight];
-    });
-  return L.heatLayer(points, {
-    // Smaller radius/blur than a typical density heatmap so each tree's
-    // heat contribution stays localized — nearby trees no longer bleed
-    // together into one large red area, and hotspots reflect where the
-    // most SEVERE cases are, not just where the most cases are.
-    radius: 16, blur: 10, maxZoom: 18, max: 1.0, minOpacity: 0.2,
-    gradient: SEVERITY_HEAT_GRADIENT,
-  });
-}
-
-function updateHeatmapLegendLabel(disease) {
-  const label = document.getElementById('heatmap-disease-label');
-  if (label) label.textContent = disease;
-}
-
+// ------------------------------------------------------------
+// Page
+// ------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   const { markers, bounds, boundaryPolygon, farmId, farmName, farmOwner } = FARM_MAP_DATA;
+  const $ = (id) => document.getElementById(id);
 
   const leafletBounds = [
     [bounds.min_lat, bounds.min_lng],
@@ -209,30 +386,86 @@ document.addEventListener('DOMContentLoaded', () => {
     maxBounds: leafletBounds,
     maxBoundsViscosity: 0.8,
     preferCanvas: true,
+    // Quarter-step zoom so the first view can fit the farm snugly. With
+    // whole zoom levels only, a farm could end up filling as little as half
+    // of the map. (Zoom buttons and the mouse wheel still move one whole
+    // level at a time.)
+    zoomSnap: 0.25,
   });
-  map.fitBounds(leafletBounds);
+
+  // On wide screens the legend/heatmap panel floats over the right edge of
+  // the map (CSS drops it below the map under 768px, where this is 0). Fit
+  // the farm into the part of the map the panel does NOT cover, so the
+  // default view never hides part of the farm under it.
+  const PANEL_INSET_PX = 304;  // 280px panel + 12px margin + breathing room
+  const panelInset = () => (window.matchMedia('(min-width: 768px)').matches ? PANEL_INSET_PX : 0);
+
+  // Never open (or reset) tighter than this. Tree markers stop clustering at
+  // zoom 19 (disableClusteringAtZoom below) and markercluster rounds a
+  // fractional zoom like 18.75 up to 19, so a tighter fit would open a dense
+  // farm as ~1,500 overlapping dots instead of the summarized bubbles.
+  const MAX_FIT_ZOOM = 18.25;
+
+  function fitFarm() {
+    const inset = panelInset();
+    map.fitBounds(leafletBounds, { paddingBottomRight: [inset, 0], maxZoom: MAX_FIT_ZOOM, animate: false });
+    // The view now reaches `inset` px past the farm's east edge. Widen the
+    // pan limit by the same amount; otherwise maxBounds would pull the farm
+    // back to the middle, under the panel.
+    const z = map.getZoom();
+    const east = map.unproject(
+      map.project([bounds.min_lat, bounds.max_lng], z).add([inset, 0]), z
+    ).lng;
+    map.setMaxBounds([[bounds.min_lat, bounds.min_lng], [bounds.max_lat, east]]);
+  }
+  fitFarm();
   // getBoundsZoom needs the container's real pixel size, which isn't
   // reliably available the instant the map is created — invalidate size
-  // first, then compute the min zoom, with a sane fallback if invalid.
+  // first, then refit and compute the min zoom, with a sane fallback if
+  // invalid.
   setTimeout(() => {
     map.invalidateSize();
+    fitFarm();
     const boundsZoom = map.getBoundsZoom(leafletBounds);
     map.setMinZoom(Number.isFinite(boundsZoom) ? Math.max(boundsZoom - 1, 1) : 12);
   }, 150);
+
+  // The heatmap sits under the farm boundary and the tree markers, and never
+  // intercepts clicks.
+  map.createPane('heatPane');
+  map.getPane('heatPane').style.zIndex = 350;
+  map.getPane('heatPane').style.pointerEvents = 'none';
 
   // Scale control — shows a ruler segment labeled with its real-world
   // distance in meters/km, so users can gauge how far apart trees are.
   L.control.scale({ metric: true, imperial: false, position: 'bottomleft' }).addTo(map);
 
   // Farm boundary — a convex hull around the farm's actual trees, so the
-  // shape follows the planted area instead of an arbitrary circle.
+  // shape follows the planted area instead of an arbitrary circle. Dashed
+  // like a survey line so it reads as an outline, not a data layer.
+  // Drawn on the SAME canvas renderer as the tree markers: two separate
+  // canvases stack, and only the top one receives mouse events, so with the
+  // polygon on its own canvas underneath the markers' canvas its popup/hover
+  // never fired. On one renderer Leaflet hit-tests both, and the marker
+  // (drawn later) still wins where they overlap.
   if (boundaryPolygon && boundaryPolygon.length >= 3) {
     L.polygon(boundaryPolygon, {
-      color: '#0d6efd', weight: 2.5, fillColor: '#0d6efd', fillOpacity: 0.06,
+      renderer: FARM_MAP_CANVAS,
+      color: '#7cb4ff', weight: 2.5, dashArray: '8 6', fillColor: '#7cb4ff', fillOpacity: 0.05,
     })
-      .bindTooltip(farmName || farmId, { permanent: true, direction: 'center', className: 'farm-boundary-label' })
-      .bindPopup(`<b>${farmId}</b><br>${farmName}<br><i>${farmOwner}</i>`)
+      .bindPopup(`<b>${esc(farmId)}</b><br>${esc(farmName)}<br><i>${esc(farmOwner)}</i>`)
       .addTo(map);
+
+    // Farm name sits just above the top edge of the border. (It used to be
+    // centered on the farm, right on top of the markers and the heatmap.)
+    const lats = boundaryPolygon.map(p => p[0]);
+    const lngs = boundaryPolygon.map(p => p[1]);
+    L.marker([Math.max(...lats), (Math.min(...lngs) + Math.max(...lngs)) / 2], {
+      icon: L.divIcon({ className: '', iconSize: [0, 0] }),
+      interactive: false, keyboard: false,
+    }).bindTooltip(farmName || farmId, {
+      permanent: true, direction: 'top', offset: [0, -2], className: 'farm-boundary-label',
+    }).addTo(map);
   }
 
   const colorBasemap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -263,7 +496,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Rebuilds the on-map cluster group from just the given subset of
   // trees — used for every filter/search change so picking a category,
-  // or "All Diseases", never has to render all 1,500 markers to show a
+  // or "All Diseases", never has to render every marker to show a
   // filtered handful. markerFn/iconFn default to the disease-colored
   // versions; Interventions mode passes the intervention-status versions.
   function rebuildClusterGroup(subsetTrees, markerFn, iconFn) {
@@ -276,17 +509,20 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ------------------------------------------------------------
-  // Toolbar: search, disease filter, markers/heatmap toggle, reset
+  // Elements
   // ------------------------------------------------------------
-  const searchInput = document.getElementById('map-search');
-  const filterSelect = document.getElementById('map-filter');
-  const resetBtn = document.getElementById('map-reset');
-  const markersBtn = document.getElementById('view-markers-btn');
-  const heatmapBtn = document.getElementById('view-heatmap-btn');
-  const interventionsBtn = document.getElementById('view-interventions-btn');
-  const legendMarkers = document.getElementById('legend-markers');
-  const legendHeatmap = document.getElementById('legend-heatmap');
-  const legendInterventions = document.getElementById('legend-interventions');
+  const searchInput = $('map-search');
+  const filterSelect = $('map-filter');
+  const resetBtn = $('map-reset');
+  const markersBtn = $('view-markers-btn');
+  const heatmapBtn = $('view-heatmap-btn');
+  const interventionsBtn = $('view-interventions-btn');
+  const panels = {
+    markers: $('panel-markers'),
+    heatmap: $('panel-heatmap'),
+    interventions: $('panel-interventions'),
+  };
+  const viewButtons = { markers: markersBtn, heatmap: heatmapBtn, interventions: interventionsBtn };
   const allDiseasesOption = filterSelect ? filterSelect.querySelector('option[value=""]') : null;
   // Whatever's actually in the filter dropdown (server-rendered from the
   // live DiseaseClass catalog), minus "All Diseases" and Healthy -- a
@@ -296,7 +532,51 @@ document.addEventListener('DOMContentLoaded', () => {
     : [];
 
   let activeView = 'markers';
-  let currentHeatLayer = null;
+
+  // ------------------------------------------------------------
+  // Panels and the "nothing matches" message
+  // ------------------------------------------------------------
+  function showPanel(name) {
+    Object.entries(panels).forEach(([key, el]) => { if (el) el.hidden = key !== name; });
+    Object.entries(viewButtons).forEach(([key, btn]) => {
+      if (!btn) return;
+      btn.classList.toggle('active', key === name);
+      btn.setAttribute('aria-pressed', key === name ? 'true' : 'false');
+    });
+  }
+
+  Object.values(panels).forEach(panel => {
+    const head = panel && panel.querySelector('.map-panel-head');
+    if (!head) return;
+    head.addEventListener('click', () => {
+      const collapsed = panel.classList.toggle('is-collapsed');
+      head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    });
+  });
+
+  const emptyBox = $('map-empty');
+  function showEmpty(title, body) {
+    $('map-empty-title').textContent = title;
+    $('map-empty-body').textContent = body || '';
+    emptyBox.hidden = false;
+  }
+  function hideEmpty() { emptyBox.hidden = true; }
+
+  // ------------------------------------------------------------
+  // Marker view
+  // ------------------------------------------------------------
+  const legendRows = Array.from(document.querySelectorAll('#panel-markers .legend-row[data-disease]'));
+  function syncLegendPressed() {
+    const d = filterSelect ? filterSelect.value : '';
+    legendRows.forEach(row => row.setAttribute('aria-pressed', row.dataset.disease === d ? 'true' : 'false'));
+  }
+  // Legend rows double as filters: click to show only that disease, click
+  // again to clear.
+  legendRows.forEach(row => row.addEventListener('click', () => {
+    if (!filterSelect) return;
+    filterSelect.value = filterSelect.value === row.dataset.disease ? '' : row.dataset.disease;
+    filterSelect.dispatchEvent(new Event('change'));
+  }));
 
   function currentSubset() {
     const q = (searchInput && searchInput.value ? searchInput.value : '').trim().toLowerCase();
@@ -311,70 +591,194 @@ document.addEventListener('DOMContentLoaded', () => {
     return currentSubset().filter(t => t.disease !== 'Healthy');
   }
 
-  // Rebuilds the cluster group for the current search+filter state. If
-  // the search box narrows things down to exactly one tree, zoom/spiderfy
+  function reportEmptySubset(subset) {
+    if (subset.length) { hideEmpty(); return; }
+    const q = (searchInput && searchInput.value ? searchInput.value : '').trim();
+    showEmpty('No trees match', q ? `Nothing matches "${q}". Check the tree ID or clear the search.` : 'Try a different disease filter.');
+  }
+
+  // If the search box narrows things down to exactly one tree, zoom/spiderfy
   // straight to it and open its popup — clustering means a matching tree
   // could be buried inside a bubble, so this keeps search feeling instant.
+  function zoomToSingleMatch(subset) {
+    const q = (searchInput && searchInput.value ? searchInput.value : '').trim();
+    if (q && subset.length === 1) {
+      const [only] = activeClusterGroup.getLayers();
+      if (only) activeClusterGroup.zoomToShowLayer(only, () => only.openPopup());
+    }
+  }
+
   function applyMarkerFilters() {
     if (activeView !== 'markers') return;
     const subset = currentSubset();
     rebuildClusterGroup(subset);
     activeClusterGroup.addTo(map);
-
-    const q = (searchInput && searchInput.value ? searchInput.value : '').trim();
-    if (q && subset.length === 1) {
-      const [only] = activeClusterGroup.getLayers();
-      if (only) activeClusterGroup.zoomToShowLayer(only, () => only.openPopup());
-    }
+    reportEmptySubset(subset);
+    syncLegendPressed();
+    zoomToSingleMatch(subset);
   }
 
   // Same shape as applyMarkerFilters(), but for Interventions mode: builds
   // the cluster group from interventionSubset() using the red/green
-  // intervention-status marker and cluster-icon builders instead of the
-  // disease-colored ones.
+  // intervention-status marker and cluster-icon builders.
   function applyInterventionFilters() {
     if (activeView !== 'interventions') return;
     const subset = interventionSubset();
     rebuildClusterGroup(subset, buildInterventionCircleMarker, makeInterventionClusterIcon);
     activeClusterGroup.addTo(map);
-
-    const q = (searchInput && searchInput.value ? searchInput.value : '').trim();
-    if (q && subset.length === 1) {
-      const [only] = activeClusterGroup.getLayers();
-      if (only) activeClusterGroup.zoomToShowLayer(only, () => only.openPopup());
-    }
+    fillInterventionSummary(subset);
+    reportEmptySubset(subset);
+    zoomToSingleMatch(subset);
   }
 
+  // Progress numbers in the Interventions panel. Counts the trees currently
+  // shown, so they always agree with the markers on the map (a disease
+  // filter or search narrows both).
+  function fillInterventionSummary(subset) {
+    const done = subset.filter(t => t.has_intervention).length;
+    $('iv-total').textContent = subset.length;
+    $('iv-done').textContent = done;
+    $('iv-count-done').textContent = done;
+    $('iv-count-todo').textContent = subset.length - done;
+    $('iv-bar').style.width = (subset.length ? Math.round(done / subset.length * 100) : 0) + '%';
+  }
+
+  // ------------------------------------------------------------
+  // Heatmap view
+  // ------------------------------------------------------------
+  $('heat-ramp').style.background = severityGradientCss();
+
+  const heatChipsBox = $('heat-chips');
+  const heatCounts = {};
+  diseaseOptions.forEach(d => { heatCounts[d] = markers.filter(t => t.disease === d).length; });
+  const heatChips = diseaseOptions.map(d => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'heat-chip';
+    chip.dataset.disease = d;
+    chip.disabled = heatCounts[d] === 0;
+    chip.setAttribute('aria-pressed', 'false');
+    chip.innerHTML = `${esc(d)} <span>${heatCounts[d]}</span>`;
+    chip.addEventListener('click', () => {
+      filterSelect.value = d;
+      drawHeatForCurrentDisease();
+    });
+    heatChipsBox.appendChild(chip);
+    return chip;
+  });
+
+  // Blob size comes from how densely this farm is planted: about three tree
+  // spacings, within a sensible range. The "Spread" slider scales it.
+  const baseSpreadM = Math.min(Math.max(3 * medianNearestNeighborMeters(markers), 8), 30);
+  const spreadInput = $('heat-spread');
+  const spreadMeters = () => baseSpreadM * (spreadInput ? Number(spreadInput.value) : 1);
+
+  let heatLayer = null;
+  let heatPoints = [];
+  let locateRing = null;
+
   function clearHeatLayer() {
-    if (currentHeatLayer && map.hasLayer(currentHeatLayer)) map.removeLayer(currentHeatLayer);
-    currentHeatLayer = null;
+    if (heatLayer && map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
+    heatLayer = null;
+    if (locateRing) { map.removeLayer(locateRing); locateRing = null; }
+  }
+
+  // Most-affected disease by tree count, so entering the heatmap lands on
+  // something worth looking at instead of an empty first dropdown entry.
+  function defaultHeatDisease() {
+    const withTrees = diseaseOptions.filter(d => heatCounts[d] > 0);
+    const pool = withTrees.length ? withTrees : diseaseOptions;
+    return pool.reduce((best, d) => (heatCounts[d] > (heatCounts[best] || 0) ? d : best), pool[0]);
+  }
+
+  function updateHeatSummary(points) {
+    const tiers = { mild: 0, moderate: 0, severe: 0 };
+    let sum = 0, peak = 0, worst = null;
+    points.forEach(p => {
+      tiers[severityTier(p.sev)] += 1;
+      sum += p.sev;
+      if (p.sev > peak) { peak = p.sev; worst = p; }
+    });
+    $('heat-stat-count').textContent = points.length;
+    $('heat-stat-mean').textContent = points.length ? Math.round(sum / points.length) : '–';
+    $('heat-stat-peak').textContent = points.length ? Math.round(peak) : '–';
+    ['mild', 'moderate', 'severe'].forEach(t => { $('heat-tier-' + t).textContent = tiers[t]; });
+
+    const bar = $('heat-tier-bar');
+    bar.innerHTML = '';
+    ['mild', 'moderate', 'severe'].forEach(t => {
+      if (!tiers[t]) return;
+      const seg = document.createElement('span');
+      seg.style.flex = String(tiers[t]);
+      seg.style.background = `var(--sev-${t})`;
+      bar.appendChild(seg);
+    });
+
+    $('heat-locate').disabled = !worst;
+    $('heat-worst').hidden = true;
+    return worst;
   }
 
   function drawHeatForCurrentDisease() {
     clearHeatLayer();
+    hideEmpty();
+    if (!diseaseOptions.length) {
+      showEmpty('No disease classes to map', 'Add a disease class in the admin to see its heatmap.');
+      return;
+    }
     let disease = filterSelect ? filterSelect.value : '';
     if (!disease || !diseaseOptions.includes(disease)) {
-      disease = diseaseOptions[0];
+      disease = defaultHeatDisease();
       if (filterSelect) filterSelect.value = disease;
     }
-    currentHeatLayer = buildHeatLayerForDisease(markers, disease);
-    currentHeatLayer.addTo(map);
-    updateHeatmapLegendLabel(disease);
+    heatChips.forEach(c => c.setAttribute('aria-pressed', c.dataset.disease === disease ? 'true' : 'false'));
+
+    heatPoints = markers
+      .filter(t => t.disease === disease)
+      .map(t => ({ id: t.tree_id, lat: t.lat, lng: t.lng, sev: Math.min(Math.max(Number(t.severity_score) || 0, 1), 100) }))
+      .sort((a, b) => a.sev - b.sev);   // least to most severe: worst case paints last, on top
+    updateHeatSummary(heatPoints);
+
+    if (!heatPoints.length) {
+      showEmpty(`No ${disease} trees on this farm`, 'Pick another disease to see its heat.');
+      return;
+    }
+    heatLayer = new SeverityHeatLayer(heatPoints);
+    heatLayer.setSpread(spreadMeters());
+    heatLayer.addTo(map);
   }
 
+  if (spreadInput) spreadInput.addEventListener('input', () => {
+    if (heatLayer) heatLayer.setSpread(spreadMeters());
+  });
+
+  // Jump to the single most severe tree for the selected disease and ring it.
+  $('heat-locate').addEventListener('click', () => {
+    if (!heatPoints.length) return;
+    const worst = heatPoints[heatPoints.length - 1];
+    map.setView([worst.lat, worst.lng], Math.min(map.getMaxZoom() || 19, 19));
+    if (locateRing) map.removeLayer(locateRing);
+    locateRing = L.circleMarker([worst.lat, worst.lng], {
+      renderer: FARM_MAP_CANVAS, radius: 16, weight: 2.5, color: '#ffffff', fill: false, interactive: false,
+    }).addTo(map);
+    const note = $('heat-worst');
+    note.innerHTML = `Worst case: <a href="/inventory/${encodeURIComponent(worst.id)}/">${esc(worst.id)}</a>, severity ${Math.round(worst.sev)}`;
+    note.hidden = false;
+  });
+
+  // ------------------------------------------------------------
+  // View switching
+  // ------------------------------------------------------------
   function showMarkers() {
     activeView = 'markers';
     clearHeatLayer();
+    hideEmpty();
     if (map.hasLayer(grayBasemap)) map.removeLayer(grayBasemap);
     if (!map.hasLayer(colorBasemap)) colorBasemap.addTo(map);
     if (allDiseasesOption) allDiseasesOption.hidden = false;
+    if (searchInput) { searchInput.disabled = false; searchInput.placeholder = 'Search tree ID'; }
+    showPanel('markers');
     applyMarkerFilters();
-    markersBtn.classList.add('active');
-    heatmapBtn.classList.remove('active');
-    interventionsBtn.classList.remove('active');
-    legendMarkers.style.display = '';
-    legendHeatmap.style.display = 'none';
-    legendInterventions.style.display = 'none';
   }
 
   function showHeatmap() {
@@ -384,28 +788,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (map.hasLayer(colorBasemap)) map.removeLayer(colorBasemap);
     if (!map.hasLayer(grayBasemap)) grayBasemap.addTo(map);
     if (allDiseasesOption) allDiseasesOption.hidden = true;
+    if (searchInput) { searchInput.disabled = true; searchInput.placeholder = 'Search (markers only)'; }
+    showPanel('heatmap');
     drawHeatForCurrentDisease();
-    heatmapBtn.classList.add('active');
-    markersBtn.classList.remove('active');
-    interventionsBtn.classList.remove('active');
-    legendMarkers.style.display = 'none';
-    legendHeatmap.style.display = '';
-    legendInterventions.style.display = 'none';
   }
 
   function showInterventions() {
     activeView = 'interventions';
     clearHeatLayer();
+    hideEmpty();
     if (map.hasLayer(grayBasemap)) map.removeLayer(grayBasemap);
     if (!map.hasLayer(colorBasemap)) colorBasemap.addTo(map);
     if (allDiseasesOption) allDiseasesOption.hidden = false;
+    if (searchInput) { searchInput.disabled = false; searchInput.placeholder = 'Search tree ID'; }
+    showPanel('interventions');
     applyInterventionFilters();
-    interventionsBtn.classList.add('active');
-    markersBtn.classList.remove('active');
-    heatmapBtn.classList.remove('active');
-    legendMarkers.style.display = 'none';
-    legendHeatmap.style.display = 'none';
-    legendInterventions.style.display = '';
   }
 
   if (markersBtn) markersBtn.addEventListener('click', showMarkers);
@@ -436,12 +833,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (activeView === 'heatmap') drawHeatForCurrentDisease();
     else if (activeView === 'interventions') applyInterventionFilters();
     else applyMarkerFilters();
-    map.fitBounds(leafletBounds);
+    fitFarm();
   });
 
   // ------------------------------------------------------------
   // Initial view: "All Diseases" selected, showing the summarized
-  // clustered view of all 1,500 trees rather than every marker at once.
+  // clustered view of every tree rather than every marker at once.
   // ------------------------------------------------------------
+  showPanel('markers');
   applyMarkerFilters();
 });

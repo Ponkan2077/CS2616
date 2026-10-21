@@ -105,25 +105,39 @@ function rgAttachPinScaling(map, markerList) {
    so it's guaranteed to be committed before the next page's
    notifications are rendered -- otherwise the two requests could
    race and the just-clicked notification would still show up.
-   Navigation still proceeds via .finally() even if the dismiss
-   call fails, so a network hiccup never blocks the user from
-   reaching the tree page they clicked through to.
+   Navigation ALWAYS proceeds -- even if the dismiss call fails,
+   hangs (capped at 3s), or can't even be built (e.g. no CSRF
+   token) -- so a problem here never strands the user on a bell
+   item that does nothing. (It used to: getCsrfToken() wasn't
+   loaded outside the detection/bulk pages, so the click threw
+   after preventDefault() and the link never opened.)
    ============================================================ */
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.notif-item[data-tree-pk]').forEach(item => {
     item.addEventListener('click', function (e) {
+      // Ctrl/Cmd/Shift/middle-click = "open in a new tab/window": leave
+      // that to the browser (the notification just stays until the next
+      // plain click).
+      if (e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
       e.preventDefault();
       const destination = this.href;
-      fetch('/api/notifications/dismiss/', {
-        method: 'POST',
-        headers: {
-          'X-CSRFToken': getCsrfToken(),
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: `tree_pk=${encodeURIComponent(this.dataset.treePk)}&date_scanned=${encodeURIComponent(this.dataset.dateScanned)}`,
-      }).finally(() => {
-        window.location.href = destination;
-      });
+      let dismissCall;
+      try {
+        dismissCall = fetch('/api/notifications/dismiss/', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'X-CSRFToken': getCsrfToken(),
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: `tree_pk=${encodeURIComponent(this.dataset.treePk)}&date_scanned=${encodeURIComponent(this.dataset.dateScanned)}`,
+        });
+      } catch (err) {
+        dismissCall = Promise.resolve();
+      }
+      Promise.race([dismissCall, new Promise(resolve => setTimeout(resolve, 3000))])
+        .catch(() => {})
+        .finally(() => { window.location.href = destination; });
     });
   });
 

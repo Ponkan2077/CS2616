@@ -1,8 +1,11 @@
 /* ============================================================
-   sw.js — Caches just the /detection/ page shell so it still
-   loads with zero signal (the offline scan queue in
-   offline_queue.js is only useful if the capture form itself is
-   reachable offline in the first place).
+   sw.js — Keeps the Bulk Upload page usable with zero signal, so
+   photos can be grouped and queued on the phone (see
+   offline_queue.js) and synced once a connection comes back.
+
+   Take Photo (the single-capture page) is deliberately NOT cached
+   here: it needs a live connection for GPS and AI analysis, so
+   serving a stale copy of it offline would only dead-end the user.
 
    Served from /detection/sw.js rather than /static/js/sw.js on
    purpose: a service worker's scope can only be at or below the
@@ -11,19 +14,59 @@
    /static/js/ and never actually cover the page. See
    views.service_worker_js + urls.py.
 
-   Deliberately doesn't try to cache the static JS/CSS files --
-   those are already served with far-future cache headers under a
-   versioned URL (?v=...), so the browser's own HTTP cache already
-   keeps them around without a service worker's help. This only
-   handles the one thing that actually needs it: the dynamically
-   rendered HTML page itself.
+   What gets cached:
+   - /detection/bulk/ itself: network-first (so the farm list and
+     CSRF token stay current online), cached copy used offline.
+     Only clean 200 responses are stored -- never a login redirect
+     or an error page, which would otherwise get served back as
+     "the bulk page" the next time the phone is offline.
+   - /static/ files and the CDN assets base.html loads (Bootstrap,
+     icons, fonts, Leaflet, Chart.js): stale-while-revalidate, so
+     the page is styled and scripted offline, not just present.
+     The bulk page also asks us to cache everything it loaded
+     (see precacheOfflineShell in offline_queue.js), so this works
+     after the FIRST visit, not only the second.
    ============================================================ */
 
-const CACHE_NAME = "rubberguard-detection-shell-v1";
+const CACHE_NAME = "rubberguard-offline-shell-v2";
+const BULK_PATH = "/detection/bulk/";
+const ASSET_HOSTS = [
+  "cdn.jsdelivr.net",
+  "unpkg.com",
+  "fonts.googleapis.com",
+  "fonts.gstatic.com",
+];
+
+function isAssetUrl(url) {
+  if (url.origin === self.location.origin) return url.pathname.startsWith("/static/");
+  return ASSET_HOSTS.includes(url.hostname);
+}
+
+// Fetches a URL and stores it only if it's something worth serving
+// later: a real 200 (not a redirect to /login/, not a 4xx/5xx), or an
+// opaque cross-origin response (can't be inspected, but is how a CDN
+// asset without CORS headers comes back).
+async function cacheIfGood(cache, request) {
+  let response;
+  try {
+    response = await fetch(request);
+  } catch (err) {
+    if (typeof request === "string" || request.mode === "cors") {
+      // Retry without CORS for CDNs that don't send the header.
+      response = await fetch(typeof request === "string" ? request : request.url, { mode: "no-cors" });
+    } else {
+      throw err;
+    }
+  }
+  if (response.type === "opaque" || (response.ok && !response.redirected)) {
+    await cache.put(request, response.clone());
+  }
+  return response;
+}
 
 self.addEventListener("install", event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.add("/detection/")).catch(() => {})
+    caches.open(CACHE_NAME).then(cache => cacheIfGood(cache, BULK_PATH)).catch(() => {})
   );
   self.skipWaiting();
 });
@@ -31,32 +74,67 @@ self.addEventListener("install", event => {
 self.addEventListener("activate", event => {
   event.waitUntil(
     caches.keys().then(names =>
+      // Also clears the old "rubberguard-detection-shell-v1" cache that
+      // held the single-capture page from before it went online-only.
       Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)))
     )
   );
   self.clients.claim();
 });
 
+// The bulk page asks us to cache everything it loaded (stylesheets,
+// scripts, fonts) right after registering -- see precacheOfflineShell().
+self.addEventListener("message", event => {
+  const data = event.data;
+  if (!data || data.type !== "precache" || !Array.isArray(data.urls)) return;
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache =>
+      Promise.allSettled(
+        data.urls
+          .map(u => { try { return new URL(u, self.location.origin); } catch { return null; } })
+          .filter(u => u && (isAssetUrl(u) || u.pathname === BULK_PATH))
+          .map(u => cache.match(u.href).then(hit => hit || cacheIfGood(cache, u.href)))
+      )
+    )
+  );
+});
+
 self.addEventListener("fetch", event => {
+  if (event.request.method !== "GET") return; // POSTs to analyze/save pass straight through
   const url = new URL(event.request.url);
 
-  // Only the detection page's own GET navigation is handled here.
-  // Everything else -- POSTs to analyze/save/upload-url, other pages,
-  // admin, etc. -- passes straight through untouched. A failed
-  // analyze/save POST can't be served from a cache anyway; that's what
-  // the offline queue in offline_queue.js is for.
-  if (event.request.method !== "GET" || !url.pathname.startsWith("/detection")) return;
-
-  event.respondWith(
-    fetch(event.request)
-      .then(networkResponse => {
-        // Network-first: always prefer a live copy when there's a
-        // connection (so the farm list, CSRF token, etc. stay current),
-        // and refresh the cached fallback as a side effect.
-        const copy = networkResponse.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
-        return networkResponse;
+  // The bulk page's own navigation: network-first.
+  if (url.origin === self.location.origin && url.pathname === BULK_PATH) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async cache => {
+        try {
+          const response = await fetch(event.request);
+          if (response.ok && !response.redirected) cache.put(BULK_PATH, response.clone());
+          return response;
+        } catch (err) {
+          const cached = await cache.match(BULK_PATH);
+          if (cached) return cached;
+          throw err;
+        }
       })
-      .catch(() => caches.match(event.request).then(cached => cached || caches.match("/detection/")))
-  );
+    );
+    return;
+  }
+
+  // Static files and CDN assets: serve the cached copy immediately and
+  // refresh it in the background. /static/ URLs carry ?v=<version>, so a
+  // new deploy is a new URL and never gets a stale copy.
+  if (isAssetUrl(url)) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async cache => {
+        const cached = await cache.match(event.request, { ignoreVary: true });
+        const refresh = cacheIfGood(cache, event.request).catch(() => null);
+        if (cached) { event.waitUntil(refresh); return cached; }
+        const fresh = await refresh;
+        if (fresh) return fresh;
+        throw new Error("offline and not cached");
+      })
+    );
+  }
+  // Everything else (other pages, /ping/, /api/, map tiles) is untouched.
 });

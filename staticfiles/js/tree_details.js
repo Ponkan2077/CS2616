@@ -20,6 +20,13 @@ function renderMiniMap(tree, farmBoundary) {
       [Math.min(...lats), Math.min(...lngs)],
       [Math.max(...lats), Math.max(...lngs)],
     ];
+    // A tree with a bad GPS fix can sit outside its farm's own boundary
+    // (the boundary ignores such outliers). Locking the map to bounds that
+    // exclude the very tree being shown would push it out of view, so only
+    // apply the lock when the tree is inside it.
+    const inside = tree.lat >= farmBounds[0][0] && tree.lat <= farmBounds[1][0]
+      && tree.lng >= farmBounds[0][1] && tree.lng <= farmBounds[1][1];
+    if (!inside) farmBounds = null;
   }
 
   const miniMap = L.map('mini-map', {
