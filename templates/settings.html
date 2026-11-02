@@ -22,21 +22,21 @@
           {% csrf_token %}
           <input type="hidden" name="form_name" value="account">
           <div class="mb-2">
-            <label class="form-label small text-muted mb-1">Username</label>
-            <input type="text" class="form-control-rg" value="{{ user.username }}" disabled>
+            <label class="form-label small text-muted mb-1" for="id_username">Username</label>
+            <input type="text" id="id_username" class="form-control-rg" value="{{ user.username }}" disabled>
           </div>
           <div class="mb-2">
-            <label class="form-label small text-muted mb-1">Email</label>
-            <input type="email" name="email" class="form-control-rg" value="{{ user.email }}">
+            <label class="form-label small text-muted mb-1" for="id_email">Email</label>
+            <input type="email" id="id_email" name="email" class="form-control-rg" value="{{ user.email }}">
           </div>
           <div class="row g-2 mb-2">
             <div class="col-6">
-              <label class="form-label small text-muted mb-1">First Name</label>
-              <input type="text" name="first_name" class="form-control-rg" value="{{ user.first_name }}">
+              <label class="form-label small text-muted mb-1" for="id_first_name">First Name</label>
+              <input type="text" id="id_first_name" name="first_name" class="form-control-rg" value="{{ user.first_name }}">
             </div>
             <div class="col-6">
-              <label class="form-label small text-muted mb-1">Last Name</label>
-              <input type="text" name="last_name" class="form-control-rg" value="{{ user.last_name }}">
+              <label class="form-label small text-muted mb-1" for="id_last_name">Last Name</label>
+              <input type="text" id="id_last_name" name="last_name" class="form-control-rg" value="{{ user.last_name }}">
             </div>
           </div>
           <button type="submit" class="btn btn-primary btn-sm mt-1">Save Account Info</button>
@@ -58,16 +58,16 @@
           {% csrf_token %}
           <input type="hidden" name="form_name" value="password">
           <div class="mb-2">
-            <label class="form-label small text-muted mb-1">Current Password</label>
-            <input type="password" name="old_password" class="form-control-rg" required>
+            <label class="form-label small text-muted mb-1" for="id_old_password">Current Password</label>
+            <input type="password" id="id_old_password" name="old_password" class="form-control-rg" required>
           </div>
           <div class="mb-2">
-            <label class="form-label small text-muted mb-1">New Password</label>
-            <input type="password" name="new_password1" class="form-control-rg" required>
+            <label class="form-label small text-muted mb-1" for="id_new_password1">New Password</label>
+            <input type="password" id="id_new_password1" name="new_password1" class="form-control-rg" required>
           </div>
           <div class="mb-2">
-            <label class="form-label small text-muted mb-1">Confirm New Password</label>
-            <input type="password" name="new_password2" class="form-control-rg" required>
+            <label class="form-label small text-muted mb-1" for="id_new_password2">Confirm New Password</label>
+            <input type="password" id="id_new_password2" name="new_password2" class="form-control-rg" required>
           </div>
           <button type="submit" class="btn btn-primary btn-sm mt-1">Change Password</button>
         </form>
@@ -87,9 +87,9 @@
           <input type="hidden" name="form_name" value="notifications">
 
           <div class="mb-3">
-            <label class="form-label small text-muted mb-1">Only notify me about scans from the last</label>
+            <label class="form-label small text-muted mb-1" for="id_notify_lookback_days">Only notify me about scans from the last</label>
             <div class="d-flex align-items-center gap-2">
-              <input type="number" name="notify_lookback_days" class="form-control-rg" style="max-width:90px;"
+              <input type="number" id="id_notify_lookback_days" name="notify_lookback_days" class="form-control-rg" style="max-width:90px;"
                      min="1" value="{{ user_settings.notify_lookback_days }}">
               <span class="text-muted small">day(s)</span>
             </div>

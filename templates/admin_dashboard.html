@@ -102,7 +102,7 @@
           <td>{{ d.danger_rank }}</td>
           <td>{% if d.is_healthy %}<i class="bi bi-check-lg text-healthy"></i>{% else %}—{% endif %}</td>
           <td class="text-end">
-            <a href="/admin/farmmap/diseaseclass/{{ d.id }}/change/" class="text-decoration-none" style="font-size:12px;color:var(--primary);">Edit full details →</a>
+            <a href="/admin/farmmap/diseaseclass/{{ d.id }}/change/" class="text-decoration-none" style="font-size:12px;color:var(--primary-text);">Edit full details →</a>
           </td>
         </tr>
         {% empty %}
@@ -120,35 +120,35 @@
       {% csrf_token %}
       <div class="row g-3">
         <div class="col-12 col-md-6">
-          <label class="form-label" style="font-size:12px;">Name *</label>
-          <input type="text" name="name" class="form-control form-control-sm" required placeholder="e.g. Leaf Blight">
+          <label class="form-label" style="font-size:12px;" for="id_name">Name *</label>
+          <input type="text" id="id_name" name="name" class="form-control form-control-sm" required placeholder="e.g. Leaf Blight">
         </div>
         <div class="col-6 col-md-3">
-          <label class="form-label" style="font-size:12px;">Color</label>
-          <input type="color" name="color_hex" class="form-control form-control-sm form-control-color" value="#6c757d">
+          <label class="form-label" style="font-size:12px;" for="id_color_hex">Color</label>
+          <input type="color" id="id_color_hex" name="color_hex" class="form-control form-control-sm form-control-color" value="#6c757d">
         </div>
         <div class="col-6 col-md-3">
-          <label class="form-label" style="font-size:12px;">Danger rank (0-3+)</label>
-          <input type="number" name="danger_rank" class="form-control form-control-sm" value="1" min="0">
+          <label class="form-label" style="font-size:12px;" for="id_danger_rank">Danger rank (0-3+)</label>
+          <input type="number" id="id_danger_rank" name="danger_rank" class="form-control form-control-sm" value="1" min="0">
         </div>
         <div class="col-12">
-          <label class="form-label" style="font-size:12px;">Description</label>
-          <input type="text" name="description" class="form-control form-control-sm" placeholder="Causal pathogen + visible symptoms, shown in the detection reference card">
+          <label class="form-label" style="font-size:12px;" for="id_description">Description</label>
+          <input type="text" id="id_description" name="description" class="form-control form-control-sm" placeholder="Causal pathogen + visible symptoms, shown in the detection reference card">
         </div>
         <div class="col-12">
           <div class="form-text" style="font-size:11px;">Source these from a qualified agricultural expert or reliable agricultural reference — not from AI-generated guesses. The app displays this text as-is.</div>
         </div>
         <div class="col-12 col-md-4">
-          <label class="form-label" style="font-size:12px;">Recommendation — Mild</label>
-          <textarea name="recommendation_mild" class="form-control form-control-sm" rows="2"></textarea>
+          <label class="form-label" style="font-size:12px;" for="id_recommendation_mild">Recommendation — Mild</label>
+          <textarea id="id_recommendation_mild" name="recommendation_mild" class="form-control form-control-sm" rows="2"></textarea>
         </div>
         <div class="col-12 col-md-4">
-          <label class="form-label" style="font-size:12px;">Recommendation — Moderate</label>
-          <textarea name="recommendation_moderate" class="form-control form-control-sm" rows="2"></textarea>
+          <label class="form-label" style="font-size:12px;" for="id_recommendation_moderate">Recommendation — Moderate</label>
+          <textarea id="id_recommendation_moderate" name="recommendation_moderate" class="form-control form-control-sm" rows="2"></textarea>
         </div>
         <div class="col-12 col-md-4">
-          <label class="form-label" style="font-size:12px;">Recommendation — Severe</label>
-          <textarea name="recommendation_severe" class="form-control form-control-sm" rows="2"></textarea>
+          <label class="form-label" style="font-size:12px;" for="id_recommendation_severe">Recommendation — Severe</label>
+          <textarea id="id_recommendation_severe" name="recommendation_severe" class="form-control form-control-sm" rows="2"></textarea>
         </div>
         <div class="col-12 form-check ps-4">
           <input type="checkbox" name="is_healthy" id="is_healthy" class="form-check-input">

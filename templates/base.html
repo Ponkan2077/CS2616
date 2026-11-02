@@ -16,9 +16,11 @@
 </head>
 <body>
 
+<a class="skip-link" href="#content">Skip to main content</a>
+
 <div id="sidebar-overlay"></div>
 
-<nav id="sidebar">
+<nav id="sidebar" aria-label="Main navigation">
   <div class="sidebar-brand">
     <button id="sidebar-close" aria-label="Close sidebar">
       <i class="bi bi-x-lg"></i>
@@ -94,46 +96,46 @@
   <div class="sidebar-nav">
     <div class="nav-section-label">Main</div>
     <div class="nav-item">
-      <a href="{% url 'dashboard' %}" class="nav-link {% if page == 'dashboard' %}active{% endif %}" title="Dashboard">
+      <a href="{% url 'dashboard' %}" class="nav-link {% if page == 'dashboard' %}active{% endif %}"{% if page == 'dashboard' %} aria-current="page"{% endif %} title="Dashboard">
         <i class="bi bi-grid-1x2-fill"></i> <span>Dashboard</span>
       </a>
     </div>
     <div class="nav-item">
-      <a href="{% url 'farm_map' %}" class="nav-link {% if page == 'farm_map' %}active{% endif %}" title="Interactive Farm Map">
+      <a href="{% url 'farm_map' %}" class="nav-link {% if page == 'farm_map' %}active{% endif %}"{% if page == 'farm_map' %} aria-current="page"{% endif %} title="Interactive Farm Map">
         <i class="bi bi-map-fill"></i> <span>Interactive Farm Map</span>
       </a>
     </div>
     <div class="nav-item">
-      <a href="{% url 'disease_detection' %}" class="nav-link {% if page == 'disease_detection' %}active{% endif %}" title="Disease Detection">
+      <a href="{% url 'disease_detection' %}" class="nav-link {% if page == 'disease_detection' %}active{% endif %}"{% if page == 'disease_detection' %} aria-current="page"{% endif %} title="Disease Detection">
         <i class="bi bi-cpu-fill"></i> <span>Disease Detection</span>
       </a>
     </div>
     <div class="nav-item">
-      <a href="{% url 'bulk_upload' %}" class="nav-link {% if page == 'bulk_upload' %}active{% endif %}" title="Bulk Upload">
+      <a href="{% url 'bulk_upload' %}" class="nav-link {% if page == 'bulk_upload' %}active{% endif %}"{% if page == 'bulk_upload' %} aria-current="page"{% endif %} title="Bulk Upload">
         <i class="bi bi-images"></i> <span>Bulk Upload</span>
       </a>
     </div>
 
     <div class="nav-section-label">Data</div>
     <div class="nav-item">
-      <a href="{% url 'tree_inventory' %}" class="nav-link {% if page == 'tree_inventory' %}active{% endif %}" title="Tree Inventory">
+      <a href="{% url 'tree_inventory' %}" class="nav-link {% if page == 'tree_inventory' %}active{% endif %}"{% if page == 'tree_inventory' %} aria-current="page"{% endif %} title="Tree Inventory">
         <i class="bi bi-table"></i> <span>Tree Inventory</span>
       </a>
     </div>
     <div class="nav-item">
-      <a href="{% url 'reports' %}" class="nav-link {% if page == 'reports' %}active{% endif %}" title="Reports & Analytics">
+      <a href="{% url 'reports' %}" class="nav-link {% if page == 'reports' %}active{% endif %}"{% if page == 'reports' %} aria-current="page"{% endif %} title="Reports & Analytics">
         <i class="bi bi-bar-chart-fill"></i> <span>Reports &amp; Analytics</span>
       </a>
     </div>
     <div class="nav-item">
-      <a href="{% url 'interventions_log' %}" class="nav-link {% if page == 'interventions' %}active{% endif %}" title="Interventions">
+      <a href="{% url 'interventions_log' %}" class="nav-link {% if page == 'interventions' %}active{% endif %}"{% if page == 'interventions' %} aria-current="page"{% endif %} title="Interventions">
         <i class="bi bi-clipboard2-pulse-fill"></i> <span>Interventions</span>
       </a>
     </div>
 
     <div class="nav-section-label">Farms</div>
     <div class="nav-item">
-      <a href="{% url 'farm_list' %}" class="nav-link {% if page == 'farm_list' %}active{% endif %}" title="Manage Farms">
+      <a href="{% url 'farm_list' %}" class="nav-link {% if page == 'farm_list' %}active{% endif %}"{% if page == 'farm_list' %} aria-current="page"{% endif %} title="Manage Farms">
         <i class="bi bi-geo-alt-fill"></i> <span>Manage Farms</span>
       </a>
     </div>
@@ -141,7 +143,7 @@
     {% if request.user.is_staff %}
     <div class="nav-section-label">System</div>
     <div class="nav-item">
-      <a href="{% url 'admin_dashboard' %}" class="nav-link {% if page == 'admin_dashboard' %}active{% endif %}" title="Admin Dashboard">
+      <a href="{% url 'admin_dashboard' %}" class="nav-link {% if page == 'admin_dashboard' %}active{% endif %}"{% if page == 'admin_dashboard' %} aria-current="page"{% endif %} title="Admin Dashboard">
         <i class="bi bi-sliders"></i> <span>Admin Dashboard</span>
       </a>
     </div>
@@ -157,13 +159,13 @@
 <div id="main-wrapper">
   <header id="topbar">
     <div class="topbar-left">
-      <button id="hamburger" aria-label="Toggle sidebar">
+      <button id="hamburger" type="button" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
         <i class="bi bi-list"></i>
       </button>
-      <button id="desktop-sidebar-toggle" aria-label="Collapse sidebar">
+      <button id="desktop-sidebar-toggle" type="button" aria-label="Show or hide the sidebar">
         <i class="bi bi-layout-sidebar-inset"></i>
       </button>
-      <span class="page-title">{% block page_title %}RubberGuard{% endblock %}</span>
+      <h1 class="page-title">{% block page_title %}RubberGuard{% endblock %}</h1>
       {% if selected_farm %}
       <span class="badge bg-success ms-1" style="font-size:10px;font-weight:500;">
         <i class="bi bi-geo-alt-fill"></i> {{ selected_farm.farm_id }}
@@ -174,9 +176,9 @@
     </div>
     <div class="topbar-right">
       <div class="dropdown">
-        <button class="topbar-btn" data-bs-toggle="dropdown" aria-label="Notifications">
-          <i class="bi bi-bell-fill"></i>
-          {% if notifications %}<span class="badge-dot"></span>{% endif %}
+        <button type="button" class="topbar-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Notifications{% if notifications %}, {{ notifications|length }} unread{% endif %}">
+          <i class="bi bi-bell-fill" aria-hidden="true"></i>
+          {% if notifications %}<span class="badge-dot" aria-hidden="true"></span>{% endif %}
         </button>
         <div class="dropdown-menu dropdown-menu-end notif-dropdown">
           <div class="notif-header d-flex justify-content-between align-items-center">
@@ -201,7 +203,7 @@
         </div>
       </div>
       <div class="dropdown">
-        <div class="avatar" data-bs-toggle="dropdown">{{ user.username|slice:":2"|upper }}</div>
+        <button type="button" class="avatar" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Account menu for {{ user.username }}">{{ user.username|slice:":2"|upper }}</button>
         <ul class="dropdown-menu dropdown-menu-end">
           <li><span class="dropdown-item-text fw-bold small">{{ user.username }}</span></li>
           <li><span class="dropdown-item-text text-muted small">DA Field Office IX · PRRI</span></li>
@@ -220,12 +222,12 @@
     </div>
   </header>
 
-  <main id="content">
+  <main id="content" tabindex="-1">
     {% block content %}{% endblock %}
   </main>
 </div>
 
-<div id="toast-container" style="position:fixed;bottom:24px;right:24px;z-index:9999;"></div>
+<div id="toast-container" role="status" aria-live="polite" style="position:fixed;bottom:24px;right:24px;z-index:9999;"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

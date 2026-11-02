@@ -4,14 +4,14 @@
 
 {% block content %}
 <div class="text-muted mb-2" style="font-size:12px;">
-  <i class="bi bi-info-circle"></i> Historical trends and exportable reports. For a quick live snapshot, see the <a href="{% url 'dashboard' %}" style="color:var(--primary);">Dashboard</a>.
+  <i class="bi bi-info-circle"></i> Historical trends and exportable reports. For a quick live snapshot, see the <a href="{% url 'dashboard' %}" style="color:var(--primary-text);">Dashboard</a>.
 </div>
 
 <!-- Summary Cards -->
 <div class="row g-2 g-md-3 mb-3">
   <div class="col-6 col-lg-3">
     <div class="summary-card">
-      <div class="summary-icon" style="background:rgba(59,130,246,.16);color:var(--primary);"><i class="bi bi-tree-fill"></i></div>
+      <div class="summary-icon" style="background:rgba(59,130,246,.16);color:var(--primary-text);"><i class="bi bi-tree-fill"></i></div>
       <div><div class="summary-label">Total Trees</div><div class="summary-value">{{ total }}</div></div>
     </div>
   </div>
@@ -50,7 +50,7 @@
       {% for point in key_insights %}
       <li>{{ point }}</li>
       {% empty %}
-      <li class="text-muted">No data yet.</li>
+      <li class="text-muted">No scans to report on yet. Scan some trees to build this report.</li>
       {% endfor %}
     </ul>
   </div>
@@ -66,7 +66,7 @@
           {% for rec in recommendations %}
           <li>{{ rec }}</li>
           {% empty %}
-          <li class="text-muted">No recommendations at this time.</li>
+          <li class="text-muted">Nothing needs action right now.</li>
           {% endfor %}
         </ul>
         <div class="mt-2" style="font-size:11px;color:var(--text-faint);">
@@ -132,7 +132,7 @@
           <div class="affected-count">{{ a.diseased }}</div>
         </div>
         {% empty %}
-        <div class="text-center text-muted py-3" style="font-size:13px;">No farms registered yet.</div>
+        <div class="text-center text-muted py-3" style="font-size:13px;">You haven't added a farm yet. <a href="{% url 'farm_list' %}">Add your first farm</a>.</div>
         {% endfor %}
       </div>
     </div>
@@ -194,7 +194,7 @@
         {% for s in farm_summaries %}
         <tr>
           <td>
-            <a href="{% url 'farm_detail' s.farm.farm_id %}" style="color:var(--primary);text-decoration:none;font-weight:600;">{{ s.farm.farm_id }}</a>
+            <a href="{% url 'farm_detail' s.farm.farm_id %}" style="color:var(--primary-text);text-decoration:none;font-weight:600;">{{ s.farm.farm_id }}</a>
             <div class="text-muted" style="font-size:10px;">{{ s.farm.name }}</div>
           </td>
           <td class="text-muted">{{ s.farm.owner_name }}</td>

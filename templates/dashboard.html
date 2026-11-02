@@ -5,14 +5,14 @@
 
 {% block content %}
 <div class="text-muted mb-2" style="font-size:12px;">
-  <i class="bi bi-info-circle"></i> Quick operational snapshot — what's happening right now and recently. For historical trends and exportable reports, see <a href="{% url 'reports' %}" style="color:var(--primary);">Reports &amp; Analytics</a>.
+  <i class="bi bi-info-circle"></i> Quick operational snapshot — what's happening right now and recently. For historical trends and exportable reports, see <a href="{% url 'reports' %}" style="color:var(--primary-text);">Reports &amp; Analytics</a>.
 </div>
 
 <!-- Summary Cards -->
 <div class="row g-2 g-md-3 mb-3">
   <div class="col-6 col-lg-3">
     <div class="summary-card">
-      <div class="summary-icon" style="background:rgba(59,130,246,.16);color:var(--primary);"><i class="bi bi-tree-fill"></i></div>
+      <div class="summary-icon" style="background:rgba(59,130,246,.16);color:var(--primary-text);"><i class="bi bi-tree-fill"></i></div>
       <div>
         <div class="summary-label">Total Trees Monitored</div>
         <div class="summary-value">{{ total }}</div>
@@ -154,9 +154,9 @@
           <tbody>
             {% for t in recent %}
             <tr>
-              <td><a href="{% url 'tree_details' t.tree_id %}" class="fw-bold text-decoration-none" style="color:var(--primary);">{{ t.tree_id }}</a></td>
+              <td><a href="{% url 'tree_details' t.tree_id %}" class="fw-bold text-decoration-none" style="color:var(--primary-text);">{{ t.tree_id }}</a></td>
               <td>
-                <span class="badge-disease" style="background:color-mix(in srgb, {{ t.disease|disease_color }} 20%, white); color:{{ t.disease|disease_color }};">
+                <span class="badge-disease" style="--c:{{ t.disease|disease_color }};">
                   {{ t.disease }}
                 </span>
               </td>
@@ -164,13 +164,13 @@
               <td class="text-muted" style="font-size:11px;">{{ t.date_scanned }}</td>
             </tr>
             {% empty %}
-            <tr><td colspan="4" class="text-center text-muted py-4">No detections yet.</td></tr>
+            <tr><td colspan="4" class="text-center text-muted py-4">No scans yet. <a href="{% url 'disease_detection' %}">Scan your first tree</a> to see results here.</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
       <div class="p-3 text-end border-top">
-        <a href="{% url 'tree_inventory' %}" style="font-size:12px;color:var(--primary);text-decoration:none;">
+        <a href="{% url 'tree_inventory' %}" style="font-size:12px;color:var(--primary-text);text-decoration:none;">
           View All Trees <i class="bi bi-arrow-right"></i>
         </a>
       </div>
@@ -191,23 +191,23 @@
           <tbody>
             {% for iv in recent_interventions %}
             <tr>
-              <td><a href="{% url 'tree_details' iv.tree.tree_id %}" class="fw-bold text-decoration-none" style="color:var(--primary);">{{ iv.tree.tree_id }}</a></td>
+              <td><a href="{% url 'tree_details' iv.tree.tree_id %}" class="fw-bold text-decoration-none" style="color:var(--primary-text);">{{ iv.tree.tree_id }}</a></td>
               <td style="font-size:12px;">{{ iv.action }}</td>
               <td class="text-muted" style="font-size:11px;">{{ iv.date_performed }}</td>
               <td>
-                <span class="badge-disease" style="background:color-mix(in srgb, {{ iv.tree.disease|disease_color }} 20%, white); color:{{ iv.tree.disease|disease_color }};">
+                <span class="badge-disease" style="--c:{{ iv.tree.disease|disease_color }};">
                   {{ iv.tree.disease }}
                 </span>
               </td>
             </tr>
             {% empty %}
-            <tr><td colspan="4" class="text-center text-muted py-4">No interventions logged yet.</td></tr>
+            <tr><td colspan="4" class="text-center text-muted py-4">No interventions yet. <a href="{% url 'interventions_log' %}">Log one</a> after treating a tree.</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
       <div class="p-3 text-end border-top">
-        <a href="{% url 'interventions_log' %}" style="font-size:12px;color:var(--primary);text-decoration:none;">
+        <a href="{% url 'interventions_log' %}" style="font-size:12px;color:var(--primary-text);text-decoration:none;">
           Log New Intervention <i class="bi bi-arrow-right"></i>
         </a>
       </div>
@@ -228,7 +228,7 @@
           <div class="affected-count text-healthy">{{ e.recovery_pct }}%</div>
         </div>
         {% empty %}
-        <div class="text-center text-muted py-3" style="font-size:13px;">No interventions logged yet.</div>
+        <div class="text-center text-muted py-3" style="font-size:13px;">No interventions yet. <a href="{% url 'interventions_log' %}">Log one</a> after treating a tree.</div>
         {% endfor %}
       </div>
     </div>

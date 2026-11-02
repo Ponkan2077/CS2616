@@ -28,29 +28,29 @@
   <form method="GET" class="card-body-rg d-flex flex-wrap gap-2 align-items-center">
     <div class="search-wrap">
       <i class="bi bi-search"></i>
-      <input type="text" name="q" value="{{ search_q }}" class="form-control-rg" placeholder="Search Tree ID…">
+      <input type="text" name="q" value="{{ search_q }}" class="form-control-rg" placeholder="Search Tree ID…" aria-label="Search by tree ID">
     </div>
-    <select name="action" class="select-filter-rg" onchange="this.form.submit()">
+    <select name="action" class="select-filter-rg" aria-label="Filter by action">
       <option value="">All Actions</option>
       {% for value, label in action_choices %}
       <option value="{{ value }}" {% if action_filter == value %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
-    <select name="range" class="select-filter-rg" onchange="this.form.submit()">
+    <select name="range" class="select-filter-rg" aria-label="Filter by date">
       <option value="">All Time</option>
       <option value="7" {% if range_filter == "7" %}selected{% endif %}>Last 7 Days</option>
       <option value="30" {% if range_filter == "30" %}selected{% endif %}>Last 30 Days</option>
       <option value="90" {% if range_filter == "90" %}selected{% endif %}>Last 90 Days</option>
     </select>
     {% if not selected_farm %}
-    <select name="farm" class="select-filter-rg" onchange="this.form.submit()">
+    <select name="farm" class="select-filter-rg" aria-label="Filter by farm">
       <option value="">All Farms</option>
       {% for farm in all_farms %}
       <option value="{{ farm.farm_id }}" {% if farm_filter == farm.farm_id %}selected{% endif %}>{{ farm.farm_id }}</option>
       {% endfor %}
     </select>
     {% endif %}
-    <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-search"></i> Search</button>
+    <button type="submit" class="btn btn-sm btn-outline-secondary"><i class="bi bi-search" aria-hidden="true"></i> Apply</button>
     {% if search_q or action_filter or farm_filter or range_filter %}
     <a href="{% url 'interventions_log' %}" class="btn btn-sm btn-outline-secondary">Clear</a>
     {% endif %}
@@ -75,7 +75,7 @@
       <tbody>
         {% for iv in interventions %}
         <tr>
-          <td><a href="{% url 'tree_details' iv.tree.tree_id %}" class="fw-bold text-decoration-none" style="color:var(--primary);">{{ iv.tree.tree_id }}</a></td>
+          <td><a href="{% url 'tree_details' iv.tree.tree_id %}" class="fw-bold text-decoration-none" style="color:var(--primary-text);">{{ iv.tree.tree_id }}</a></td>
           <td><span class="badge-farm">{{ iv.tree.farm.farm_id }}</span></td>
           <td class="fw-semibold" style="font-size:12px;">{{ iv.action }}</td>
           <td class="text-muted" style="font-size:12px;">{{ iv.date_performed }}</td>
@@ -83,7 +83,13 @@
           <td class="text-muted" style="font-size:12px;">{{ iv.notes|truncatechars:50|default:"—" }}</td>
         </tr>
         {% empty %}
-        <tr><td colspan="6" class="text-center text-muted py-4">No interventions logged yet. Click "Log Intervention" to record one.</td></tr>
+        <tr><td colspan="6" class="text-center text-muted py-4">
+          {% if search_q or action_filter or farm_filter or range_filter %}
+          No interventions match these filters. <a href="{% url 'interventions_log' %}">Clear the filters</a> to see all of them.
+          {% else %}
+          No interventions logged yet. Click "Log Intervention" to record one.
+          {% endif %}
+        </td></tr>
         {% endfor %}
       </tbody>
     </table>

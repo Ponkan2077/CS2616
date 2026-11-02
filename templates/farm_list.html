@@ -136,8 +136,8 @@
   {% empty %}
   <div class="col-12">
     <div class="card-rg card-body-rg text-center text-muted">
-      <i class="bi bi-geo-alt fs-2 mb-2 d-block"></i>
-      No farms registered yet.
+      <i class="bi bi-geo-alt fs-2 mb-2 d-block" aria-hidden="true"></i>
+      You haven't added a farm yet. Use "Add Farm" to create your first one.
     </div>
   </div>
   {% endfor %}
@@ -156,7 +156,8 @@
         <div class="modal-body">
           <div class="auth-field">
             <label for="farm_id">Farm ID</label>
-            <input type="text" name="farm_id" id="farm_id" class="form-control-rg" placeholder="e.g. FARM-004" required>
+            <input type="text" name="farm_id" id="farm_id" class="form-control-rg" placeholder="e.g. FARM-004" maxlength="20" aria-describedby="farm-id-help" required>
+            <div id="farm-id-help" class="text-muted mt-1" style="font-size:11px;">Letters, numbers, spaces, dashes, dots or underscores, up to 20 characters. No slashes.</div>
           </div>
           <div class="auth-field">
             <label for="name">Farm Name</label>

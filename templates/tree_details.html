@@ -6,8 +6,8 @@
 {% block content %}
 <nav aria-label="breadcrumb" class="mb-3">
   <ol class="breadcrumb" style="font-size:12px;">
-    <li class="breadcrumb-item"><a href="{% url 'tree_inventory' %}" style="color:var(--primary);">Inventory</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'farm_detail' tree.farm.farm_id %}" style="color:var(--primary);">{{ tree.farm.name }}</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'tree_inventory' %}" style="color:var(--primary-text);">Inventory</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'farm_detail' tree.farm.farm_id %}" style="color:var(--primary-text);">{{ tree.farm.name }}</a></li>
     <li class="breadcrumb-item active">{{ tree.tree_id }}</li>
   </ol>
 </nav>
@@ -27,7 +27,7 @@
           </div>
           <div>
             <div class="fw-bold" style="font-size:20px;">{{ tree.tree_id }}</div>
-            <span class="badge-disease" style="background:color-mix(in srgb, {{ tree.disease|disease_color }} 20%, white); color:{{ tree.disease|disease_color }};">
+            <span class="badge-disease" style="--c:{{ tree.disease|disease_color }};">
               {{ tree.disease }}
             </span>
           </div>
@@ -40,7 +40,7 @@
 
         <div class="detail-grid">
           <span class="detail-label">Farm</span>
-          <span><a href="{% url 'farm_detail' tree.farm.farm_id %}" style="color:var(--primary);text-decoration:none;">{{ tree.farm.farm_id }} — {{ tree.farm.name }}</a></span>
+          <span><a href="{% url 'farm_detail' tree.farm.farm_id %}" style="color:var(--primary-text);text-decoration:none;">{{ tree.farm.farm_id }} — {{ tree.farm.name }}</a></span>
 
           <span class="detail-label">Owner</span>
           <span>{{ tree.farm.owner_name }}</span>
@@ -176,7 +176,7 @@
             <tr>
               <td style="font-size:12px;">{{ h.date }}</td>
               <td>
-                <span class="badge-disease" style="background:color-mix(in srgb, {{ h.disease|disease_color }} 20%, white); color:{{ h.disease|disease_color }};">
+                <span class="badge-disease" style="--c:{{ h.disease|disease_color }};">
                   {{ h.disease }}
                 </span>
               </td>

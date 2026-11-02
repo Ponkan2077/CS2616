@@ -53,7 +53,7 @@
   <div class="col-6 col-lg-3">
     <div class="kpi-card">
       <div class="kpi-label">{{ d.name }}</div>
-      <div class="kpi-value" style="color:{{ d.color }};">{{ d.count }}</div>
+      <div class="kpi-value" style="color:color-mix(in srgb, {{ d.color }} 45%, white);">{{ d.count }}</div>
       <div class="kpi-pct">{{ d.pct }}% of total</div>
       <i class="bi {% if d.is_healthy %}bi-check-circle-fill{% else %}bi-virus{% endif %} kpi-icon" style="color:{{ d.color }};"></i>
     </div>
@@ -91,22 +91,22 @@
       <tbody>
         {% for tree in trees %}
         <tr>
-          <td class="fw-bold" style="color:var(--primary);">{{ tree.tree_id }}</td>
+          <td class="fw-bold" style="color:var(--primary-text);">{{ tree.tree_id }}</td>
           <td>
-            <span class="badge-disease" style="background:color-mix(in srgb, {{ tree.disease|disease_color }} 20%, white); color:{{ tree.disease|disease_color }};">
+            <span class="badge-disease" style="--c:{{ tree.disease|disease_color }};">
               {{ tree.disease }}
             </span>
           </td>
           <td class="fw-semibold">{{ tree.confidence }}%</td>
           <td class="text-muted" style="font-size:12px;">{{ tree.date_scanned }}</td>
           <td>
-            <a href="{% url 'tree_details' tree.tree_id %}" class="btn btn-sm btn-outline-primary" style="font-size:11px;">
-              <i class="bi bi-eye"></i>
+            <a href="{% url 'tree_details' tree.tree_id %}" class="btn btn-sm btn-outline-primary" style="font-size:11px;" aria-label="View tree {{ tree.tree_id }}">
+              <i class="bi bi-eye" aria-hidden="true"></i>
             </a>
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="5" class="text-center text-muted py-4">No trees registered for this farm.</td></tr>
+        <tr><td colspan="5" class="text-center text-muted py-4">No trees on this farm yet. <a href="{% url 'disease_detection' %}">Scan a tree</a> to add one.</td></tr>
         {% endfor %}
       </tbody>
     </table>
