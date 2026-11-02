@@ -23,18 +23,34 @@ function rebuildChecklist() {
 
   const trees = FARM_TREES_BY_ID[farmPk] || [];
   if (!trees.length) {
-    container.innerHTML = '<div class="text-muted" style="font-size:12px;">No trees on this farm yet.</div>';
+    const empty = document.createElement("div");
+    empty.className = "text-muted";
+    empty.style.fontSize = "12px";
+    empty.textContent = "No trees on this farm yet. Scan a tree first, then log interventions.";
+    container.appendChild(empty);
     return;
   }
 
+  // Built with DOM calls (not innerHTML) because tree IDs and disease names
+  // are user-entered text.
   trees.forEach(t => {
     const label = document.createElement("label");
     label.className = "tree-checklist-item";
-    label.innerHTML = `
-      <input type="checkbox" name="tree_ids" value="${t.tree_id}">
-      <span>${t.tree_id}</span>
-      <span class="text-muted" style="font-size:10px;">${t.disease}</span>
-    `;
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.name = "tree_ids";
+    input.value = t.tree_id;
+
+    const idText = document.createElement("span");
+    idText.textContent = t.tree_id;
+
+    const diseaseText = document.createElement("span");
+    diseaseText.className = "text-muted";
+    diseaseText.style.fontSize = "10px";
+    diseaseText.textContent = t.disease;
+
+    label.append(input, idText, diseaseText);
     container.appendChild(label);
   });
 }
@@ -49,6 +65,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const dateInput = document.getElementById("date_performed");
   if (dateInput && !dateInput.value) {
-    dateInput.value = new Date().toISOString().split("T")[0];
+    // Local date, not toISOString() (UTC): in the Philippines (UTC+8) that
+    // would show yesterday's date for the first 8 hours of every day.
+    const now = new Date();
+    const pad = n => String(n).padStart(2, "0");
+    dateInput.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   }
 });

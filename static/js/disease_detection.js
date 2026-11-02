@@ -325,14 +325,16 @@ function setWorkflowStep(index) {
 
 // Asks Django for a short-lived presigned URL to PUT one image straight
 // to cloud storage. kind is 'roots' or 'trunks'.
-async function requestUploadUrl(kind) {
+// size is the byte length about to be uploaded; the server signs it into
+// the URL so the storage provider only accepts a PUT of exactly that size.
+async function requestUploadUrl(kind, size) {
   const res = await fetch("/detection/upload-url/", {
     method: "POST",
     headers: {
       "X-CSRFToken": getCsrfToken(),
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams({ kind }),
+    body: new URLSearchParams({ kind, size: String(size) }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -344,14 +346,22 @@ async function requestUploadUrl(kind) {
 // Uploads one already-resized WebP file straight to cloud storage and
 // returns its object key. Throws if direct upload isn't available or the
 // PUT itself fails -- callers fall back to the multipart file inputs.
+//
+// Keys are remembered per file object, so pressing Analyze again on the same
+// photos reuses the object already in storage instead of uploading (and
+// leaving behind) another copy every time.
+const uploadedKeyByFile = new WeakMap();
+
 async function uploadDirectly(file, kind) {
-  const { key, upload_url } = await requestUploadUrl(kind);
+  if (uploadedKeyByFile.has(file)) return uploadedKeyByFile.get(file);
+  const { key, upload_url } = await requestUploadUrl(kind, file.size);
   const putRes = await fetch(upload_url, {
     method: "PUT",
     headers: { "Content-Type": "image/webp" },
     body: file,
   });
   if (!putRes.ok) throw new Error("Direct upload to storage failed");
+  uploadedKeyByFile.set(file, key);
   return key;
 }
 
@@ -433,7 +443,7 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
 
     if (kind === "root") {
       // Root image captured first -- unlock the trunk capture step.
-      document.getElementById("trunk-zone-wrapper").classList.remove("step-locked");
+      setStepLocked(document.getElementById("trunk-zone-wrapper"), false);
       setWorkflowStep(1);
     } else {
       // Stays disabled if no model is configured -- see the banner
@@ -491,12 +501,12 @@ async function runAnalysis() {
     if (res.redirected && /\/login\//.test(new URL(res.url).pathname)) {
       throw new Error("Your session expired. Log in again, then retake or re-select your photos.");
     }
-    const data = await res.json().catch(() => { throw new Error(`Analysis failed (${res.status}). Please try again.`); });
-    if (!res.ok) throw new Error(data.error || `Analysis failed (${res.status})`);
+    const data = await res.json().catch(() => { throw new Error("Analysis didn't work this time. Please try again."); });
+    if (!res.ok) throw new Error(data.error || "Analysis didn't work this time. Please try again.");
     showResult(data.disease, data.confidence, data.root_condition, data.action);
     setWorkflowStep(3);
   } catch (err) {
-    errorBox.textContent = err.message || "Analysis failed. Please try again.";
+    errorBox.textContent = err.message || "Analysis didn't work this time. Please try again.";
     errorBox.style.display = "";
     setWorkflowStep(1);
   } finally {
@@ -589,6 +599,15 @@ function wireCaptureZone({ dropZoneId, fileInputId, cameraInputId, previewImgId,
   });
 }
 
+// A locked step is dimmed by .step-locked (style.css) and, via `inert`,
+// also removed from the tab order and the accessibility tree -- otherwise
+// keyboard and screen-reader users could still reach its buttons.
+function setStepLocked(el, locked) {
+  if (!el) return;
+  el.classList.toggle("step-locked", locked);
+  el.toggleAttribute("inert", locked);
+}
+
 // Keeps Step 1 locked (see .step-locked in style.css) until a farm is
 // picked -- a scan captured with no farm attached has nowhere to save
 // to. Server-rendered initial state (see disease_detection.html) already
@@ -598,9 +617,12 @@ function wireFarmGate() {
   const farmSelect = document.getElementById("save-farm-pk");
   const rootWrapper = document.getElementById("root-zone-wrapper");
   if (!farmSelect || !rootWrapper) return;
-  const update = () => rootWrapper.classList.toggle("step-locked", !farmSelect.value);
+  const update = () => setStepLocked(rootWrapper, !farmSelect.value);
   farmSelect.addEventListener("change", update);
   update();
+  // The trunk step starts locked in the markup; mirror that for keyboards.
+  const trunkWrapper = document.getElementById("trunk-zone-wrapper");
+  if (trunkWrapper && trunkWrapper.classList.contains("step-locked")) setStepLocked(trunkWrapper, true);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -629,14 +651,32 @@ function wireSaveSubmit() {
   const form = document.getElementById("save-form");
   if (!btn || !form) return;
 
+  const originalHtml = btn.innerHTML;
+
   btn.addEventListener("click", async () => {
+    // form.submit() skips the browser's own validation, so a Tree ID the
+    // server would reject (e.g. containing "/") is caught here first.
+    const treeIdInput = document.getElementById("save-tree-id");
+    if (treeIdInput && treeIdInput.value.trim() && !TREE_ID_PATTERN.test(treeIdInput.value.trim())) {
+      treeIdInput.focus();
+      wireTreeIdPreview.refresh && wireTreeIdPreview.refresh();
+      return;
+    }
     btn.disabled = true;
-    const originalHtml = btn.innerHTML;
-    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving...';
+    btn.innerHTML = '<i class="bi bi-hourglass-split" aria-hidden="true"></i> Saving...';
     if (directUploadPromise) {
       await directUploadPromise;
     }
     form.submit();
+  });
+
+  // Coming back to this page with the Back button restores it from the
+  // browser's cache with the button still stuck on "Saving...".
+  window.addEventListener("pageshow", event => {
+    if (event.persisted) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
   });
 }
 
@@ -646,6 +686,10 @@ function wireSaveSubmit() {
 // the inventory as "FARM-001-T1". Mirrors the server logic only for
 // display; the server remains the source of truth for the real prefixing
 // and uniqueness check.
+// Same rule as the server (views._ID_RE): the ID goes into a URL, so no
+// slashes, question marks, hashes or percent signs.
+const TREE_ID_PATTERN = /^[\p{L}\p{N}_][\p{L}\p{N}_ .\-]*$/u;
+
 function wireTreeIdPreview() {
   const farmSelect = document.getElementById("save-farm-pk");
   const treeIdInput = document.getElementById("save-tree-id");
@@ -655,6 +699,12 @@ function wireTreeIdPreview() {
   function update() {
     const farmId = farmSelect.selectedOptions[0]?.dataset.farmId || "";
     const code = treeIdInput.value.trim();
+    if (code && !TREE_ID_PATTERN.test(code)) {
+      previewEl.textContent = " — use only letters, numbers, spaces, dashes, dots and underscores";
+      treeIdInput.setAttribute("aria-invalid", "true");
+      return;
+    }
+    treeIdInput.removeAttribute("aria-invalid");
     if (!farmId || !code) {
       previewEl.textContent = "";
       return;
@@ -663,6 +713,7 @@ function wireTreeIdPreview() {
     previewEl.textContent = ` — will be saved as "${finalId}"`;
   }
 
+  wireTreeIdPreview.refresh = update;
   farmSelect.addEventListener("change", update);
   treeIdInput.addEventListener("input", update);
 }
