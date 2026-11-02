@@ -342,7 +342,9 @@ function makeClusterIcon(cluster) {
   const contenders = diseaseKeys.length > 0 ? diseaseKeys : ['Healthy'];
   contenders.forEach(k => { if (tally[k] > max) { max = tally[k]; dominant = k; } });
   const dominantMarker = children.find(m => m.diseaseKey === dominant);
-  const color = (dominantMarker && dominantMarker.diseaseColor) || '#4ade80';
+  // Only a plain hex colour is allowed into the inline style below.
+  const rawColor = dominantMarker && dominantMarker.diseaseColor;
+  const color = /^#[0-9a-fA-F]{3,8}$/.test(rawColor || '') ? rawColor : '#4ade80';
   const mixed = Object.keys(tally).length > 1;
 
   const { sizeClass, px } = clusterSizing(count);
@@ -383,6 +385,10 @@ document.addEventListener('DOMContentLoaded', () => {
   ];
 
   const map = L.map('map-container', {
+    // On touch screens one finger scrolls the PAGE instead of dragging the
+    // map (a tall map otherwise traps scrolling); two fingers pan/zoom the
+    // map. Mouse users are unaffected.
+    dragging: !L.Browser.mobile,
     maxBounds: leafletBounds,
     maxBoundsViscosity: 0.8,
     preferCanvas: true,

@@ -60,7 +60,9 @@ function rgToast(message, kind) {
     info: ["#1e3a5f", "#7cb8ff"],
   }[kind || "info"];
   const el = document.createElement("div");
-  el.setAttribute("role", "status");
+  // Errors are announced immediately; other toasts politely (the container
+  // in base.html is also an aria-live region).
+  el.setAttribute("role", kind === "error" ? "alert" : "status");
   el.style.cssText = `background:${palette[0]};color:${palette[1]};border:1px solid ${palette[1]}66;` +
     "border-radius:10px;padding:10px 14px;margin-top:8px;font-size:12.5px;max-width:320px;" +
     "box-shadow:0 6px 20px rgba(0,0,0,.35);";
@@ -178,7 +180,7 @@ async function postForJson(url, formData, extraHeaders) {
   let data = null;
   try { data = await res.json(); } catch (_) { /* not JSON -- handled below */ }
   if (!res.ok) {
-    const err = new Error((data && data.error) || `Server error (${res.status})`);
+    const err = new Error((data && data.error) || "The server ran into a problem. Please try again in a moment.");
     err.status = res.status;
     throw err;
   }
@@ -280,7 +282,7 @@ async function runSyncPass(opts) {
         await updateQueuedScan(item.id, { status: "pending", errorMessage: `${err.message} -- will retry` });
         failed++;
       } else {
-        await updateQueuedScan(item.id, { status: "error", errorMessage: err.message || "Sync failed" });
+        await updateQueuedScan(item.id, { status: "error", errorMessage: err.message || "Couldn't sync this tree." });
         failed++;
       }
     }
@@ -289,7 +291,7 @@ async function runSyncPass(opts) {
   }
 
   if (synced) rgToast(`Synced ${synced} queued tree${synced === 1 ? "" : "s"}.`, "success");
-  if (failed) rgToast(`${failed} queued tree${failed === 1 ? "" : "s"} couldn't sync. Open Bulk Upload to review.`, "error");
+  if (failed) rgToast(`${failed} queued tree${failed === 1 ? "" : "s"} couldn't sync yet. Open Bulk Upload to see why. Your photos are safe on this device.`, "error");
   if (stopped === "session") rgToast("Session expired. Log in again to sync your queued trees.", "error");
   return { synced, failed, skipped: stopped };
 }
@@ -348,8 +350,8 @@ async function renderPendingScans() {
           ${noteLine}
         </div>
         <div class="d-flex gap-1">
-          <button class="btn btn-sm btn-outline-danger" style="font-size:11px;padding:2px 8px;" onclick="discardQueuedScan(${Number(item.id)})">
-            <i class="bi bi-trash"></i>
+          <button type="button" class="btn btn-sm btn-outline-danger rg-tap" style="font-size:12px;" aria-label="Discard this queued tree" onclick="discardQueuedScan(${Number(item.id)})">
+            <i class="bi bi-trash" aria-hidden="true"></i>
           </button>
         </div>
       </div>`;

@@ -11,6 +11,17 @@ const BULK_DIST_M = 8;
 const BULK_TIME_GAP_UNCERTAIN_S = 70;
 const BULK_DIST_UNCERTAIN_M = 6;
 
+// A group in one of these states has been (or is being) saved, so its
+// photos, roles and location can't be changed any more.
+const BULK_LOCKED_STATUSES = new Set(["processing", "done", "queued"]);
+
+// Toast if the shared helper is there (offline_queue.js loads it on every
+// page); alert() only as a last resort.
+function bulkNotify(message, kind) {
+  if (typeof rgToast === "function") rgToast(message, kind || "error");
+  else alert(message);
+}
+
 let bulkGroups = [];
 let bulkGroupSeq = 0;
 let bulkLocationTargetId = null;
@@ -78,6 +89,9 @@ async function handleBulkFiles(fileList) {
   const statusEl = document.getElementById("bulk-status");
   statusEl.textContent = `Reading ${files.length} photo${files.length === 1 ? "" : "s"}…`;
 
+  // The previous batch's preview URLs are about to be replaced; release them.
+  bulkGroups.forEach(g => g.items.forEach(item => URL.revokeObjectURL(item.previewUrl)));
+
   const items = await Promise.all(files.map(extractItemMetadata));
   const clustered = clusterItems(items);
 
@@ -105,17 +119,21 @@ function renderBulkGroups() {
   const container = document.getElementById("bulk-groups-container");
   container.innerHTML = bulkGroups.map((g, idx) => {
     const ready = isGroupReady(g);
+    const locked = BULK_LOCKED_STATUSES.has(g.status);
+    const dis = locked ? " disabled" : "";
     const thumbs = g.items.map((item, i) => {
       const role = i === g.rootIdx ? "root" : i === g.trunkIdx ? "trunk" : null;
       const dim = role ? "" : "opacity:.55;";
+      const photoName = `photo ${i + 1} of tree ${idx + 1}`;
+      const alt = role ? `${role === "root" ? "Root" : "Trunk"} ${photoName}` : `Unassigned ${photoName}`;
       return `
         <div class="text-center" style="width:84px;">
-          <img src="${item.previewUrl}" style="width:84px;height:84px;object-fit:cover;border-radius:6px;${dim}">
+          <img src="${item.previewUrl}" alt="${alt}" style="width:84px;height:84px;object-fit:cover;border-radius:6px;${dim}">
           <div class="d-flex gap-1 mt-1">
-            <button class="btn btn-sm ${role === "root" ? "btn-success" : "btn-outline-secondary"}" style="font-size:10px;padding:1px 5px;" data-action="set-role" data-group="${g.id}" data-item="${i}" data-role="root">Root</button>
-            <button class="btn btn-sm ${role === "trunk" ? "btn-primary" : "btn-outline-secondary"}" style="font-size:10px;padding:1px 5px;" data-action="set-role" data-group="${g.id}" data-item="${i}" data-role="trunk">Trunk</button>
+            <button type="button" class="btn btn-sm bulk-role-btn ${role === "root" ? "btn-success" : "btn-outline-secondary"}" aria-pressed="${role === "root"}" aria-label="Use ${photoName} as the root photo" data-action="set-role" data-group="${g.id}" data-item="${i}" data-role="root"${dis}>Root</button>
+            <button type="button" class="btn btn-sm bulk-role-btn ${role === "trunk" ? "btn-primary" : "btn-outline-secondary"}" aria-pressed="${role === "trunk"}" aria-label="Use ${photoName} as the trunk photo" data-action="set-role" data-group="${g.id}" data-item="${i}" data-role="trunk"${dis}>Trunk</button>
           </div>
-          <button class="btn btn-sm btn-link text-danger p-0 mt-1" style="font-size:10px;" data-action="split-out" data-group="${g.id}" data-item="${i}">Move to new tree</button>
+          <button type="button" class="btn btn-sm btn-link text-danger p-0 mt-1 bulk-move-btn" aria-label="Move ${photoName} to a new tree" data-action="split-out" data-group="${g.id}" data-item="${i}"${dis}>Move to new tree</button>
         </div>`;
     }).join("");
 
@@ -144,7 +162,7 @@ function renderBulkGroups() {
           <span>Tree ${idx + 1} <span class="text-muted" style="font-size:11px;">(${g.items.length} photo${g.items.length === 1 ? "" : "s"})</span></span>
           <div class="d-flex align-items-center gap-2">
             ${statusBadge}
-            ${idx > 0 ? `<button class="btn btn-sm btn-outline-secondary" style="font-size:11px;" data-action="merge-up" data-group="${g.id}"><i class="bi bi-arrow-up"></i> Merge with previous</button>` : ""}
+            ${idx > 0 ? `<button type="button" class="btn btn-sm btn-outline-secondary rg-tap" style="font-size:12px;" data-action="merge-up" data-group="${g.id}"${dis || (BULK_LOCKED_STATUSES.has(bulkGroups[idx - 1].status) ? " disabled" : "")}><i class="bi bi-arrow-up" aria-hidden="true"></i> Merge with previous</button>` : ""}
           </div>
         </div>
         <div class="card-body-rg">
@@ -153,8 +171,8 @@ function renderBulkGroups() {
           ${readyLine}
           <div class="d-flex justify-content-between align-items-center">
             <div style="font-size:12px;">${locText}</div>
-            <button class="btn btn-sm btn-outline-primary" style="font-size:11px;" data-action="set-location" data-group="${g.id}">
-              <i class="bi bi-geo-alt"></i> ${g.location ? "Change" : "Set"} Location
+            <button type="button" class="btn btn-sm btn-outline-primary rg-tap" style="font-size:12px;" aria-label="${g.location ? "Change" : "Set"} location for tree ${idx + 1}" data-action="set-location" data-group="${g.id}"${dis}>
+              <i class="bi bi-geo-alt" aria-hidden="true"></i> ${g.location ? "Change" : "Set"} Location
             </button>
           </div>
           ${errorLine}
@@ -179,6 +197,9 @@ function handleBulkContainerClick(e) {
   if (!btn) return;
   const g = findGroup(btn.dataset.group);
   if (!g) return;
+  // Saved / queued / saving groups are frozen (their buttons are also
+  // disabled; this covers anything that still reaches the handler).
+  if (BULK_LOCKED_STATUSES.has(g.status)) return;
 
   if (btn.dataset.action === "set-role") {
     const i = Number(btn.dataset.item);
@@ -202,7 +223,7 @@ function handleBulkContainerClick(e) {
   } else if (btn.dataset.action === "merge-up") {
     const idx = bulkGroups.indexOf(g);
     const prev = bulkGroups[idx - 1];
-    if (!prev) return;
+    if (!prev || BULK_LOCKED_STATUSES.has(prev.status)) return;
     prev.items = prev.items.concat(g.items);
     // Force the roles to be re-picked -- old indices don't line up anymore.
     prev.rootIdx = null;
@@ -219,7 +240,7 @@ function openBulkLocationModal(groupId) {
   // Bootstrap and Leaflet both come from CDNs; offline they're only there if
   // sw.js cached them on an earlier visit.
   if (typeof bootstrap === "undefined") {
-    alert("The map picker isn't available offline. Photos that carry their own GPS still work; for the rest, set the location once you're back online.");
+    bulkNotify("The map picker needs a connection. Photos with their own GPS still work; set the others once you're back online.", "error");
     return;
   }
   bulkLocationTargetId = groupId;
@@ -272,14 +293,18 @@ document.getElementById("bulk-location-confirm").addEventListener("click", () =>
 // in offline_queue.js saves it automatically once there's a connection.
 async function processBulkGroups() {
   const farmPk = document.getElementById("bulk-farm-select").value;
-  if (!farmPk) { alert("Select a farm first."); return; }
+  if (!farmPk) { bulkNotify("Choose a farm first, then save.", "error"); return; }
 
   const ready = bulkGroups.filter(g => isGroupReady(g) && g.status !== "done" && g.status !== "queued");
   if (!ready.length) return;
 
   const processBtn = document.getElementById("bulk-process-btn");
   processBtn.disabled = true;
-  let online = await isActuallyOnline();
+  // With disease detection switched off on the server, a live save would be
+  // refused, so every tree is kept on this device instead and syncs by itself
+  // once detection is available (offline_queue.js retries on its own).
+  const detectionOn = window.AI_ENABLED !== false;
+  let online = detectionOn && await isActuallyOnline();
   let queuedNow = 0;
   try {
     for (const g of ready) {
@@ -322,7 +347,7 @@ async function processBulkGroups() {
         }
       } catch (err) {
         g.status = "error";
-        g.errorMsg = err.message || "Save failed";
+        g.errorMsg = err.message || "Couldn't save this tree. Please try again.";
         // Every remaining tree would fail the same way once the session is gone.
         if (err instanceof SessionError) stopBatch = true;
       }
@@ -333,7 +358,12 @@ async function processBulkGroups() {
     processBtn.disabled = false;
     renderPendingScans();
     if (queuedNow) {
-      rgToast(`${queuedNow} tree${queuedNow === 1 ? "" : "s"} saved on this device. They sync automatically once you're back online.`, "info");
+      rgToast(
+        detectionOn
+          ? `${queuedNow} tree${queuedNow === 1 ? "" : "s"} saved on this device. They sync automatically once you're back online.`
+          : `${queuedNow} tree${queuedNow === 1 ? "" : "s"} saved on this device. They sync automatically once disease detection is available.`,
+        "info"
+      );
       // If the offline reading was a false alarm (slow signal), this syncs
       // right away; if it's real, the probe fails fast and they just wait.
       maybeAutoSync();

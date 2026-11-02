@@ -12,22 +12,46 @@
      plain collapsible sidebar.
    ============================================================ */
 
-// Opens the mobile sidebar and shows the dimming overlay.
+// Opens the mobile sidebar and shows the dimming overlay. The sidebar is
+// hidden with visibility (see style.css) while closed, so its links are not
+// reachable by keyboard or screen reader until it's opened; focus moves to
+// the close button so keyboard users land inside it.
 function openSidebar() {
   document.getElementById('sidebar').classList.add('open');
   document.getElementById('sidebar-overlay').classList.add('show');
+  const hamburger = document.getElementById('hamburger');
+  if (hamburger) hamburger.setAttribute('aria-expanded', 'true');
+  const closeBtn = document.getElementById('sidebar-close');
+  if (closeBtn) closeBtn.focus();
 }
 
-// Closes the mobile sidebar and hides the dimming overlay.
+// Closes the mobile sidebar and hides the dimming overlay. If focus was
+// inside the sidebar it goes back to the hamburger button.
 function closeSidebar() {
-  document.getElementById('sidebar').classList.remove('open');
+  const sidebar = document.getElementById('sidebar');
+  const hadFocus = sidebar.contains(document.activeElement);
+  sidebar.classList.remove('open');
   document.getElementById('sidebar-overlay').classList.remove('show');
+  const hamburger = document.getElementById('hamburger');
+  if (hamburger) {
+    hamburger.setAttribute('aria-expanded', 'false');
+    if (hadFocus) hamburger.focus();
+  }
 }
 
 // Toggles the mobile sidebar open/closed.
 function toggleSidebar() {
   const sidebar = document.getElementById('sidebar');
   sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+}
+
+// localStorage can throw (blocked storage, private mode); a failure here
+// must never stop the rest of this file from running.
+function rgStorageGet(key) {
+  try { return localStorage.getItem(key); } catch (_) { return null; }
+}
+function rgStorageSet(key, value) {
+  try { localStorage.setItem(key, value); } catch (_) { /* preference just isn't remembered */ }
 }
 
 // Toggles the desktop sidebar between visible and hidden, with content
@@ -37,7 +61,7 @@ function toggleDesktopSidebar() {
   const mainWrapper = document.getElementById('main-wrapper');
   const hidden = sidebar.classList.toggle('desktop-hidden');
   mainWrapper.classList.toggle('sidebar-hidden', hidden);
-  localStorage.setItem('rg-sidebar-hidden', hidden ? '1' : '0');
+  rgStorageSet('rg-sidebar-hidden', hidden ? '1' : '0');
 }
 
 /* ============================================================
@@ -56,6 +80,8 @@ const RG_PIN_BORDER = '#1a2535';
 // teardrop proportions and point the tip at the tree's exact coordinate.
 function rgPinIcon(color, size) {
   size = size || 26;
+  // The colour is written into SVG markup, so only a plain hex value is used.
+  color = /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : '#6c757d';
   const h = Math.round(size * 1.34);
   return L.divIcon({
     className: 'rg-pin-icon',
@@ -158,8 +184,30 @@ document.addEventListener('DOMContentLoaded', () => {
   navLinks.forEach(link => link.addEventListener('click', closeSidebar));
 
   // Restores the desktop hidden/visible state from the last session.
-  if (localStorage.getItem('rg-sidebar-hidden') === '1') {
+  if (rgStorageGet('rg-sidebar-hidden') === '1') {
     sidebar.classList.add('desktop-hidden');
     mainWrapper.classList.add('sidebar-hidden');
   }
+
+  // Escape closes the mobile sidebar.
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && sidebar.classList.contains('open')) closeSidebar();
+  });
+
+  // On log out, also drop the offline copy of the Bulk Upload page that
+  // sw.js keeps (it contains the signed-in user's farm list), so it isn't
+  // left behind on a shared phone. Capped at 1.5s so logging out never
+  // hangs; static files stay cached. Cache name/path must match sw.js.
+  document.querySelectorAll('form[action$="/logout/"]').forEach(form => {
+    form.addEventListener('submit', function (e) {
+      if (!window.caches || form.dataset.cacheCleared) return;
+      e.preventDefault();
+      form.dataset.cacheCleared = '1';
+      const clear = caches.open('rubberguard-offline-shell-v2')
+        .then(cache => cache.delete('/detection/bulk/'))
+        .catch(() => {});
+      Promise.race([clear, new Promise(resolve => setTimeout(resolve, 1500))])
+        .finally(() => form.submit());
+    });
+  });
 });
