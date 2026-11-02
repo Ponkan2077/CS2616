@@ -3,7 +3,13 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-rubberguard-thesis-prototype-2025-change-in-production'
+# Set DJANGO_SECRET_KEY in the environment (PythonAnywhere: WSGI file or
+# .env) before going to production. The fallback below is the old
+# development key, so nothing changes until you set the variable.
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-rubberguard-thesis-prototype-2025-change-in-production',
+)
 
 DEBUG = True
 
@@ -73,16 +79,19 @@ DATABASES = {
 # Sessions stored in the database (requires migrate)
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 
+# Reject weak passwords at registration / password change. Existing
+# accounts are not affected until they change their password.
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
+
 # Where Django redirects after login/logout
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard'
 LOGOUT_REDIRECT_URL = 'login'
-
-# Minimum number of distinct, usable GPS locations a farm needs before the
-# live Farm Map is shown. Below this the map page says how many more are
-# needed instead. 3 is the lowest that makes sense (the fewest points that
-# can enclose an area); see farmmap/models.py for why the default is 5.
-FARM_MAP_MIN_GPS_POINTS = 5
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'Asia/Manila'

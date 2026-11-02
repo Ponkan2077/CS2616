@@ -1,5 +1,7 @@
 import json
+import logging
 import math
+import re
 import datetime
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import JsonResponse
@@ -8,8 +10,10 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib import messages
-from django.urls import reverse
+from django.urls import reverse, NoReverseMatch
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.core.cache import cache
 from django.core.paginator import Paginator
 from django.db.models import Count, Q, Prefetch, Min, Max, Avg, Exists, OuterRef
 from .models import (
@@ -21,6 +25,72 @@ from . import ai_inference
 from . import storage_stats
 from . import direct_upload
 from . import psgc
+
+logger = logging.getLogger(__name__)
+
+# --- small shared helpers (input validation / safe JSON for <script>) ------
+
+# Tree and farm IDs end up in URL paths (/inventory/<tree_id>/), so they may
+# not contain "/", "?", "#", "%" and similar. Letters (any language), digits,
+# spaces, dashes, dots and underscores are allowed; must start with a letter
+# or digit.
+_ID_RE = re.compile(r"\w[\w .\-]*")
+TREE_ID_MAX_LENGTH = 40   # RubberTree.tree_id max_length
+FARM_ID_MAX_LENGTH = 20   # leaves room for "-RT-0001" style suffixes
+
+# Max presigned-upload URLs one user can request per day (2 per scan).
+UPLOAD_URLS_PER_DAY = 1000
+# Max issued upload keys remembered per session (see request_upload_url).
+ISSUED_KEYS_KEPT = 500
+
+_JS_ESCAPES = {
+    ord("<"): "\\u003c", ord(">"): "\\u003e", ord("&"): "\\u0026",
+    0x2028: "\\u2028", 0x2029: "\\u2029",
+}
+
+
+def _json_for_script(obj, **kwargs):
+    # json.dumps() output that is safe to drop inside an inline <script>
+    # block with |safe: "<", ">" and "&" become \uXXXX escapes (still valid
+    # JSON/JS), so a value like "</script><script>..." can't end the block.
+    return json.dumps(obj, **kwargs).translate(_JS_ESCAPES)
+
+
+def _is_valid_id(value, max_length):
+    return bool(value) and len(value) <= max_length and _ID_RE.fullmatch(value) is not None
+
+
+def _parse_confidence(value):
+    # float() accepts "nan"/"inf"; the DB column is NOT NULL and the value
+    # is a percentage, so anything non-finite is rejected (None) and the
+    # rest is clamped to 0-100.
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return max(0.0, min(100.0, number))
+
+
+def _next_auto_tree_id(farm):
+    # Next free "<farm_id>-RT-0001"-style ID for this farm. Uses the highest
+    # existing number + 1 (not the row count, which re-issues an existing ID
+    # after any deletion) and skips any ID that already exists anywhere.
+    # Farm IDs are only unique per owner, so if another farm already uses
+    # this prefix, this farm's IDs include the owner's id to stay distinct.
+    base = f"{farm.farm_id}-RT-"
+    if RubberTree.objects.filter(tree_id__startswith=base).exclude(farm=farm).exists():
+        base = f"{farm.farm_id}-U{farm.owner_id}-RT-"
+    highest = 0
+    for existing_id in farm.trees.filter(tree_id__startswith=base).values_list("tree_id", flat=True):
+        suffix = existing_id[len(base):]
+        if suffix.isdigit():
+            highest = max(highest, int(suffix))
+    number = highest + 1
+    while RubberTree.objects.filter(tree_id=f"{base}{number:04d}").exists():
+        number += 1
+    return f"{base}{number:04d}"
 
 
 def _get_monthly_trend(request, farm=None):
@@ -382,12 +452,19 @@ def _build_notifications(request):
         dc = disease_lookup.get(t.disease)
         color = dc.color_hex if dc else "#22c55e"
         days_ago = (today - t.date_scanned).days
+        try:
+            tree_url = reverse("tree_details", args=[t.tree_id])
+        except NoReverseMatch:
+            # A tree ID that can't be put in a URL (e.g. saved with a "/"
+            # before IDs were validated) must not take down every page, since
+            # this runs on all of them. It's skipped here; rename it in /admin/.
+            continue
         notifications.append({
             "icon": "bi-exclamation-triangle-fill",
             "color": color,
             "msg": f"{t.disease} detected at Tree {t.tree_id}",
             "time": _humanize_days_ago(days_ago),
-            "url": reverse("tree_details", args=[t.tree_id]),
+            "url": tree_url,
             # Internal numeric pk (NOT the human-readable tree.tree_id string
             # used in the URL above) -- this is what NotificationDismissal's
             # FK and the dismiss endpoint below key off of.
@@ -543,13 +620,20 @@ def register(request):
 @login_required
 def select_farm(request):
     # Saves the selected farm to the session and redirects back to the current page.
-    farm_pk = request.POST.get("farm_pk", "")
+    farm_pk = request.POST.get("farm_pk", "").strip()
     if farm_pk:
-        if Farm.objects.filter(pk=farm_pk, owner=request.user).exists():
+        # A non-numeric value used to raise ValueError (HTTP 500); it is now
+        # ignored and the current selection is left unchanged.
+        if farm_pk.isdigit() and Farm.objects.filter(pk=int(farm_pk), owner=request.user).exists():
             request.session["selected_farm_id"] = int(farm_pk)
     else:
         request.session.pop("selected_farm_id", None)
+    # Only ever redirect back to this site, never to a URL a POST supplied.
     next_url = request.POST.get("next", "/")
+    if not url_has_allowed_host_and_scheme(
+        next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure(),
+    ):
+        next_url = "/"
     return redirect(next_url)
 
 
@@ -672,6 +756,15 @@ def farm_create(request):
 
         if not farm_id or not name or not owner_name:
             messages.error(request, "Farm ID, name, and owner name are required.")
+            return redirect("farm_list")
+
+        # The farm ID is used in URLs and as the prefix of every tree ID.
+        if not _is_valid_id(farm_id, FARM_ID_MAX_LENGTH):
+            messages.error(
+                request,
+                f"Farm ID can use letters, numbers, spaces, dashes, dots and underscores "
+                f"(up to {FARM_ID_MAX_LENGTH} characters). Please remove any slashes or other symbols.",
+            )
             return redirect("farm_list")
 
         if Farm.objects.filter(owner=request.user, farm_id=farm_id).exists():
@@ -845,9 +938,10 @@ def farm_map(request):
     all_user_farms = Farm.objects.filter(owner=request.user).order_by("farm_id")
 
     map_farm_id = request.GET.get("farm", "")
-    if map_farm_id:
-        map_farm = all_user_farms.filter(farm_id=map_farm_id).first()
-    else:
+    map_farm = all_user_farms.filter(farm_id=map_farm_id).first() if map_farm_id else None
+    if map_farm is None:
+        # No ?farm=, or one that isn't this user's farm: show the active farm
+        # (or their first) instead of a misleading "no farms registered".
         map_farm = sidebar_farm or all_user_farms.first()
 
     if not map_farm:
@@ -903,10 +997,10 @@ def farm_map(request):
         )
         farm_polygon = map_farm.get_boundary_polygon(raw_points)
         ctx.update({
-            "markers_json": json.dumps([t.to_marker_dict() for t in trees_qs]),
-            "map_bounds": json.dumps(_farm_map_bounds(map_farm, farm_polygon)),
-            "map_farm_boundary": json.dumps(farm_polygon),
-            "disease_colors_json": json.dumps(disease_colors),
+            "markers_json": _json_for_script([t.to_marker_dict() for t in trees_qs]),
+            "map_bounds": _json_for_script(_farm_map_bounds(map_farm, farm_polygon)),
+            "map_farm_boundary": _json_for_script(farm_polygon),
+            "disease_colors_json": _json_for_script(disease_colors),
         })
     return render(request, "farm_map.html", ctx)
 
@@ -1020,20 +1114,29 @@ def analyze_detection(request):
         return JsonResponse({"error": "POST required"}, status=405)
 
     if not ai_inference.AI_MODEL_ENABLED:
+        # Server-side detail (which setting to change) goes to the log, not
+        # to the farmer's screen.
+        logger.warning("Detection requested but AI_MODEL_ENDPOINT_URL is not set.")
         return JsonResponse(
-            {"error": "AI model isn't configured. Set AI_MODEL_ENDPOINT_URL to enable detection."},
+            {"error": "Disease detection isn't available right now. Please try again later."},
             status=503,
         )
 
     root_file = request.FILES.get("root_image")
     trunk_file = request.FILES.get("trunk_image")
     if not root_file or not trunk_file:
-        return JsonResponse({"error": "Both root and trunk images are required."}, status=400)
+        return JsonResponse({"error": "Add both a root photo and a trunk photo, then try again."}, status=400)
 
     try:
         result = ai_inference.classify_images(root_file.read(), trunk_file.read())
     except ai_inference.InferenceError as exc:
-        return JsonResponse({"error": str(exc)}, status=502)
+        # The exception text can contain the model endpoint's URL/host, so
+        # it's logged, not returned.
+        logger.warning("AI inference failed: %s", exc)
+        return JsonResponse(
+            {"error": "The detection service didn't respond. Please try again in a moment."},
+            status=502,
+        )
 
     disease_class = get_disease_lookup().get(result["disease"])
     severity_label = _severity_label_for(result["disease"], result["confidence"])
@@ -1045,9 +1148,15 @@ def analyze_detection(request):
 def request_upload_url(request):
     # Issues a short-lived presigned R2 PUT URL for one scan photo.
     # Called twice by the frontend (once for the root photo, once for the
-    # trunk) right before "Save Result" -- see static/js/upload_direct.js.
+    # trunk) -- see startDirectUploads() in static/js/disease_detection.js.
     # Frontend has already compressed the photo to WebP itself at this
     # point, so all this endpoint does is hand back somewhere to put it.
+    #
+    # Each key handed out is remembered in the user's session, and
+    # save_detection() only accepts keys from that list, so a client can't
+    # point a scan at some other object in the bucket. Requests are capped
+    # per user per day, and the optional "size" (bytes) is signed into the
+    # URL so the upload can't be a different length than declared.
     from django.http import JsonResponse
 
     if request.method != "POST":
@@ -1057,12 +1166,42 @@ def request_upload_url(request):
     if kind not in ("roots", "trunks"):
         return JsonResponse({"error": "kind must be 'roots' or 'trunks'"}, status=400)
 
+    size = None
+    size_raw = request.POST.get("size", "").strip()
+    if size_raw:
+        try:
+            size = int(size_raw)
+        except ValueError:
+            return JsonResponse({"error": "size must be a whole number of bytes"}, status=400)
+
+    counter_key = f"upload-urls:{request.user.pk}:{timezone.localdate().isoformat()}"
+    cache.add(counter_key, 0, timeout=86400)
     try:
-        data = direct_upload.generate_upload_url(kind)
+        used_today = cache.incr(counter_key)
+    except ValueError:  # key expired between add() and incr()
+        cache.set(counter_key, 1, timeout=86400)
+        used_today = 1
+    if used_today > UPLOAD_URLS_PER_DAY:
+        return JsonResponse(
+            {"error": "You've reached today's photo upload limit. Please try again tomorrow."},
+            status=429,
+        )
+
+    try:
+        data = direct_upload.generate_upload_url(kind, size=size)
     except direct_upload.DirectUploadUnavailable as exc:
         # Cloud storage isn't configured yet -- tell the client so it can
         # fall back to the normal multipart file upload instead.
-        return JsonResponse({"error": str(exc), "fallback": True}, status=503)
+        logger.info("Direct upload unavailable: %s", exc)
+        return JsonResponse(
+            {"error": "Direct upload isn't available.", "fallback": True}, status=503,
+        )
+    except direct_upload.UploadTooLarge as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    issued = request.session.get("issued_upload_keys", [])
+    issued.append(data["key"])
+    request.session["issued_upload_keys"] = issued[-ISSUED_KEYS_KEPT:]
 
     return JsonResponse(data)
 
@@ -1092,7 +1231,10 @@ def save_detection(request):
         return redirect("disease_detection")
 
     farm_pk = request.POST.get("farm_pk")
-    disease = request.POST.get("disease", "Healthy")
+    # No silent "Healthy" default: if no result was sent and the server
+    # can't produce one itself, the save is refused below instead of
+    # recording an unscanned tree as healthy.
+    disease = request.POST.get("disease", "").strip()
     confidence = request.POST.get("confidence", "0")
     tree_id = request.POST.get("tree_id", "").strip()
     root_condition = request.POST.get("root_condition", "").strip()
@@ -1136,6 +1278,14 @@ def save_detection(request):
     except (Farm.DoesNotExist, ValueError, TypeError):
         return fail("This scan has no valid farm attached and can't be saved.")
 
+    # A typed tree ID becomes part of a URL (/inventory/<tree_id>/), so a
+    # "/" or "?" in it would break every page that links to the tree.
+    if tree_id and not _is_valid_id(tree_id, TREE_ID_MAX_LENGTH):
+        return fail(
+            "Tree ID can use letters, numbers, spaces, dashes, dots and underscores "
+            f"(up to {TREE_ID_MAX_LENGTH} characters). Please remove any slashes or other symbols."
+        )
+
     # Retried syncs must not save the same scan twice. If a sync request
     # reached this point and saved, but the phone lost signal before the
     # response arrived, the queued item is (correctly) retried -- and with an
@@ -1158,18 +1308,35 @@ def save_detection(request):
     trunk_file_bytes = None
 
     # Preferred path: the frontend already compressed the photo to WebP
-    # and uploaded it straight to R2 (see upload_direct.js), and just
-    # tells us the object key here. No re-upload -- assigning the key
-    # string directly to the ImageField marks it as an existing file
-    # rather than a new one to save.
+    # and uploaded it straight to R2 (see startDirectUploads() in
+    # disease_detection.js), and just tells us the object key here. No
+    # re-upload -- assigning the key string directly to the ImageField marks
+    # it as an existing file rather than a new one to save.
+    #
+    # The key comes from the browser, so it's only accepted if it has the
+    # exact shape direct_upload.build_key() produces AND request_upload_url()
+    # issued it to this session. Anything else (another object in the
+    # bucket, a path trick) is refused.
     root_image_key = request.POST.get("root_image_key", "").strip()
     trunk_image_key = request.POST.get("trunk_image_key", "").strip()
-    if root_image_key:
-        root_file_bytes = direct_upload.fetch_uploaded_bytes(root_image_key)
-        root_image_resized = root_image_key
-    if trunk_image_key:
-        trunk_file_bytes = direct_upload.fetch_uploaded_bytes(trunk_image_key)
-        trunk_image_resized = trunk_image_key
+    issued_keys = set(request.session.get("issued_upload_keys", []))
+    for key, kind in ((root_image_key, "roots"), (trunk_image_key, "trunks")):
+        if key and (not direct_upload.is_valid_key(key, kind) or key not in issued_keys):
+            return fail("A photo upload couldn't be verified. Please add the photo again and retry.")
+    try:
+        if root_image_key:
+            root_file_bytes = direct_upload.fetch_uploaded_bytes(root_image_key)
+            root_image_resized = root_image_key
+        if trunk_image_key:
+            trunk_file_bytes = direct_upload.fetch_uploaded_bytes(trunk_image_key)
+            trunk_image_resized = trunk_image_key
+    except direct_upload.DirectUploadUnavailable:
+        return fail("Photo storage isn't available right now. Please try again later.", status=503)
+    except direct_upload.UploadTooLarge:
+        return fail("One of the photos is too large. Please use a smaller photo.")
+    except Exception:
+        logger.exception("Could not read an uploaded scan photo back from storage")
+        return fail("We couldn't read an uploaded photo. Please add it again and retry.", status=502)
 
     # Fallback path: a raw file came through the multipart form instead
     # (older browsers without canvas/WebP support, direct uploads
@@ -1193,6 +1360,7 @@ def save_detection(request):
     # before submit. Falls back to those submitted values only if this
     # second call fails transiently, so a flaky or cold-starting model
     # host never blocks saving a scan outright.
+    used_ai = False
     if ai_inference.AI_MODEL_ENABLED and root_file_bytes and trunk_file_bytes:
         try:
             result = ai_inference.classify_images(root_file_bytes, trunk_file_bytes)
@@ -1200,23 +1368,42 @@ def save_detection(request):
             confidence = result["confidence"]
             if result.get("root_condition"):
                 root_condition = result["root_condition"]
-        except ai_inference.InferenceError:
-            pass
+            used_ai = True
+        except ai_inference.InferenceError as exc:
+            logger.warning("AI inference failed during save, using submitted result: %s", exc)
+
+    # Whatever came from the form (not from the model just above) is
+    # validated: confidence must be a real number (0-100), and the disease
+    # must be one the app knows -- and must be present at all.
+    confidence = _parse_confidence(confidence)
+    if confidence is None:
+        return fail("The detection confidence isn't a valid number. Run the analysis again, then save.")
+    if not used_ai:
+        if not disease:
+            return fail("There's no detection result to save yet. Run the analysis first.")
+        if disease not in get_disease_lookup():
+            return fail("That disease result isn't recognised. Run the analysis again, then save.")
 
     if not tree_id:
-        existing = farm.trees.count()
-        tree_id = f"{farm.farm_id}-RT-{existing + 1:04d}"
+        # Next free number for this farm (highest existing + 1, never reusing
+        # an ID that exists), so a save can never silently overwrite a tree.
+        tree_id = _next_auto_tree_id(farm)
     elif not tree_id.startswith(f"{farm.farm_id}-"):
         # Ensure user-typed tree IDs stay globally unique by always
         # prefixing with the farm ID, since tree_id is only unique per farm
         # at the database level but URLs/lookups treat it as the sole key.
         tree_id = f"{farm.farm_id}-{tree_id}"
+    if len(tree_id) > TREE_ID_MAX_LENGTH:
+        return fail(
+            f"That Tree ID is too long once the farm ID is added (limit {TREE_ID_MAX_LENGTH} characters). "
+            "Please use a shorter one."
+        )
 
     try:
         existing_tree = RubberTree.objects.filter(tree_id=tree_id).first()
 
         if existing_tree and existing_tree.farm_id != farm.id:
-            return fail(f"Tree ID '{tree_id}' already exists on a different farm.")
+            return fail(f"Tree ID '{tree_id}' is already in use. Please choose a different ID.")
 
         if existing_tree:
             # Rescan: update the tree's current snapshot and blank out
@@ -1255,16 +1442,20 @@ def save_detection(request):
             root_condition=root_condition,
             root_image=root_image_resized, trunk_image=trunk_image_resized,
         )
-    except Exception as exc:
+    except Exception:
         # Without this, any unexpected DB/storage error here (e.g. a
         # pending migration not yet applied) returns Django's HTML error
-        # page instead of JSON -- offline_queue.js can't parse that for a
-        # real reason and falls back to a generic "Save failed", which is
-        # useless for actually debugging what happened.
-        return fail(f"Save failed: {exc}", status=500)
+        # page instead of JSON, which offline_queue.js can't parse. The real
+        # error is logged (see the server error log); the user only gets a
+        # plain message, since database/storage details don't help them.
+        logger.exception("save_detection failed for tree %s", tree_id)
+        return fail(
+            "We couldn't save this tree. Please try again. If it keeps happening, contact your administrator.",
+            status=500,
+        )
 
     verb = "updated" if existing_tree else "saved"
-    messages.success(request, f"Detection {verb} for tree '{tree_id}'.")
+    messages.success(request, f"Tree '{tree_id}' {verb}.")
 
     if is_ajax:
         return JsonResponse({"ok": True, "tree_id": tree_id, "verb": verb})
@@ -1342,12 +1533,12 @@ def tree_details(request, tree_id):
         # Chart needs every scan to plot an accurate trend, not just the
         # current table page -- kept separate from the paginated "history"
         # context var used for the table below.
-        "history_chart_json": json.dumps(list(history_qs.values("date", "confidence", "disease")), default=str),
+        "history_chart_json": _json_for_script(list(history_qs.values("date", "confidence", "disease")), default=str),
         "progression": tree.get_progression_trend(),
-        "tree_farm_boundary": json.dumps(tree.farm.get_boundary_polygon()),
+        "tree_farm_boundary": _json_for_script(tree.farm.get_boundary_polygon()),
         # Legend + chart colors, pulled from the DiseaseClass catalog.
         "legend_diseases": DiseaseClass.objects.all().order_by("display_order", "name"),
-        "disease_colors_json": json.dumps({name: dc.color_hex for name, dc in get_disease_lookup().items()}),
+        "disease_colors_json": _json_for_script({name: dc.color_hex for name, dc in get_disease_lookup().items()}),
     })
     return render(request, "tree_details.html", ctx)
 
@@ -1415,7 +1606,7 @@ def interventions_map(request):
     ctx = _base_context(request, farm)
     ctx.update({
         "page": "interventions",
-        "trees_json": json.dumps([t.to_dict() for t in trees_qs]),
+        "trees_json": _json_for_script([t.to_dict() for t in trees_qs]),
         "intervention_count": Intervention.objects.filter(tree__farm__owner=request.user).count(),
     })
     return render(request, "interventions_map.html", ctx)
@@ -1468,7 +1659,7 @@ def interventions_log(request):
     ctx.update({
         "page": "interventions",
         "interventions": interventions_page,
-        "farm_trees_json": json.dumps(farm_trees),
+        "farm_trees_json": _json_for_script(farm_trees),
         "search_q": search_q, "action_filter": action_filter,
         "farm_filter": farm_filter, "range_filter": range_filter,
         "action_choices": Intervention.ACTION_CHOICES,
@@ -1495,11 +1686,22 @@ def intervention_create(request):
     # Guard against farm_pk being missing/blank -- filtering pk="" crashes
     # with a ValueError instead of a clean 404 (every other farm_pk lookup
     # in this file already has an equivalent guard; this one didn't).
-    if not farm_pk:
+    if not farm_pk or not str(farm_pk).isdigit():
         messages.error(request, "No farm was selected for this intervention.")
         return redirect("interventions_log")
 
-    farm = get_object_or_404(Farm, pk=farm_pk, owner=request.user)
+    # create() below doesn't check `choices`, and a bad date string would
+    # raise at save time (HTTP 500), so both are validated here first.
+    if action not in {value for value, _label in Intervention.ACTION_CHOICES}:
+        messages.error(request, "Choose an action from the list.")
+        return redirect("interventions_log")
+    try:
+        date_performed = datetime.date.fromisoformat(str(date_performed))
+    except ValueError:
+        messages.error(request, "Enter a valid date for this intervention.")
+        return redirect("interventions_log")
+
+    farm = get_object_or_404(Farm, pk=int(farm_pk), owner=request.user)
     trees = RubberTree.objects.none()
 
     if selection_mode == "range":
@@ -1519,7 +1721,7 @@ def intervention_create(request):
         trees = farm.trees.filter(tree_id__in=tree_ids)
 
     if not trees.exists():
-        messages.error(request, "No trees were selected for this intervention.")
+        messages.error(request, "Select at least one tree to log this intervention.")
         return redirect("interventions_log")
 
     created = 0
@@ -1530,7 +1732,7 @@ def intervention_create(request):
         )
         created += 1
 
-    messages.success(request, f"Logged '{action}' on {created} tree(s).")
+    messages.success(request, f"Logged '{action}' on {created} tree{'s' if created != 1 else ''}.")
     return redirect("interventions_log")
 
 
@@ -2339,8 +2541,24 @@ def admin_dashboard(request):
     # `manage.py createsuperuser` or the /admin/ Users page).
     if request.method == "POST":
         name = request.POST.get("name", "").strip()
+        color_hex = request.POST.get("color_hex", "#6c757d").strip()
+        # Colours are written into inline styles and map-icon markup, so
+        # only a plain #rrggbb value is accepted.
+        color_ok = re.fullmatch(r"#[0-9a-fA-F]{6}", color_hex) is not None
+        try:
+            danger_rank = int(request.POST.get("danger_rank") or 1)
+        except ValueError:
+            danger_rank = None
+        marker_key = re.sub(
+            r"[^a-z0-9_]", "",
+            (request.POST.get("marker_key", "").strip() or name.lower().replace(" ", "_")).lower(),
+        )
         if not name:
             messages.error(request, "Disease name is required.")
+        elif not color_ok:
+            messages.error(request, "Pick a colour in the form #rrggbb, for example #dc2626.")
+        elif danger_rank is None:
+            messages.error(request, "Danger rank must be a whole number.")
         elif DiseaseClass.objects.filter(name__iexact=name).exists():
             messages.error(request, f'"{name}" already exists.')
         else:
@@ -2348,9 +2566,9 @@ def admin_dashboard(request):
                 name=name,
                 description=request.POST.get("description", "").strip(),
                 display_order=DiseaseClass.objects.count(),
-                color_hex=request.POST.get("color_hex", "#6c757d").strip(),
-                marker_key=request.POST.get("marker_key", "").strip() or name.lower().replace(" ", "_"),
-                danger_rank=int(request.POST.get("danger_rank") or 1),
+                color_hex=color_hex,
+                marker_key=marker_key or "disease",
+                danger_rank=danger_rank,
                 is_healthy=request.POST.get("is_healthy") == "on",
                 recommendation_mild=request.POST.get("recommendation_mild", "").strip(),
                 recommendation_moderate=request.POST.get("recommendation_moderate", "").strip(),
