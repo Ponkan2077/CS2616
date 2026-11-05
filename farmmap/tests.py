@@ -318,6 +318,44 @@ class FarmMapPageGateTests(MapGateTestCase):
         self.assertContains(response, "stat-card")
 
 
+class AddFarmFormTests(MapGateTestCase):
+    """Add Farm asks for a name only (ID suggested, owner optional, no address)."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.login(username="owner", password="pw")
+
+    def test_name_alone_creates_a_farm_with_a_suggested_id(self):
+        response = self.client.post(reverse("farm_create"), {"name": "North Block"})
+        self.assertRedirects(response, reverse("farm_list"))
+        farm = Farm.objects.get(owner=self.user, name="North Block")
+        self.assertEqual(farm.farm_id, "FARM-002")
+        self.assertEqual(farm.owner_name, "owner")  # falls back to the account name
+        self.assertEqual((farm.region, farm.province, farm.city_municipality, farm.barangay), ("", "", "", ""))
+
+    def test_missing_name_is_rejected(self):
+        self.client.post(reverse("farm_create"), {"farm_id": "X1"})
+        self.assertFalse(Farm.objects.filter(farm_id="X1").exists())
+
+    def test_typed_id_and_owner_are_kept(self):
+        self.client.post(reverse("farm_create"), {"name": "South", "farm_id": "S-9", "owner_name": "Juan"})
+        farm = Farm.objects.get(farm_id="S-9")
+        self.assertEqual(farm.owner_name, "Juan")
+
+    def test_suggested_id_skips_ids_already_taken(self):
+        Farm.objects.create(owner=self.user, farm_id="FARM-002", name="Taken", owner_name="o")
+        response = self.client.get(reverse("farm_list"))
+        self.assertEqual(response.context["suggested_farm_id"], "FARM-003")
+
+    def test_form_has_no_address_fields_and_farm_list_shows_map_progress(self):
+        self.add_trees(_spread_points(2))
+        response = self.client.get(reverse("farm_list"))
+        self.assertNotContains(response, "region-select")
+        self.assertNotContains(response, "barangay-select")
+        self.assertContains(response, "2 of 5 GPS locations")
+        self.assertContains(response, "map shows once 5 GPS locations")
+
+
 class SyncAndNotificationTests(TestCase):
     """Server-side behavior behind the offline bulk-upload sync and the
     notification bell (client-side parts live in static/js)."""

@@ -18,7 +18,7 @@ from django.core.paginator import Paginator
 from django.db.models import Count, Q, Prefetch, Min, Max, Avg, Exists, OuterRef
 from .models import (
     Farm, RubberTree, ScanHistory, Intervention, DiseaseClass, UserSettings,
-    NotificationDismissal, get_disease_lookup, get_healthy_names,
+    NotificationDismissal, get_disease_lookup, get_healthy_names, get_min_gps_points,
 )
 from .imaging import resize_for_storage
 from . import ai_inference
@@ -736,9 +736,33 @@ def farm_list(request):
     paginator = Paginator(farms_qs, 25)
     page_number = request.GET.get("page", 1)
     farms = paginator.get_page(page_number)
+
+    # Map-unlock progress for each farm on this page ("3 of 5 GPS locations"),
+    # from ONE query for the whole page rather than one per farm.
+    points_by_farm = {}
+    for fid, lat, lng in RubberTree.objects.filter(farm_id__in=[f.pk for f in farms]).values_list("farm_id", "lat", "lng"):
+        points_by_farm.setdefault(fid, []).append((lat, lng))
+    for farm in farms:
+        farm.map_status = farm.get_map_status(points_by_farm.get(farm.pk, []))
+
     ctx = _base_context(request)
-    ctx.update({"page": "farm_list", "farms": farms, "search_q": search_q, "psgc_regions": psgc.get_regions()})
+    ctx.update({
+        "page": "farm_list", "farms": farms, "search_q": search_q,
+        "suggested_farm_id": _suggest_farm_id(request.user),
+        "map_min_points": get_min_gps_points(),
+    })
     return render(request, "farm_list.html", ctx)
+
+
+def _suggest_farm_id(user):
+    # Next free "FARM-NNN" for this user, pre-filled in the Add Farm form so
+    # nobody has to invent an ID. Also the fallback when the ID is left blank.
+    # IDs only need to be unique per owner (Farm.Meta.unique_together).
+    taken = set(Farm.objects.filter(owner=user).values_list("farm_id", flat=True))
+    n = len(taken) + 1
+    while f"FARM-{n:03d}" in taken:
+        n += 1
+    return f"FARM-{n:03d}"
 
 
 @login_required
@@ -765,19 +789,21 @@ def psgc_barangays(request, city_code):
 def farm_create(request):
     # Handles the Add Farm form, creating a new farm owned by the logged-in user.
     if request.method == "POST":
-        farm_id = request.POST.get("farm_id", "").strip()
         name = request.POST.get("name", "").strip()
-        owner_name = request.POST.get("owner_name", "").strip()
-        location = request.POST.get("location", "").strip()
-        # Posted as plain names (not PSGC codes) by the cascading selects
-        # in farm_list.html -- see wireAddressCascade() in that template.
-        region = request.POST.get("region_name", "").strip()
-        province = request.POST.get("province_name", "").strip()
-        city_municipality = request.POST.get("city_name", "").strip()
-        barangay = request.POST.get("barangay_name", "").strip()
+        # Owner is optional; blank falls back to the account holder so lists,
+        # reports and the PDF never show an empty owner.
+        owner_name = (
+            request.POST.get("owner_name", "").strip()
+            or request.user.get_full_name().strip()
+            or request.user.get_username()
+        )[:100]
+        # Only the name is required. The ID is pre-filled in the form, and a
+        # blank one gets the next free FARM-NNN. No address is asked for: the
+        # farm's place on the map comes from the GPS of its photos.
+        farm_id = request.POST.get("farm_id", "").strip() or _suggest_farm_id(request.user)
 
-        if not farm_id or not name or not owner_name:
-            messages.error(request, "Farm ID, name, and owner name are required.")
+        if not name:
+            messages.error(request, "Please enter a farm name.")
             return redirect("farm_list")
 
         # The farm ID is used in URLs and as the prefix of every tree ID.
@@ -803,13 +829,12 @@ def farm_create(request):
             farm_id=farm_id,
             name=name,
             owner_name=owner_name,
-            region=region,
-            province=province,
-            city_municipality=city_municipality,
-            barangay=barangay,
-            location=location,
         )
-        messages.success(request, f"Farm '{name}' added successfully.")
+        messages.success(
+            request,
+            f"Farm '{name}' added. Its map shows once {get_min_gps_points()} GPS locations "
+            f"have been captured. Scan trees or bulk-upload photos that have GPS.",
+        )
         return redirect("farm_list")
 
     return redirect("farm_list")
