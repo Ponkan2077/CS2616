@@ -314,7 +314,8 @@ class FarmMapPageGateTests(MapGateTestCase):
         self.add_trees(_spread_points(2))
         response = self.get_map()
         self.assertEqual(response.context["total"], 2)
-        self.assertContains(response, "stat-box")
+        # The Farm Map page uses the same stat cards as Tree Inventory.
+        self.assertContains(response, "stat-card")
 
 
 class SyncAndNotificationTests(TestCase):

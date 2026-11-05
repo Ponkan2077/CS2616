@@ -18,7 +18,7 @@ from django.core.paginator import Paginator
 from django.db.models import Count, Q, Prefetch, Min, Max, Avg, Exists, OuterRef
 from .models import (
     Farm, RubberTree, ScanHistory, Intervention, DiseaseClass, UserSettings,
-    NotificationDismissal, get_disease_lookup,
+    NotificationDismissal, get_disease_lookup, get_healthy_names,
 )
 from .imaging import resize_for_storage
 from . import ai_inference
@@ -117,16 +117,30 @@ def _get_monthly_trend(request, farm=None):
     return list(months.values())
 
 
+def _healthy_color_hex():
+    # The admin-set color of the first (by display order) is_healthy class,
+    # so the "Healthy" slice in charts follows whatever the admin picked
+    # instead of a hardcoded green. Neutral grey if no class is flagged.
+    for d in get_disease_lookup().values():
+        if d.is_healthy:
+            return d.color_hex
+    return "#6c757d"
+
+
 def _get_severity_counts(request, farm=None):
     # Returns tree counts by severity tier, using database-level filtering
     # on the stored severity_score instead of iterating every tree row and
     # computing severity_label in Python.
     qs = RubberTree.objects.filter(farm=farm) if farm else RubberTree.objects.filter(farm__owner=request.user)
+    # Every class flagged is_healthy counts as Healthy (trunk "Healthy" and
+    # "Healthy Roots" alike), not just the literal name "Healthy".
+    healthy = get_healthy_names()
+    unhealthy = qs.exclude(disease__in=healthy)
     return {
-        "Healthy": qs.filter(disease="Healthy").count(),
-        "Mild": qs.exclude(disease="Healthy").filter(severity_score__lt=34).count(),
-        "Moderate": qs.exclude(disease="Healthy").filter(severity_score__gte=34, severity_score__lt=67).count(),
-        "Severe": qs.exclude(disease="Healthy").filter(severity_score__gte=67).count(),
+        "Healthy": qs.filter(disease__in=healthy).count(),
+        "Mild": unhealthy.filter(severity_score__lt=34).count(),
+        "Moderate": unhealthy.filter(severity_score__gte=34, severity_score__lt=67).count(),
+        "Severe": unhealthy.filter(severity_score__gte=67).count(),
     }
 
 
@@ -146,13 +160,14 @@ def _get_intervention_effectiveness(request, farm=None):
     if farm:
         qs = qs.filter(tree__farm=farm)
 
+    healthy = set(get_healthy_names())
     by_action = {}
     for iv in qs.select_related("tree"):
         action = iv.action
         if action not in by_action:
             by_action[action] = {"action": action, "treated": 0, "recovered": 0}
         by_action[action]["treated"] += 1
-        if iv.tree.disease == "Healthy":
+        if iv.tree.disease in healthy:
             by_action[action]["recovered"] += 1
 
     effectiveness = []
@@ -190,6 +205,7 @@ def _get_intervention_effectiveness_by_disease(request, farm=None):
     for h in ScanHistory.objects.filter(tree_id__in=tree_ids).order_by("tree_id", "-date"):
         history_by_tree.setdefault(h.tree_id, []).append(h)
 
+    healthy = set(get_healthy_names())
     by_disease = {}
     for iv in interventions:
         treated_disease = None
@@ -199,13 +215,13 @@ def _get_intervention_effectiveness_by_disease(request, farm=None):
                 break
         if not treated_disease:
             treated_disease = iv.tree.disease
-        if treated_disease == "Healthy":
+        if treated_disease in healthy:
             continue
 
         bucket = by_disease.setdefault(treated_disease, {})
         row = bucket.setdefault(iv.action, {"action": iv.action, "treated": 0, "recovered": 0})
         row["treated"] += 1
-        if iv.tree.disease == "Healthy":
+        if iv.tree.disease in healthy:
             row["recovered"] += 1
 
     result = {}
@@ -359,13 +375,16 @@ def _get_scan_activity(request, farm=None, days=14):
     window_qs = qs.filter(date__gt=window_start, date__lte=reference_date)
     prev_qs = qs.filter(date__gt=prev_start, date__lte=window_start)
 
+    # Any is_healthy class counts as a healthy scan (trunk "Healthy" and
+    # "Healthy Roots" alike), not only the literal name "Healthy".
+    healthy_names = get_healthy_names()
     scans_count = window_qs.count()
-    healthy_scans = window_qs.filter(disease="Healthy").count()
+    healthy_scans = window_qs.filter(disease__in=healthy_names).count()
     diseased_scans = scans_count - healthy_scans
     trees_scanned = window_qs.values("tree").distinct().count()
 
     prev_count = prev_qs.count()
-    prev_healthy = prev_qs.filter(disease="Healthy").count()
+    prev_healthy = prev_qs.filter(disease__in=healthy_names).count()
 
     health_rate = round(healthy_scans / scans_count * 100, 1) if scans_count else None
     prev_health_rate = round(prev_healthy / prev_count * 100, 1) if prev_count else None
@@ -450,7 +469,7 @@ def _build_notifications(request):
         if (t.pk, t.date_scanned) in dismissed:
             continue
         dc = disease_lookup.get(t.disease)
-        color = dc.color_hex if dc else "#22c55e"
+        color = dc.color_hex if dc else "#6c757d"
         days_ago = (today - t.date_scanned).days
         try:
             tree_url = reverse("tree_details", args=[t.tree_id])
@@ -556,8 +575,11 @@ def _get_stats(request, farm=None):
     qs = RubberTree.objects.filter(farm=farm) if farm else RubberTree.objects.filter(farm__owner=request.user)
     total = qs.count()
     raw_counts = dict(qs.values_list("disease").annotate(n=Count("id")).values_list("disease", "n"))
+    # "Healthy" is the sum over every is_healthy class (trunk "Healthy",
+    # "Healthy Roots", ...), so a healthy-roots tree never counts as diseased.
+    healthy_total = sum(raw_counts.get(n, 0) for n in get_healthy_names())
     counts = {
-        "Healthy": raw_counts.get("Healthy", 0),
+        "Healthy": healthy_total,
         "Pink_Disease": raw_counts.get("Pink Disease", 0),
         "White_Root_Rot": raw_counts.get("White Root Rot", 0),
         "Stem_Bleeding": raw_counts.get("Stem Bleeding", 0),
@@ -809,6 +831,7 @@ def farm_detail(request, farm_id):
         "farm": farm,
         "trees": trees_page,
         "total": total, "counts": counts, "pcts": pcts, "diseased": diseased,
+        "diseased_pct": round(diseased / total * 100, 1) if total else 0,
         "disease_stats": disease_stats,
     })
     return render(request, "farm_detail.html", ctx)
@@ -858,9 +881,14 @@ def dashboard(request):
         "severity_bar_pcts": severity_bar_pcts,
         "confidence_summary": confidence_summary,
         "healthy_count": counts["Healthy"],
+        # Farms with at least one tree whose class is NOT is_healthy. (The
+        # old .exclude(trees__disease="Healthy") dropped any farm that had
+        # even one Healthy tree, because exclude() across a reverse FK
+        # excludes the whole farm.)
         "areas_with_cases": Farm.objects.filter(
-            owner=request.user, trees__disease__isnull=False
-        ).exclude(trees__disease="Healthy").distinct().count() if not farm else (1 if diseased else 0),
+            owner=request.user,
+            trees__in=RubberTree.objects.exclude(disease__in=get_healthy_names()),
+        ).distinct().count() if not farm else (1 if diseased else 0),
         "farm_count": farm_count,
         "recent": recent,
         "scan_activity": scan_activity,
@@ -950,6 +978,7 @@ def farm_map(request):
         return render(request, "farm_map.html", ctx)
 
     total, counts, pcts, diseased = map_farm.get_stats()
+    diseased_pct = round(diseased / total * 100, 1) if total else 0
 
     # Built fresh from the live DiseaseClass catalog (not the fixed-key
     # counts dict above) so the filter dropdown, legend, and top-disease
@@ -987,6 +1016,7 @@ def farm_map(request):
         "map_locked": not map_status["ready"],
         "map_progress_pct": min(100, round(map_status["usable"] / map_status["required"] * 100)),
         "total": total, "counts": counts, "diseased": diseased,
+        "healthy_pct": pcts["Healthy"], "diseased_pct": diseased_pct,
         "disease_stats": disease_stats,
         "top_disease": top_disease,
     })
@@ -1501,6 +1531,10 @@ def tree_inventory(request):
         "page": "tree_inventory",
         "trees": trees_page,
         "total": total, "counts": counts, "diseased": diseased,
+        # Share of all trees, for the stat-card captions. Healthy is the sum
+        # over every is_healthy class (see _get_stats); diseased is the rest.
+        "healthy_pct": pcts["Healthy"],
+        "diseased_pct": round(diseased / total * 100, 1) if total else 0,
         "top_disease": top_disease,
         "search_q": search_q, "disease_filter": disease_filter, "farm_filter": farm_filter,
         "range_filter": range_filter, "severity_filter": severity_filter,
@@ -1533,7 +1567,13 @@ def tree_details(request, tree_id):
         # Chart needs every scan to plot an accurate trend, not just the
         # current table page -- kept separate from the paginated "history"
         # context var used for the table below.
-        "history_chart_json": _json_for_script(list(history_qs.values("date", "confidence", "disease")), default=str),
+        "history_chart_json": _json_for_script(
+            [
+                {"date": h.date, "confidence": h.confidence, "disease": h.disease, "is_healthy": h.is_healthy}
+                for h in history_qs
+            ],
+            default=str,
+        ),
         "progression": tree.get_progression_trend(),
         "tree_farm_boundary": _json_for_script(tree.farm.get_boundary_polygon()),
         # Legend + chart colors, pulled from the DiseaseClass catalog.
@@ -1572,6 +1612,7 @@ def reports(request):
         "page": "reports",
         "total": total, "counts": counts, "pcts": pcts, "diseased": diseased,
         "disease_stats": disease_stats,
+        "healthy_color": _healthy_color_hex(),
         "severity_counts": severity_counts,
         "monthly": monthly,
         "most_affected": most_affected,
@@ -2073,7 +2114,7 @@ def _build_severity_pie(severity_counts, chart_width, chart_height, total=None):
     from reportlab.lib import colors as rl_colors
 
     tiers = [
-        ("Healthy", severity_counts.get("Healthy", 0), rl_colors.HexColor("#28a745")),
+        ("Healthy", severity_counts.get("Healthy", 0), rl_colors.HexColor(_healthy_color_hex())),
         ("Mild", severity_counts.get("Mild", 0), rl_colors.HexColor("#fbbf24")),
         ("Moderate", severity_counts.get("Moderate", 0), rl_colors.HexColor("#f97316")),
         ("Severe", severity_counts.get("Severe", 0), rl_colors.HexColor("#dc2626")),

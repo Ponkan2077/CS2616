@@ -171,14 +171,18 @@ class Farm(models.Model):
         from django.db.models import Count
         total = self.trees.count()
         raw_counts = dict(self.trees.values_list("disease").annotate(n=Count("id")).values_list("disease", "n"))
+        # The "Healthy" key is the sum over EVERY class flagged is_healthy
+        # (trunk "Healthy", "Healthy Roots", ...), not just the literal
+        # name, so a healthy-roots tree is never counted as diseased.
+        healthy_total = sum(raw_counts.get(n, 0) for n in get_healthy_names())
         counts = {
-            "Healthy": raw_counts.get("Healthy", 0),
+            "Healthy": healthy_total,
             "Pink_Disease": raw_counts.get("Pink Disease", 0),
             "White_Root_Rot": raw_counts.get("White Root Rot", 0),
             "Stem_Bleeding": raw_counts.get("Stem Bleeding", 0),
         }
         pcts = {k: round(v / total * 100, 1) if total else 0 for k, v in counts.items()}
-        # total - Healthy rather than summing the 3 named keys above, so a
+        # total - healthy rather than summing the 3 named keys above, so a
         # tree with a disease added after these 3 (e.g. Brown Bast) still
         # counts as diseased instead of silently vanishing from this total.
         diseased = total - counts["Healthy"]
@@ -336,6 +340,17 @@ def get_disease_lookup():
     return lookup
 
 
+def get_healthy_names():
+    # Names of every DiseaseClass flagged is_healthy, e.g. "Healthy" (trunk
+    # model) AND "Healthy Roots" (exposed-roots model). More than one class
+    # can be healthy, so code that needs "is this tree healthy?" must test
+    # membership in this list rather than comparing against one literal name.
+    # Falls back to ["Healthy"] only when no class is flagged at all (an
+    # empty/unseeded catalog), which is what the app assumed before.
+    names = [name for name, d in get_disease_lookup().items() if d.is_healthy]
+    return names or ["Healthy"]
+
+
 def get_disease_choices():
     # Callable choices (Django 5.0+): evaluated lazily each time, so newly
     # added/removed DiseaseClass rows show up in forms/admin without a
@@ -433,6 +448,15 @@ class RubberTree(models.Model):
         return disease_class.marker_key if disease_class else "unknown"
 
     @property
+    def is_healthy(self):
+        # True when this tree's disease class is flagged is_healthy. Works
+        # for every healthy class (trunk "Healthy", "Healthy Roots", ...);
+        # a name missing from the catalog counts as not healthy, matching
+        # how severity_label and _compute_severity_score treat it.
+        disease_class = get_disease_lookup().get(self.disease)
+        return bool(disease_class and disease_class.is_healthy)
+
+    @property
     def severity(self):
         # Returns the disease's danger rank, used for heatmap intensity only
         # (NOT the same as severity_label, which is confidence-driven).
@@ -504,6 +528,7 @@ class RubberTree(models.Model):
             "confidence": self.confidence,
             "severity_score": self.severity_score,
             "color": self.color,
+            "is_healthy": self.is_healthy,
             # Only meaningful when the view annotates it with an Exists
             # subquery (see farm_map view) -- False here is just a safe
             # default for any other caller of to_marker_dict() that
@@ -528,6 +553,7 @@ class RubberTree(models.Model):
             "confidence": self.confidence,
             "date_scanned": str(self.date_scanned),
             "color": self.color,
+            "is_healthy": self.is_healthy,
             "recommended_action": self.recommended_action,
             "notes": self.notes,
             "severity": self.severity,
@@ -581,6 +607,21 @@ class ScanHistory(models.Model):
     def __str__(self):
         # Returns a readable string showing the tree, scan date, and detected disease.
         return f"{self.tree.tree_id} on {self.date}: {self.disease}"
+
+    @property
+    def is_healthy(self):
+        # Same rule as RubberTree.is_healthy: true for every class flagged
+        # is_healthy (trunk "Healthy", "Healthy Roots", ...). Lets tables
+        # render a scan's result without comparing against a literal name.
+        disease_class = get_disease_lookup().get(self.disease)
+        return bool(disease_class and disease_class.is_healthy)
+
+    @property
+    def color(self):
+        # The scan's disease colour from the catalog (same fallback as
+        # RubberTree.color).
+        disease_class = get_disease_lookup().get(self.disease)
+        return disease_class.color_hex if disease_class else "#6c757d"
 
 
 class Intervention(models.Model):
