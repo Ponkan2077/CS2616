@@ -10,7 +10,7 @@
       <span class="badge-farm">{{ farm.farm_id }}</span>
       <h5 class="mt-2 mb-1 fw-bold">{{ farm.name }}</h5>
       <div class="text-muted text-sm-rg"><i class="bi bi-person-fill"></i> Owner: {{ farm.owner_name }}</div>
-      <div class="text-muted text-sm-rg"><i class="bi bi-pin-map-fill"></i> {{ farm.full_address }}</div>
+      {% if farm.full_address != "—" %}<div class="text-muted text-sm-rg"><i class="bi bi-pin-map-fill"></i> {{ farm.full_address }}</div>{% endif %}
     </div>
     <a href="{% url 'farm_list' %}" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-arrow-left"></i> Back

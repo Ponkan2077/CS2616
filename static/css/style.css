@@ -698,8 +698,8 @@ body {
 
 .heat-worst { margin-top: 8px; color: var(--text-muted); font-size: 12px; }
 .heat-worst a { color: var(--primary-text); }
-.heat-spread { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; color: var(--text-muted); font-size: 12px; }
-.heat-spread input { flex: 1; accent-color: var(--primary); }
+.heat-spread { display: flex; align-items: center; gap: 10px; margin: 14px 0 0; min-height: 44px; color: var(--text-muted); font-size: 12px; }
+.heat-spread input { flex: 1; min-height: 44px; accent-color: var(--primary); }
 
 /* Interventions panel + shared progress bar */
 .iv-summary { margin: 0 0 8px; color: var(--text-muted); }
@@ -1091,6 +1091,10 @@ body {
   --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23fff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e");
 }
 .form-check-label { font-size: 14px; }
+/* Checkbox rows are a 44px tap target; the label toggles the box. */
+.form-check { min-height: 44px; display: flex; align-items: center; }
+.form-check .form-check-input { float: none; flex-shrink: 0; margin: 0 .5rem 0 -1.5em; }
+.form-check-label { display: inline-flex; align-items: center; min-height: 44px; }
 .border-top, .border-bottom { border-color: var(--border) !important; }
 .text-muted { color: var(--text-muted) !important; }
 
