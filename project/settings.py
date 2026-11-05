@@ -70,6 +70,17 @@ DATABASES = {
     }
 }
 
+# Checked on sign-up and password change (not on existing passwords): at
+# least 8 characters, not a common password, not all digits, not too close
+# to the username. Without this list Django accepts any password, "1234"
+# included.
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
+
 # Sessions stored in the database (requires migrate)
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 

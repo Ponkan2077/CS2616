@@ -122,11 +122,10 @@ class Farm(models.Model):
     farm_id = models.CharField(max_length=20)
     name = models.CharField(max_length=100)
     owner_name = models.CharField(max_length=100)
-    # Structured PH address (Region -> Province -> City/Municipality ->
-    # Barangay), picked via cascading selects on Add Farm -- see psgc.py
-    # and farm_list.html. Stored as plain names, not PSGC codes: nothing
-    # else in the app needs to join back against the PSGC dataset, so a
-    # code would just be an extra layer of indirection for no benefit here.
+    # Optional address text. Add Farm no longer asks for it (a farm's place on
+    # the map comes from the GPS of its photos); these columns only hold
+    # addresses saved on farms created before that, and stay so those farms
+    # keep them. Stored as plain names, not PSGC codes.
     region = models.CharField(max_length=100, blank=True)
     province = models.CharField(max_length=100, blank=True)
     city_municipality = models.CharField(max_length=100, blank=True)
