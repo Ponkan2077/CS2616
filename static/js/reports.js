@@ -1,30 +1,46 @@
 /* Renders every chart on the reports page: severity doughnut, detection
-   summary bar, disease-count bar, trend line, and the interactive
-   disease-location map. Expects REPORTS_DATA defined inline before
-   this script loads. */
+   summary bar, disease-count bar and the trend line. Expects REPORTS_DATA
+   defined inline before this script loads.
 
-const SEVERITY_COLORS = { healthy: "#28a745", mild: "#fbbf24", moderate: "#f97316", severe: "#dc2626" };
+   Disease colours (and the Healthy colour) come from the data
+   (DiseaseClass.color_hex via REPORTS_DATA). The severity tiers, axis and
+   legend text, tooltip and segment borders are read from the CSS variables
+   through window.RG (theme.js), and every chart is destroyed and rebuilt on
+   "themechange". */
 
-function renderSeverityPie(severity) {
-  const canvas = document.getElementById("severityPie");
+// Destroys a chart left on this canvas (a stale render, or the previous theme)
+// and returns the canvas, or null when the page doesn't have it.
+function freshCanvas(id) {
+  const canvas = document.getElementById(id);
+  if (!canvas || typeof Chart === "undefined") return null;
+  const existing = Chart.getChart(canvas);
+  if (existing) existing.destroy();
+  return canvas;
+}
+
+function renderSeverityPie(severity, healthyColor) {
+  const canvas = freshCanvas("severityPie");
   if (!canvas) return;
+  const t = RG.tokens();
   new Chart(canvas, {
     type: "doughnut",
     data: {
       labels: ["Healthy", "Mild", "Moderate", "Severe"],
       datasets: [{
         data: [severity.healthy, severity.mild, severity.moderate, severity.severe],
-        backgroundColor: [SEVERITY_COLORS.healthy, SEVERITY_COLORS.mild, SEVERITY_COLORS.moderate, SEVERITY_COLORS.severe],
-        borderWidth: 2, borderColor: "#1a2535",
+        backgroundColor: [healthyColor, t.sevMild, t.sevModerate, t.sevSevere],
+        borderWidth: 2, borderColor: t.cardBg,
       }]
     },
-    options: { responsive: true, cutout: "65%", plugins: { legend: { display: false } } }
+    options: { responsive: true, cutout: "65%", plugins: { legend: { display: false }, tooltip: RG.chartTooltip() } }
   });
 }
 
-function renderDetectionSummary(total, diseased) {
-  const canvas = document.getElementById("detectionSummary");
+function renderDetectionSummary(total, diseased, healthyColor) {
+  const canvas = freshCanvas("detectionSummary");
   if (!canvas) return;
+  const t = RG.tokens();
+  const scale = RG.chartScale();
   const healthy = total - diseased;
   new Chart(canvas, {
     type: "bar",
@@ -32,21 +48,22 @@ function renderDetectionSummary(total, diseased) {
       labels: ["Healthy Trees", "Diseased Trees"],
       datasets: [{
         data: [healthy, diseased],
-        backgroundColor: ["#28a745", "#dc3545"],
+        backgroundColor: [healthyColor, t.danger],
         borderRadius: 6,
       }]
     },
     options: {
       responsive: true, indexAxis: "y",
-      plugins: { legend: { display: false } },
-      scales: { x: { beginAtZero: true, ticks: { font: { size: 11 } } }, y: { ticks: { font: { size: 12 } } } }
+      plugins: { legend: { display: false }, tooltip: RG.chartTooltip() },
+      scales: { x: { beginAtZero: true, ...scale }, y: { ...scale, grid: { display: false } } }
     }
   });
 }
 
 function renderDiseaseBar(diseaseStats) {
-  const canvas = document.getElementById("reportBar");
+  const canvas = freshCanvas("reportBar");
   if (!canvas) return;
+  const scale = RG.chartScale();
   new Chart(canvas, {
     type: "bar",
     data: {
@@ -59,30 +76,30 @@ function renderDiseaseBar(diseaseStats) {
     },
     options: {
       responsive: true,
-      plugins: { legend: { display: false } },
+      plugins: { legend: { display: false }, tooltip: RG.chartTooltip() },
       scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
-        y: { beginAtZero: true, ticks: { font: { size: 11 }, stepSize: 1 } }
+        x: { ...scale, grid: { display: false } },
+        y: { ...scale, beginAtZero: true, ticks: { ...scale.ticks, stepSize: 1 } }
       }
     }
   });
 }
 
 function renderTrend(monthly, diseaseStats) {
-  const canvas = document.getElementById("reportTrend");
-  if (!canvas || !monthly.length) return;
-
-  // If a Chart.js instance is already attached to this canvas (e.g. from
-  // a stale render), destroy it first — Chart.js can otherwise silently
-  // produce a broken/empty-looking chart instead of a visible error.
-  const existing = Chart.getChart(canvas);
-  if (existing) existing.destroy();
+  if (!monthly.length) return;
+  // freshCanvas() destroys a Chart.js instance already attached to this canvas
+  // (a stale render) — Chart.js can otherwise silently produce a broken or
+  // empty-looking chart instead of a visible error.
+  const canvas = freshCanvas("reportTrend");
+  if (!canvas) return;
+  const t = RG.tokens();
+  const scale = RG.chartScale();
 
   const datasets = diseaseStats.map(d => ({
     label: d.name,
     data: monthly.map(m => Number(m.diseases[d.name]) || 0),
     borderColor: d.color,
-    backgroundColor: d.color + "1a", // ~10% alpha, hex-with-alpha
+    backgroundColor: RG.alpha(d.color, 0.1),
     tension: .4,
     fill: d.isHealthy,
     pointRadius: 4,
@@ -104,31 +121,27 @@ function renderTrend(monthly, diseaseStats) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { position: "bottom", labels: { font: { size: 11 }, boxWidth: 12 } } },
+      plugins: {
+        legend: { position: "bottom", labels: { color: t.textMain, font: { size: 12 }, boxWidth: 12 } },
+        tooltip: RG.chartTooltip(),
+      },
       scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
-        y: { beginAtZero: true, min: 0, max: yMax, ticks: { font: { size: 11 } } }
+        x: { ...scale, grid: { display: false } },
+        y: { ...scale, beginAtZero: true, min: 0, max: yMax }
       }
     }
   });
 }
 
-// Computes a Healthy/Mild/Moderate/Severe label client-side from disease
-// and confidence, mirroring the server's severity tier logic, since the
-// lightweight marker payload used here doesn't include severity_label.
-function computeSeverityLabel(disease, confidence) {
-  const severityBase = { "Healthy": 0, "Pink Disease": 1, "White Root Rot": 2, "Stem Bleeding": 3 };
-  const base = severityBase[disease] || 0;
-  if (base === 0) return "Healthy";
-  const score = (base / 3) * confidence;
-  if (score < 34) return "Mild";
-  if (score < 67) return "Moderate";
-  return "Severe";
+function renderAllReportCharts() {
+  const d = REPORTS_DATA;
+  renderSeverityPie(d.severity, d.healthyColor);
+  renderDetectionSummary(d.total, d.diseased, d.healthyColor);
+  renderDiseaseBar(d.diseaseStats);
+  renderTrend(d.monthly, d.diseaseStats);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  renderSeverityPie(REPORTS_DATA.severity);
-  renderDetectionSummary(REPORTS_DATA.total, REPORTS_DATA.diseased);
-  renderDiseaseBar(REPORTS_DATA.diseaseStats);
-  renderTrend(REPORTS_DATA.monthly, REPORTS_DATA.diseaseStats);
+  renderAllReportCharts();
+  RG.onThemeChange(renderAllReportCharts);
 });

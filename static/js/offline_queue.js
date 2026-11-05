@@ -54,18 +54,14 @@ function escapeHtml(value) {
 function rgToast(message, kind) {
   const container = document.getElementById("toast-container");
   if (!container) return;
-  const palette = {
-    success: ["#1c3a2e", "#4ade80"],
-    error: ["#3b1f24", "#f87171"],
-    info: ["#1e3a5f", "#7cb8ff"],
-  }[kind || "info"];
+  // Colours live in style.css (.rg-toast and its is-success / is-error /
+  // is-info variants), so toasts follow the theme.
+  const variant = ["success", "error", "info"].includes(kind) ? kind : "info";
   const el = document.createElement("div");
   // Errors are announced immediately; other toasts politely (the container
   // in base.html is also an aria-live region).
   el.setAttribute("role", kind === "error" ? "alert" : "status");
-  el.style.cssText = `background:${palette[0]};color:${palette[1]};border:1px solid ${palette[1]}66;` +
-    "border-radius:10px;padding:10px 14px;margin-top:8px;font-size:12.5px;max-width:320px;" +
-    "box-shadow:0 6px 20px rgba(0,0,0,.35);";
+  el.className = `rg-toast is-${variant}`;
   el.textContent = message;
   container.appendChild(el);
   setTimeout(() => el.remove(), 6500);
@@ -331,26 +327,26 @@ async function renderPendingScans() {
 
   list.innerHTML = items.map(item => {
     const statusHtml = {
-      pending: '<span class="badge-disease" style="background:#3b3020;color:#e0b84a;">Waiting to sync</span>',
-      syncing: '<span class="badge-disease" style="background:#1e3a5f;color:#7cb8ff;"><i class="bi bi-arrow-repeat"></i> Syncing…</span>',
-      error: '<span class="badge-disease" style="background:#3b1f24;color:#f87171;">Failed</span>',
+      pending: '<span class="status-pill is-queued">Waiting to sync</span>',
+      syncing: '<span class="status-pill is-busy"><i class="bi bi-arrow-repeat"></i> Syncing…</span>',
+      error: '<span class="status-pill is-error">Failed</span>',
     }[item.status] || "";
 
     const noteColor = item.status === "error" ? "text-danger" : "text-warning";
     const noteLine = item.errorMessage
-      ? `<div class="${noteColor} mt-1" style="font-size:11px;">${escapeHtml(item.errorMessage)}</div>` : "";
+      ? `<div class="${noteColor} mt-1 text-sm-rg">${escapeHtml(item.errorMessage)}</div>` : "";
 
     return `
-      <div class="d-flex justify-content-between align-items-start py-2 border-bottom" style="border-color:var(--border)!important;">
+      <div class="d-flex justify-content-between align-items-start py-2 border-bottom">
         <div>
-          <div style="font-size:13px;">${escapeHtml(item.treeId) || "(auto tree ID)"}</div>
-          <div class="text-muted" style="font-size:11px;">
+          <div>${escapeHtml(item.treeId) || "(auto tree ID)"}</div>
+          <div class="text-muted text-sm-rg">
             Captured ${formatRelativeTime(item.capturedAt || item.queuedAt)} · GPS via ${escapeHtml(item.gpsSource)} · ${statusHtml}
           </div>
           ${noteLine}
         </div>
         <div class="d-flex gap-1">
-          <button type="button" class="btn btn-sm btn-outline-danger rg-tap" style="font-size:12px;" aria-label="Discard this queued tree" onclick="discardQueuedScan(${Number(item.id)})">
+          <button type="button" class="btn btn-sm btn-outline-danger rg-tap" aria-label="Discard this queued tree" onclick="discardQueuedScan(${Number(item.id)})">
             <i class="bi bi-trash" aria-hidden="true"></i>
           </button>
         </div>

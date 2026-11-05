@@ -73,7 +73,9 @@ function toggleDesktopSidebar() {
    neighboring trees so individual markers stay clickable even
    when a block is planted densely.
    ============================================================ */
-const RG_PIN_BORDER = '#1a2535';
+// Outline and centre-dot colours come from the CSS variables (--map-ring,
+// --map-ring-inv), read each time a pin is built so a theme switch applies.
+// The pin's own fill is the disease colour from the data.
 
 // Builds a divIcon pin at the given pixel size. `size` is the pin's
 // width in px; height and anchor are derived to keep the classic
@@ -81,15 +83,18 @@ const RG_PIN_BORDER = '#1a2535';
 function rgPinIcon(color, size) {
   size = size || 26;
   // The colour is written into SVG markup, so only a plain hex value is used.
-  color = /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : '#6c757d';
+  // A colour that isn't one (an unknown disease) gets the neutral muted tone.
+  color = /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : RG.cssVar('--text-muted', 'gray');
+  const ring = RG.cssVar('--map-ring', 'black');
+  const dot = RG.cssVar('--map-ring-inv', 'white');
   const h = Math.round(size * 1.34);
   return L.divIcon({
     className: 'rg-pin-icon',
     html: `
-      <svg width="${size}" height="${h}" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg" style="display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45));">
+      <svg width="${size}" height="${h}" viewBox="0 0 24 32" xmlns="http://www.w3.org/2000/svg" class="rg-pin-svg">
         <path d="M12 0.75C5.79 0.75 0.75 5.79 0.75 12c0 8.25 11.25 19.25 11.25 19.25S23.25 20.25 23.25 12C23.25 5.79 18.21 0.75 12 0.75z"
-          fill="${color}" stroke="${RG_PIN_BORDER}" stroke-width="1.75"/>
-        <circle cx="12" cy="12" r="4.25" fill="#fff"/>
+          fill="${color}" stroke="${ring}" stroke-width="1.75"/>
+        <circle cx="12" cy="12" r="4.25" fill="${dot}"/>
       </svg>`,
     iconSize: [size, h],
     iconAnchor: [size / 2, h],
@@ -119,6 +124,8 @@ function rgAttachPinScaling(map, markerList) {
     });
   }
   map.on('zoomend', rescale);
+  // Pins are SVG built from the theme colours, so rebuild them on a switch.
+  RG.onThemeChange(rescale);
   rescale();
 }
 

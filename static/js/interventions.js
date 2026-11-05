@@ -24,8 +24,7 @@ function rebuildChecklist() {
   const trees = FARM_TREES_BY_ID[farmPk] || [];
   if (!trees.length) {
     const empty = document.createElement("div");
-    empty.className = "text-muted";
-    empty.style.fontSize = "12px";
+    empty.className = "text-muted text-sm-rg";
     empty.textContent = "No trees on this farm yet. Scan a tree first, then log interventions.";
     container.appendChild(empty);
     return;
@@ -46,8 +45,7 @@ function rebuildChecklist() {
     idText.textContent = t.tree_id;
 
     const diseaseText = document.createElement("span");
-    diseaseText.className = "text-muted";
-    diseaseText.style.fontSize = "10px";
+    diseaseText.className = "text-muted text-sm-rg";
     diseaseText.textContent = t.disease;
 
     label.append(input, idText, diseaseText);

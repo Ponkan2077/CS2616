@@ -1,6 +1,7 @@
 /* Renders the interventions map: only trees that have at least one
    logged intervention, with the latest action shown in each popup.
-   Expects INTERVENTION_TREES defined inline before this loads. */
+   Expects INTERVENTION_TREES defined inline before this loads. Colours come
+   from the CSS variables (see rgPinIcon in main.js). */
 
 document.addEventListener("DOMContentLoaded", () => {
   const container = document.getElementById("intervention-map");
@@ -21,24 +22,30 @@ document.addEventListener("DOMContentLoaded", () => {
     attribution: "© OpenStreetMap", maxZoom: 19,
   }).addTo(map);
 
+  // Every pin on this map is a tree that has been treated, so they all use the
+  // primary teal (the same "action taken" colour as the farm map's
+  // Interventions view). It is read from the CSS variable each time a pin is
+  // built, so the pins follow the theme (rgAttachPinScaling rebuilds them on
+  // "themechange").
+  const treatedTree = { get color() { return RG.tokens().primary; } };
+
   const markerList = [];
   trees.forEach(tree => {
+    const more = tree.intervention_count > 1
+      ? `<div class="tp-sub">${esc(tree.intervention_count)} total actions logged</div>` : "";
     const marker = L.marker([tree.lat, tree.lng], {
-      icon: rgPinIcon("#166534", 22),
+      icon: rgPinIcon(treatedTree.color, 22),
       title: `Tree ${tree.tree_id}`,
       alt: `Tree ${tree.tree_id}, ${tree.disease}`,
     }).bindPopup(`
-      <div style="font-weight:700;font-size:14px;">${esc(tree.tree_id)}</div>
-      <div style="font-size:11px;color:#666;margin-bottom:4px;">${esc(tree.farm_id)} — ${esc(tree.farm_name)}</div>
-      <div style="font-size:12px;">Disease: <b>${esc(tree.disease)}</b></div>
-      <div style="font-size:12px;color:#166534;margin-top:4px;">
-        <i class="bi bi-check-circle-fill"></i> ${esc(tree.latest_intervention)} (${esc(tree.latest_intervention_date)})
-      </div>
-      ${tree.intervention_count > 1 ? `<div style="font-size:11px;color:#666;">${esc(tree.intervention_count)} total actions logged</div>` : ""}
-      <a href="/inventory/${encodeURIComponent(tree.tree_id)}/" style="display:inline-block;margin-top:8px;padding:4px 10px;
-        background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;font-size:11px;">View Details</a>
-    `, { maxWidth: 260 }).addTo(map);
-    markerList.push({ el: marker, tree: { color: "#166534" } });
+      <div class="tp-head">${esc(tree.tree_id)}</div>
+      <div class="tp-disease">${esc(tree.farm_id)} — ${esc(tree.farm_name)}</div>
+      <dl class="tp-grid"><dt>Disease</dt><dd>${esc(tree.disease)}</dd></dl>
+      <div class="tp-note ok"><i class="bi bi-check-circle-fill"></i> ${esc(tree.latest_intervention)} (${esc(tree.latest_intervention_date)})</div>
+      ${more}
+      <a class="tp-link" href="/inventory/${encodeURIComponent(tree.tree_id)}/">View details</a>
+    `, { maxWidth: 260, className: "rg-popup" }).addTo(map);
+    markerList.push({ el: marker, tree: treatedTree });
   });
 
   setTimeout(() => {

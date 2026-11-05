@@ -201,8 +201,7 @@ function setCaptureStatus(kind, message, cssClass) {
   const statusEl = document.getElementById(`${kind}-gps-status`);
   if (!statusEl) return;
   statusEl.textContent = message;
-  statusEl.className = `${cssClass || "text-muted"} mt-1`;
-  statusEl.style.fontSize = "11px";
+  statusEl.className = `${cssClass || "text-muted"} text-sm-rg mt-1`;
 }
 
 // Runs on every Take Photo tap, BEFORE the camera opens. Blocks the tap
@@ -235,7 +234,7 @@ function guardTakePhoto(e, kind) {
         setCaptureStatus(kind, "", "text-muted");
         input.click();
       } else {
-        setCaptureStatus(kind, "Location is on. Tap Take Photo again.", "text-healthy");
+        setCaptureStatus(kind, "Location is on. Tap Take Photo again.", "text-main");
       }
     });
     return;
@@ -305,6 +304,24 @@ function checkLocationAvailability() {
   });
 }
 
+// Only one button on this screen is solid at a time: the one for the current
+// step (Take Photo for the root, Take Photo for the trunk, Analyze, Save).
+// The others are outlines. Only the classes change; every button keeps
+// working whatever its style.
+const STEP_CTA_IDS = ["root-camera-input", "trunk-camera-input", "analyze-btn", "save-submit-btn"];
+
+function setPrimaryCta(activeId) {
+  STEP_CTA_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    // The camera inputs sit inside a <label class="btn">; the label is the button.
+    const btn = el.tagName === "INPUT" ? el.closest("label") : el;
+    if (!btn) return;
+    btn.classList.toggle("btn-primary", id === activeId);
+    btn.classList.toggle("btn-outline-secondary", id !== activeId);
+  });
+}
+
 // Advances the workflow strip, marking prior steps done and the given step active.
 function setWorkflowStep(index) {
   for (let i = 0; i <= 4; i++) {
@@ -314,6 +331,7 @@ function setWorkflowStep(index) {
     if (i < index) el.classList.add("done");
     if (i === index) el.classList.add("active");
   }
+  setPrimaryCta(STEP_CTA_IDS[Math.min(index, STEP_CTA_IDS.length - 1)]);
 }
 
 // Resizes an image file so its longest edge is at most STORAGE_MAX_DIMENSION,
@@ -394,7 +412,7 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
   const dropZone = document.getElementById(dropZoneId);
   const previewImg = document.getElementById(previewImgId);
   const statusEl = document.getElementById(`${kind}-gps-status`);
-  if (statusEl) { statusEl.textContent = "Checking location…"; statusEl.className = "text-muted mt-1"; statusEl.style.fontSize = "11px"; }
+  if (statusEl) { statusEl.textContent = "Checking location…"; statusEl.className = "text-muted text-sm-rg mt-1"; }
   console.log("[GPS DEBUG] handleCapture() start --", { kind, source, fileName: file && file.name, fileType: file && file.type, fileSize: file && file.size });
 
   Promise.all([resolveImageGPS(file, source), resizeImageFile(file)]).then(([gps, resizedFile]) => {
@@ -402,8 +420,7 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
     if (!gps || gps.error) {
       if (statusEl) {
         statusEl.textContent = (gps && gps.error) || "No location data found in this photo, and couldn't get your device's GPS either.";
-        statusEl.className = "text-danger mt-1";
-        statusEl.style.fontSize = "11px";
+        statusEl.className = "text-danger text-sm-rg mt-1";
       }
       checkLocationAvailability(); // a blocked permission should also show in the banner, not only in this one status line
       return; // reject: image is not accepted, existing state (if any) is untouched
@@ -424,8 +441,7 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
     }
     if (statusEl) {
       statusEl.textContent = `📍 Location from ${gps.source === "exif" ? "photo" : "device"}`;
-      statusEl.className = "text-healthy mt-1";
-      statusEl.style.fontSize = "11px";
+      statusEl.className = "text-main text-sm-rg mt-1";
     }
 
     // The tree gets one location -- prefer the root photo's, since
@@ -456,8 +472,7 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
     console.error("[GPS DEBUG] Promise.all REJECTED --", err);
     if (statusEl) {
       statusEl.textContent = (err && err.message) || "Couldn't process that image. Please try another photo.";
-      statusEl.className = "text-danger mt-1";
-      statusEl.style.fontSize = "11px";
+      statusEl.className = "text-danger text-sm-rg mt-1";
     }
   });
 }
@@ -509,6 +524,7 @@ async function runAnalysis() {
     errorBox.textContent = err.message || "Analysis didn't work this time. Please try again.";
     errorBox.style.display = "";
     setWorkflowStep(1);
+    setPrimaryCta("analyze-btn");   // both photos are still there: retrying the analysis is the next action
   } finally {
     analyzeBtn.disabled = false;
     analyzeBtn.innerHTML = '<i class="bi bi-cpu"></i> Analyze Images';
@@ -523,10 +539,21 @@ function showResult(disease, confidence, rootCondition, action) {
   document.getElementById("result-fill").style.width = `${confidence}%`;
   document.getElementById("result-action").textContent = action || "No recommendation on file for this result.";
 
+  // Exposed roots are the one root result that takes colour (the danger pill);
+  // anything else is plain text with a small neutral dot.
   const rootBadge = document.getElementById("result-root-condition");
-  rootBadge.textContent = rootCondition || "Not reported by model";
-  rootBadge.className = rootCondition === "Exposed Roots Detected"
-    ? "fw-bold mt-1 text-pink" : "fw-bold mt-1 text-healthy";
+  rootBadge.textContent = "";
+  const rootLabel = document.createElement("span");
+  if (rootCondition === "Exposed Roots Detected") {
+    rootLabel.className = "pill-danger";
+    rootLabel.textContent = rootCondition;
+  } else {
+    rootLabel.className = "disease-plain";
+    const dot = document.createElement("span");
+    dot.className = "dot-neutral";
+    rootLabel.append(dot, document.createTextNode(rootCondition || "Not reported by model"));
+  }
+  rootBadge.appendChild(rootLabel);
 
   const badge = document.getElementById("threshold-badge-result");
   if (confidence >= 80) {
@@ -534,7 +561,7 @@ function showResult(disease, confidence, rootCondition, action) {
   } else if (confidence >= 50) {
     badge.innerHTML = '<span class="threshold-badge threshold-review"><i class="bi bi-exclamation-circle-fill"></i> Manual Review Suggested</span>';
   } else {
-    badge.innerHTML = '<span class="threshold-badge" style="background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.35);"><i class="bi bi-question-circle-fill"></i> Uncertain — Not a Reliable Classification</span>';
+    badge.innerHTML = '<span class="threshold-badge threshold-uncertain"><i class="bi bi-question-circle-fill"></i> Uncertain — Not a Reliable Classification</span>';
   }
 
   document.getElementById("save-disease").value = disease;
