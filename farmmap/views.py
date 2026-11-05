@@ -24,7 +24,6 @@ from .imaging import resize_for_storage
 from . import ai_inference
 from . import storage_stats
 from . import direct_upload
-from . import psgc
 
 logger = logging.getLogger(__name__)
 
@@ -763,26 +762,6 @@ def _suggest_farm_id(user):
     while f"FARM-{n:03d}" in taken:
         n += 1
     return f"FARM-{n:03d}"
-
-
-@login_required
-def psgc_provinces(request, region_code):
-    # Powers the Province dropdown once a Region is picked on Add Farm.
-    return JsonResponse({"results": psgc.get_provinces(region_code)})
-
-
-@login_required
-def psgc_cities(request, province_code):
-    # Powers the City/Municipality dropdown once a Province is picked.
-    return JsonResponse({"results": psgc.get_cities(province_code)})
-
-
-@login_required
-def psgc_barangays(request, city_code):
-    # Powers the Barangay dropdown once a City is picked. This is the only
-    # one of the 3 that touches the 42k-row barangay dataset, and only for
-    # the one city asked about -- never the full list.
-    return JsonResponse({"results": psgc.get_barangays(city_code)})
 
 
 @login_required
