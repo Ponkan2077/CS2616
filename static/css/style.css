@@ -513,7 +513,7 @@ body {
 }
 
 /* Farm ID: plain muted text, no chip */
-.badge-farm { color: var(--text-muted); font-size: 14px; font-weight: 400; padding: 0; background: none; }
+.badge-farm { color: var(--text-muted); font-size: 14px; font-weight: 400; padding: 0; background: none; white-space: nowrap; }
 
 /* Bootstrap count badges (e.g. .badge.bg-secondary on counters) stay neutral */
 .badge { font-size: 12px; font-weight: 600; }
@@ -1299,6 +1299,7 @@ body {
   position: absolute; left: 8px; top: -64px; z-index: 2000;
   background: var(--text-main); color: var(--surface); padding: 10px 14px; border-radius: 8px;
   font-weight: 600; font-size: 14px; text-decoration: none;
+  display: inline-flex; align-items: center; min-height: 44px;
 }
 .skip-link:focus { top: 8px; color: var(--surface); }
 
@@ -1318,8 +1319,26 @@ body {
    is focused (the 44px minimum targets above apply everywhere now). */
 @media (pointer: coarse) {
   .form-control-rg, .select-filter-rg, .select-rg, .form-control, .form-select { font-size: 16px; }
+  /* Links that stand alone are tap targets too. In a table cell the negative
+     margin gives the link a full 44px hit area without making the row taller. */
+  .cell-id, .table-rg td > a:not(.btn) {
+    display: inline-flex; align-items: center; min-height: 44px; margin: -10px 0; vertical-align: middle;
+  }
+  .link-plain, .breadcrumb-item a { display: inline-flex; align-items: center; min-height: 44px; }
+  .leaflet-container a.leaflet-popup-close-button { width: 44px; height: 44px; padding: 0; font-size: 24px; line-height: 44px; }
 }
 @media (hover: none) and (pointer: coarse) { .map-touch-hint { display: block; } }
+
+/* Map view switch (Markers / Heatmap / Interventions): on a phone it fills the
+   row instead of running past the card edge, and the icons drop out on the
+   narrowest screens so all three labels stay readable. */
+@media (max-width: 420px) {
+  .view-toggle { display: flex; width: 100%; }
+  .view-toggle-btn { flex: 1 1 auto; justify-content: center; padding: 7px 8px; gap: 4px; white-space: nowrap; }
+}
+@media (max-width: 360px) {
+  .view-toggle-btn i { display: none; }
+}
 
 /* Respect the OS "reduce motion" setting. */
 @media (prefers-reduced-motion: reduce) {

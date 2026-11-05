@@ -79,7 +79,7 @@ function renderDiseaseBar(diseaseStats) {
       plugins: { legend: { display: false }, tooltip: RG.chartTooltip() },
       scales: {
         x: { ...scale, grid: { display: false } },
-        y: { ...scale, beginAtZero: true, ticks: { ...scale.ticks, stepSize: 1 } }
+        y: { ...scale, beginAtZero: true, ticks: { ...scale.ticks, precision: 0 } }
       }
     }
   });
