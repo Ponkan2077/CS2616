@@ -5,7 +5,7 @@
 {% block content %}
 {% if messages %}
   {% for message in messages %}
-  <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} py-2" style="font-size:13px;">
+  <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} py-2">
     {{ message }}
   </div>
   {% endfor %}
@@ -15,7 +15,7 @@
      connection. Shown/hidden by offline_queue.js (it toggles the d-flex
      class, so d-flex is NOT in this class list -- Bootstrap's !important
      display utilities would otherwise keep the banner visible). -->
-<div id="offline-banner" class="alert alert-warning py-2 align-items-center gap-2" style="display:none;font-size:12.5px;">
+<div id="offline-banner" class="alert alert-warning py-2 align-items-center gap-2" style="display:none;">
   <i class="bi bi-wifi-off"></i>
   <span>You're offline — Take Photo and Analyze need a connection. To prepare photos without signal, use <a href="{% url 'bulk_upload' %}" class="alert-link">Bulk Upload</a>: it queues them on this device and syncs once you're back online.</span>
 </div>
@@ -44,7 +44,7 @@
   <div class="card-body-rg">
     <label class="visually-hidden" for="save-tree-id">Tree ID (optional)</label>
     <input type="text" name="tree_id" id="save-tree-id" value="{{ rescan_tree_id }}" class="form-control-rg" placeholder="Tree ID (optional)" form="save-form" maxlength="40" aria-describedby="tree-id-help">
-    <div class="text-muted mt-2" id="tree-id-help" style="font-size:11px;">
+    <div class="text-muted mt-2 text-sm-rg" id="tree-id-help">
       <i class="bi bi-info-circle" aria-hidden="true"></i>
       Already tag your trees your own way? Type your own code here (e.g. <code>T1</code> or <code>Row3-12</code>)
       — we'll prefix it with the farm ID to keep it unique<span id="tree-id-preview"></span>.
@@ -60,14 +60,14 @@
      when it's blocked. Shown/hidden by toggling d-flex from JS, so d-flex
      is NOT in this class list (Bootstrap's !important display utilities
      would otherwise keep it permanently visible, even when empty). -->
-<div id="location-banner" class="alert alert-danger py-2 align-items-center gap-2" style="display:none;font-size:12.5px;cursor:pointer;" title="Tap to re-check">
+<div id="location-banner" class="alert alert-danger py-2 align-items-center gap-2 is-clickable" style="display:none;" title="Tap to re-check">
   <i class="bi bi-geo-alt-fill"></i> <span id="location-banner-text" class="flex-grow-1"></span>
-  <button type="button" id="location-enable-btn" class="btn btn-sm btn-light flex-shrink-0" style="display:none;font-size:11.5px;">Enable location</button>
+  <button type="button" id="location-enable-btn" class="btn btn-sm btn-outline-secondary flex-shrink-0" style="display:none;">Enable location</button>
 </div>
 
 <!-- Workflow strip -->
 <div class="card-rg mb-3">
-  <div class="card-body-rg d-flex flex-wrap gap-1 align-items-center justify-content-center" style="font-size:12px;">
+  <div class="card-body-rg d-flex flex-wrap gap-1 align-items-center justify-content-center">
     <div class="workflow-step active" id="step-0"><i class="bi bi-tree-fill"></i> Root</div>
     <span class="workflow-arrow">›</span>
     <div class="workflow-step" id="step-1"><i class="bi bi-image"></i> Trunk</div>
@@ -90,17 +90,17 @@
           <div id="root-upload-placeholder">
             <div class="drop-zone-icon"><i class="bi bi-tree-fill"></i></div>
             <div class="fw-semibold mb-1">Photo of exposed roots</div>
-            <div class="text-muted" style="font-size:12px;">Take Photo uses your current location. Browse needs the photo's own location data (rare on Android).</div>
+            <div class="text-muted text-sm-rg">Take Photo uses your current location. Browse needs the photo's own location data (rare on Android).</div>
           </div>
           <img id="root-preview-img" src="" alt="Root preview">
         </div>
         <div id="root-gps-status" class="mb-2"></div>
         <div class="d-flex gap-2">
-          <label class="file-pick position-relative btn btn-primary btn-sm flex-grow-1 text-center" style="cursor:pointer;">
+          <label class="file-pick position-relative btn btn-primary btn-sm flex-grow-1 text-center">
             <i class="bi bi-camera-fill"></i> Take Photo
             <input type="file" id="root-camera-input" accept="image/*" capture="environment" class="visually-hidden">
           </label>
-          <label class="file-pick position-relative btn btn-outline-secondary btn-sm flex-grow-1 text-center" style="cursor:pointer;">
+          <label class="file-pick position-relative btn btn-outline-secondary btn-sm flex-grow-1 text-center">
             <i class="bi bi-folder2-open"></i> Browse
             <input type="file" id="root-file-input" accept="image/*" class="visually-hidden">
           </label>
@@ -115,33 +115,33 @@
           <div id="trunk-upload-placeholder">
             <div class="drop-zone-icon"><i class="bi bi-cloud-arrow-up-fill"></i></div>
             <div class="fw-semibold mb-1">Capture the root image first</div>
-            <div class="text-muted" style="font-size:12px;">Take Photo uses your current location. Browse needs the photo's own location data (rare on Android).</div>
+            <div class="text-muted text-sm-rg">Take Photo uses your current location. Browse needs the photo's own location data (rare on Android).</div>
           </div>
           <img id="trunk-preview-img" src="" alt="Trunk preview">
         </div>
         <div id="trunk-gps-status" class="mb-2"></div>
         <div class="d-flex gap-2 mb-2">
-          <label class="file-pick position-relative btn btn-primary btn-sm flex-grow-1 text-center" style="cursor:pointer;">
+          <label class="file-pick position-relative btn btn-outline-secondary btn-sm flex-grow-1 text-center">
             <i class="bi bi-camera-fill"></i> Take Photo
             <input type="file" id="trunk-camera-input" accept="image/*" capture="environment" class="visually-hidden">
           </label>
-          <label class="file-pick position-relative btn btn-outline-secondary btn-sm flex-grow-1 text-center" style="cursor:pointer;">
+          <label class="file-pick position-relative btn btn-outline-secondary btn-sm flex-grow-1 text-center">
             <i class="bi bi-folder2-open"></i> Browse
             <input type="file" id="trunk-file-input" accept="image/*" class="visually-hidden">
           </label>
         </div>
-        <button id="analyze-btn" class="btn btn-primary btn-sm w-100" disabled{% if not ai_enabled %} title="Disease detection isn't available right now"{% endif %}>
+        <button id="analyze-btn" class="btn btn-outline-secondary btn-sm w-100" disabled{% if not ai_enabled %} title="Disease detection isn't available right now"{% endif %}>
           <i class="bi bi-cpu"></i> Analyze Images
         </button>
-        <div id="analyze-error" class="alert alert-danger mt-2 py-2" role="alert" style="display:none;font-size:12.5px;"></div>
+        <div id="analyze-error" class="alert alert-danger mt-2 py-2" role="alert" style="display:none;"></div>
         {% if not ai_enabled %}
-        <div class="mt-2 p-2 rounded-3" style="background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);color:#fbbf24;font-size:12px;">
+        <div class="mt-2 notice">
           <i class="bi bi-exclamation-triangle-fill me-1" aria-hidden="true"></i> Disease detection isn't available right now, so photos can't be analyzed. Please try again later.
         </div>
         {% endif %}
 
-        <div class="mt-3 p-3 rounded-3" style="background:var(--surface);border:1px solid var(--border);">
-          <div class="fw-bold mb-2" style="font-size:12px;">Confidence Threshold</div>
+        <div class="mt-3 p-3 rounded-3 panel-inset">
+          <div class="fw-bold mb-2 text-sm-rg">Confidence Threshold</div>
           <div class="d-flex gap-2 flex-wrap">
             <span class="threshold-badge threshold-confirmed">
               <i class="bi bi-check-circle-fill"></i> ≥ 80% Confirmed
@@ -149,11 +149,11 @@
             <span class="threshold-badge threshold-review">
               <i class="bi bi-exclamation-circle-fill"></i> 50–79% Manual Review
             </span>
-            <span class="threshold-badge" style="background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.35);">
+            <span class="threshold-badge threshold-uncertain">
               <i class="bi bi-question-circle-fill"></i> &lt; 50% Uncertain
             </span>
           </div>
-          <div class="text-muted mt-2" style="font-size:11px;">The model always returns its closest match among the trained classes — a low score means the image may not clearly match any of them, not that this diagnosis is confirmed.</div>
+          <div class="text-muted mt-2 text-sm-rg">The model always returns its closest match among the trained classes — a low score means the image may not clearly match any of them, not that this diagnosis is confirmed.</div>
         </div>
       </div>
     </div>
@@ -166,34 +166,34 @@
       <div class="card-body-rg">
         <div class="row g-2 mb-3">
           <div class="col-12">
-            <div class="p-3 rounded-3" style="background:var(--surface);border:1px solid var(--border);">
-              <div class="text-muted" style="font-size:11px;font-weight:600;letter-spacing:.6px;">DETECTED DISEASE CLASS (TRUNK)</div>
-              <div id="result-disease" class="fw-bold mt-1" style="font-size:24px;">—</div>
+            <div class="p-3 rounded-3 panel-inset">
+              <div class="caption-label">DETECTED DISEASE CLASS (TRUNK)</div>
+              <div id="result-disease" class="result-disease mt-1">—</div>
               <div class="mt-2" id="threshold-badge-result"></div>
             </div>
           </div>
           <div class="col-6">
-            <div class="p-3 rounded-3 h-100" style="background:var(--surface);border:1px solid var(--border);">
-              <div class="text-muted" style="font-size:11px;font-weight:600;letter-spacing:.6px;">ROOT CONDITION</div>
-              <div id="result-root-condition" class="fw-bold mt-1" style="font-size:14px;">—</div>
+            <div class="p-3 rounded-3 h-100 panel-inset">
+              <div class="caption-label">ROOT CONDITION</div>
+              <div id="result-root-condition" class="mt-1 fw-bold">—</div>
             </div>
           </div>
           <div class="col-6">
-            <div class="p-3 rounded-3 h-100" style="background:var(--surface);border:1px solid var(--border);">
-              <div class="text-muted" style="font-size:11px;font-weight:600;letter-spacing:.6px;">CONFIDENCE</div>
-              <div id="result-conf" class="fw-bold mt-1" style="font-size:20px;">—</div>
-              <div class="conf-bar mt-2" style="width:100%;">
-                <div id="result-fill" class="conf-fill" style="width:0%;background:var(--primary);"></div>
+            <div class="p-3 rounded-3 h-100 panel-inset">
+              <div class="caption-label">CONFIDENCE</div>
+              <div id="result-conf" class="result-conf mt-1">—</div>
+              <div class="conf-bar conf-bar-full mt-2">
+                <div id="result-fill" class="conf-fill is-primary" style="width:0%;"></div>
               </div>
-              <div class="text-muted mt-1" style="font-size:10px;">Model's confidence in this label, not a probability that the tree has the disease</div>
+              <div class="text-muted mt-1 text-sm-rg">Model's confidence in this label, not a probability that the tree has the disease</div>
             </div>
           </div>
         </div>
 
         <div class="mb-3">
-          <div class="fw-semibold mb-2" style="font-size:13px;"><i class="bi bi-prescription2 text-healthy me-2"></i>Recommended Action</div>
-          <div id="result-action" class="p-3 rounded-3" style="font-size:13px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.35);color:#4ade80;"></div>
-          <div class="text-muted mt-1" style="font-size:11px;">General guidance only — confirm with a qualified agricultural technician before treatment.</div>
+          <div class="fw-semibold mb-2"><i class="bi bi-prescription2 me-2"></i>Recommended Action</div>
+          <div id="result-action" class="p-3 rounded-3 recommendation-box neutral"></div>
+          <div class="text-muted mt-1 text-sm-rg">General guidance only — confirm with a qualified agricultural technician before treatment.</div>
         </div>
 
         <!-- Save form: posts the detection result, plus both resized images -->
@@ -210,7 +210,7 @@
           <input type="hidden" name="root_image_key" id="save-root-image-key">
           <input type="hidden" name="trunk_image_key" id="save-trunk-image-key">
           <div class="d-flex gap-2">
-            <button type="button" id="save-submit-btn" class="btn btn-primary btn-sm flex-grow-1">
+            <button type="button" id="save-submit-btn" class="btn btn-outline-secondary btn-sm flex-grow-1">
               <i class="bi bi-floppy-fill"></i> Save Result
             </button>
             <a href="{% url 'tree_inventory' %}" class="btn btn-outline-secondary btn-sm flex-grow-1">
@@ -227,9 +227,9 @@
       <div class="card-body-rg row g-3">
         {% for d in disease_classes %}
         <div class="col-12 col-sm-6">
-          <div class="p-3 rounded-3 h-100 ref-card" style="border-left-color:{{ d.color_hex }};background:color-mix(in srgb, {{ d.color_hex }} 8%, var(--card-bg-alt));">
-            <div class="fw-bold mb-1" style="color:color-mix(in srgb, {{ d.color_hex }} 45%, white);">{{ d.name }}</div>
-            <div class="text-muted" style="font-size:12px;">{{ d.description }}</div>
+          <div class="p-3 rounded-3 h-100 ref-card" style="--c:{{ d.color_hex }};">
+            <div class="ref-title mb-1">{{ d.name }}</div>
+            <div class="text-muted text-sm-rg">{{ d.description }}</div>
           </div>
         </div>
         {% empty %}

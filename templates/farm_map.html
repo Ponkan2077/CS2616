@@ -2,6 +2,9 @@
 {% block title %}Interactive Farm Map{% endblock %}
 {% block page_title %}Interactive Farm Map{% endblock %}
 
+{# "N of M trees need attention": N is the view's diseased count (total minus every is_healthy class). Top bar on tablet/desktop; the copy in the page body is the phone version. #}
+{% block topbar_note %}{% if not no_farms %}<span class="attention-note">{% if diseased %}<b>{{ diseased }}</b>{% else %}0{% endif %} of {{ total }} tree{{ total|pluralize }} {% if total == 1 %}needs{% else %}need{% endif %} attention</span>{% endif %}{% endblock %}
+
 {% block extra_head %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
@@ -14,6 +17,8 @@
   You haven't added a farm yet. <a href="{% url 'farm_list' %}">Add your first farm</a> to see it on the map.
 </div>
 {% else %}
+
+<p class="attention-note d-sm-none mb-2">{% if diseased %}<b>{{ diseased }}</b>{% else %}0{% endif %} of {{ total }} tree{{ total|pluralize }} {% if total == 1 %}needs{% else %}need{% endif %} attention</p>
 
 <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
   <!-- Page-scoped farm selector: independent of the sidebar's "Active
@@ -29,38 +34,54 @@
     <button type="submit" class="btn btn-sm btn-outline-secondary">Show farm</button>
   </form>
   {% if not map_locked %}
-  <div class="text-muted" style="font-size:11px;">
+  <div class="text-muted text-sm-rg">
     <i class="bi bi-info-circle"></i> Zoom in freely — zooming out is limited to this farm's bounds.
   </div>
   {% endif %}
 </div>
 
-<!-- Stats -->
-<div class="row g-2 mb-3">
+<!-- Stats: only the Diseased card takes colour; Top Disease carries a small dot in its admin colour -->
+<div class="row g-2 g-md-3 mb-3">
   <div class="col-6 col-md-3">
-    <div class="stat-box">
-      <div class="stat-label">TOTAL</div>
-      <div class="stat-value" style="font-size:20px;">{{ total }}</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-box">
-      <div class="stat-label" style="color:var(--healthy);">HEALTHY</div>
-      <div class="stat-value text-healthy" style="font-size:20px;">{{ counts.Healthy }}</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-box">
-      <div class="stat-label" style="color:var(--pink);">DISEASED</div>
-      <div class="stat-value text-pink" style="font-size:20px;">{{ diseased }}</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-box">
-      <div class="stat-label" style="{% if top_disease.color %}color:color-mix(in srgb, {{ top_disease.color }} 45%, white);{% endif %}">
-        {% if top_disease and top_disease.count > 0 %}{{ top_disease.name|upper }}{% else %}TOP DISEASE{% endif %}
+    <div class="stat-card">
+      <div>
+        <div class="stat-label">Total Trees</div>
+        <div class="stat-value">{{ total }}</div>
+        <div class="stat-caption">{{ map_farm.name }}</div>
       </div>
-      <div class="stat-value" style="font-size:20px;{% if top_disease.color %}color:color-mix(in srgb, {{ top_disease.color }} 45%, white);{% endif %}">{{ top_disease.count|default:0 }}</div>
+      <div class="stat-icon" aria-hidden="true"><i class="bi bi-tree-fill"></i></div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div>
+        <div class="stat-label">Healthy</div>
+        <div class="stat-value">{{ counts.Healthy }}</div>
+        <div class="stat-caption">{{ healthy_pct }}% of trees</div>
+      </div>
+      <div class="stat-icon" aria-hidden="true"><i class="bi bi-check-circle"></i></div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card is-danger">
+      <div>
+        <div class="stat-label">Diseased</div>
+        <div class="stat-value">{{ diseased }}</div>
+        <div class="stat-caption">{{ diseased_pct }}% of trees</div>
+      </div>
+      <div class="stat-icon" aria-hidden="true"><i class="bi bi-exclamation-triangle-fill"></i></div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="stat-card">
+      <div>
+        <div class="stat-label">Top Disease</div>
+        <div class="stat-value">{% if top_disease and top_disease.count > 0 %}{{ top_disease.count }}{% else %}—{% endif %}</div>
+        <div class="stat-caption">
+          {% if top_disease and top_disease.count > 0 %}<span class="stat-dot" style="--c:{{ top_disease.color }};" aria-hidden="true"></span>{{ top_disease.name }}{% else %}No disease detected{% endif %}
+        </div>
+      </div>
+      <div class="stat-icon" aria-hidden="true"><i class="bi bi-virus"></i></div>
     </div>
   </div>
 </div>
@@ -139,7 +160,7 @@
     <select id="map-filter" class="select-filter-rg" aria-label="Filter by disease">
       <option value="">All Diseases</option>
       {% for d in disease_stats %}
-      <option value="{{ d.name }}">{{ d.name }}</option>
+      <option value="{{ d.name }}"{% if d.is_healthy %} data-healthy="1"{% endif %}>{{ d.name }}</option>
       {% endfor %}
     </select>
     <button id="map-reset" class="btn btn-sm btn-outline-secondary">
@@ -166,7 +187,7 @@
           {% for d in disease_stats %}
           <li>
             <button type="button" class="legend-row" data-disease="{{ d.name }}" aria-pressed="false">
-              <span class="legend-dot" style="background:{{ d.color }};"></span>
+              <span class="legend-dot" style="--c:{{ d.color }};"></span>
               <span class="legend-name">{{ d.name }}</span>
               <span class="legend-count">{{ d.count }}</span>
             </button>
@@ -205,9 +226,9 @@
         <div id="heat-tiers" class="heat-tiers" aria-label="Trees by severity tier">
           <div class="heat-tier-bar" id="heat-tier-bar"></div>
           <div class="heat-tier-key">
-            <span><i style="background:var(--sev-mild)"></i>Mild <b id="heat-tier-mild">0</b></span>
-            <span><i style="background:var(--sev-moderate)"></i>Moderate <b id="heat-tier-moderate">0</b></span>
-            <span><i style="background:var(--sev-severe)"></i>Severe <b id="heat-tier-severe">0</b></span>
+            <span><i class="fill-mild"></i>Mild <b id="heat-tier-mild">0</b></span>
+            <span><i class="fill-moderate"></i>Moderate <b id="heat-tier-moderate">0</b></span>
+            <span><i class="fill-severe"></i>Severe <b id="heat-tier-severe">0</b></span>
           </div>
         </div>
 
@@ -232,8 +253,8 @@
         <p class="iv-summary"><b id="iv-done">0</b> of <b id="iv-total">0</b> diseased trees shown have an action logged.</p>
         <div class="progress-track" role="presentation"><div class="progress-fill progress-fill-ok" id="iv-bar" style="width:0%;"></div></div>
         <ul class="legend-list">
-          <li class="legend-row legend-row-static"><span class="legend-dot" style="background:#22c55e;"></span><span class="legend-name">Action taken</span><span class="legend-count" id="iv-count-done">0</span></li>
-          <li class="legend-row legend-row-static"><span class="legend-dot" style="background:#ef4444;"></span><span class="legend-name">Needs action</span><span class="legend-count" id="iv-count-todo">0</span></li>
+          <li class="legend-row legend-row-static"><span class="legend-dot dot-treated"></span><span class="legend-name">Action taken</span><span class="legend-count" id="iv-count-done">0</span></li>
+          <li class="legend-row legend-row-static"><span class="legend-dot dot-todo"></span><span class="legend-name">Needs action</span><span class="legend-count" id="iv-count-todo">0</span></li>
         </ul>
         <p class="map-panel-hint">Healthy trees are hidden here because they don't need an intervention.</p>
       </div>

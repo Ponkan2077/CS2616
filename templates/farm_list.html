@@ -5,7 +5,7 @@
 {% block content %}
 {% if messages %}
   {% for message in messages %}
-  <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} py-2" style="font-size:13px;">
+  <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} py-2">
     {{ message }}
   </div>
   {% endfor %}
@@ -43,20 +43,20 @@
           <th>OWNER</th>
           <th>LOCATION</th>
           <th>TREES</th>
-          <th></th>
+          <th aria-label="Actions"></th>
         </tr>
       </thead>
       <tbody>
         {% for farm in farms %}
         <tr>
-          <td><span class="badge-farm">{{ farm.farm_id }}</span></td>
+          <td><a href="{% url 'farm_detail' farm.farm_id %}" class="cell-id">{{ farm.farm_id }}</a></td>
           <td class="fw-semibold">{{ farm.name }}</td>
           <td class="text-muted">{{ farm.owner_name }}</td>
-          <td class="text-muted" style="font-size:12px;">{{ farm.full_address }}</td>
+          <td class="text-muted">{{ farm.full_address }}</td>
           <td class="fw-bold text-center">{{ farm.trees.count }}</td>
           <td>
-            <a href="{% url 'farm_detail' farm.farm_id %}" class="btn btn-sm btn-outline-primary" style="font-size:11px;">
-              <i class="bi bi-eye"></i> View
+            <a href="{% url 'farm_detail' farm.farm_id %}" class="btn btn-sm btn-outline-primary" aria-label="View farm {{ farm.farm_id }}">
+              <i class="bi bi-eye" aria-hidden="true"></i> View
             </a>
           </td>
         </tr>
@@ -102,32 +102,32 @@
     <div class="card-rg h-100">
       <div class="card-header-rg"><i class="bi bi-geo-alt-fill"></i> {{ farm.farm_id }}</div>
       <div class="card-body-rg">
-        <div class="fw-bold mb-1" style="font-size:14px;">{{ farm.name }}</div>
-        <div class="text-muted mb-1" style="font-size:12px;">
+        <div class="fw-bold mb-1">{{ farm.name }}</div>
+        <div class="text-muted mb-1 text-sm-rg">
           <i class="bi bi-person-fill"></i> {{ farm.owner_name }}
         </div>
-        <div class="text-muted mb-3" style="font-size:12px;">
+        <div class="text-muted mb-3 text-sm-rg">
           <i class="bi bi-pin-map-fill"></i> {{ farm.full_address }}
         </div>
         <div class="row g-2 mb-3">
           <div class="col-6">
             <div class="stat-box">
               <div class="stat-label">TREES</div>
-              <div class="stat-value" style="font-size:18px;">{{ farm.tree_count }}</div>
+              <div class="stat-value">{{ farm.tree_count }}</div>
             </div>
           </div>
           <div class="col-6">
             <div class="stat-box">
               <div class="stat-label">CENTER</div>
               {% if farm.tree_count %}
-              <div style="font-size:10px;color:var(--text-muted);">{{ farm.avg_lat|floatformat:3 }}, {{ farm.avg_lng|floatformat:3 }}</div>
+              <div class="text-muted text-sm-rg">{{ farm.avg_lat|floatformat:3 }}, {{ farm.avg_lng|floatformat:3 }}</div>
               {% else %}
-              <div style="font-size:10px;color:var(--text-muted);">Pending first scan</div>
+              <div class="text-muted text-sm-rg">Pending first scan</div>
               {% endif %}
             </div>
           </div>
         </div>
-        <a href="{% url 'farm_detail' farm.farm_id %}" class="btn btn-primary btn-sm w-100">
+        <a href="{% url 'farm_detail' farm.farm_id %}" class="btn btn-outline-primary btn-sm w-100">
           <i class="bi bi-arrow-right-circle"></i> View Details
         </a>
       </div>
@@ -157,7 +157,7 @@
           <div class="auth-field">
             <label for="farm_id">Farm ID</label>
             <input type="text" name="farm_id" id="farm_id" class="form-control-rg" placeholder="e.g. FARM-004" maxlength="20" aria-describedby="farm-id-help" required>
-            <div id="farm-id-help" class="text-muted mt-1" style="font-size:11px;">Letters, numbers, spaces, dashes, dots or underscores, up to 20 characters. No slashes.</div>
+            <div id="farm-id-help" class="text-muted mt-1 text-sm-rg">Letters, numbers, spaces, dashes, dots or underscores, up to 20 characters. No slashes.</div>
           </div>
           <div class="auth-field">
             <label for="name">Farm Name</label>
@@ -202,7 +202,7 @@
             <label for="location">Additional Details <span class="text-muted">(optional)</span></label>
             <input type="text" name="location" id="location" class="form-control-rg" placeholder="e.g. Purok 3, near the chapel">
           </div>
-          <div class="text-muted" style="font-size:11px;">
+          <div class="text-muted text-sm-rg">
             <i class="bi bi-info-circle"></i> No need to set a center or boundary here — once trees are scanned on this farm, its map center and boundary are calculated automatically from their GPS locations.
           </div>
         </div>

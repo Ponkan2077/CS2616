@@ -5,7 +5,7 @@
 {% block content %}
 {% if messages %}
   {% for message in messages %}
-  <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} py-2" style="font-size:13px;">
+  <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} py-2">
     {{ message }}
   </div>
   {% endfor %}
@@ -49,7 +49,7 @@
       <div class="card-header-rg"><i class="bi bi-key-fill"></i> Change Password</div>
       <div class="card-body-rg">
         {% if password_form.errors %}
-        <div class="alert alert-danger py-2" style="font-size:12px;">
+        <div class="alert alert-danger py-2">
           {% for field in password_form %}{% for error in field.errors %}{{ error }} {% endfor %}{% endfor %}
           {% for error in password_form.non_field_errors %}{{ error }} {% endfor %}
         </div>
@@ -69,7 +69,7 @@
             <label class="form-label small text-muted mb-1" for="id_new_password2">Confirm New Password</label>
             <input type="password" id="id_new_password2" name="new_password2" class="form-control-rg" required>
           </div>
-          <button type="submit" class="btn btn-primary btn-sm mt-1">Change Password</button>
+          <button type="submit" class="btn btn-outline-secondary btn-sm mt-1">Change Password</button>
         </form>
       </div>
     </div>
@@ -89,7 +89,7 @@
           <div class="mb-3">
             <label class="form-label small text-muted mb-1" for="id_notify_lookback_days">Only notify me about scans from the last</label>
             <div class="d-flex align-items-center gap-2">
-              <input type="number" id="id_notify_lookback_days" name="notify_lookback_days" class="form-control-rg" style="max-width:90px;"
+              <input type="number" id="id_notify_lookback_days" name="notify_lookback_days" class="form-control-rg input-narrow"
                      min="1" value="{{ user_settings.notify_lookback_days }}">
               <span class="text-muted small">day(s)</span>
             </div>
@@ -106,11 +106,11 @@
             {% endfor %}
           </div>
 
-          <div class="text-muted mb-2" style="font-size:11px;">
+          <div class="text-muted mb-2 text-sm-rg">
             <i class="bi bi-info-circle"></i> Turning everything off empties the notification bell — the dot only shows up when there's something to alert on.
           </div>
 
-          <button type="submit" class="btn btn-primary btn-sm mt-1">Save Preferences</button>
+          <button type="submit" class="btn btn-outline-secondary btn-sm mt-1">Save Preferences</button>
         </form>
       </div>
     </div>

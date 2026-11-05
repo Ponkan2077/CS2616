@@ -3,33 +3,54 @@
 {% block title %}Tree Inventory{% endblock %}
 {% block page_title %}Tree Inventory{% endblock %}
 
+{# "N of M trees need attention": N comes from the view's diseased count, i.e. total minus every is_healthy class. Shown in the top bar; the copy in the page body below is the phone version (the top-bar one is hidden under 576px). #}
+{% block topbar_note %}<span class="attention-note">{% if diseased %}<b>{{ diseased }}</b>{% else %}0{% endif %} of {{ total }} tree{{ total|pluralize }} {% if total == 1 %}needs{% else %}need{% endif %} attention</span>{% endblock %}
+
 {% block content %}
-<!-- Stats -->
-<div class="row g-2 mb-3">
-  <div class="col-6 col-md-3">
-    <div class="stat-box">
-      <div class="stat-label">TOTAL</div>
-      <div class="stat-value" style="font-size:22px;">{{ total }}</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-box">
-      <div class="stat-label" style="color:var(--healthy);">HEALTHY</div>
-      <div class="stat-value text-healthy" style="font-size:22px;">{{ counts.Healthy }}</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-box">
-      <div class="stat-label" style="color:var(--pink);">DISEASED</div>
-      <div class="stat-value text-pink" style="font-size:22px;">{{ diseased }}</div>
-    </div>
-  </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-box">
-      <div class="stat-label" style="{% if top_disease.color %}color:color-mix(in srgb, {{ top_disease.color }} 45%, white);{% endif %}">
-        {% if top_disease %}{{ top_disease.name|upper }}{% else %}TOP DISEASE{% endif %}
+<p class="attention-note d-sm-none mb-2">{% if diseased %}<b>{{ diseased }}</b>{% else %}0{% endif %} of {{ total }} tree{{ total|pluralize }} {% if total == 1 %}needs{% else %}need{% endif %} attention</p>
+
+<!-- Stats: only the Diseased card takes colour -->
+<div class="row g-2 g-md-3 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="stat-card">
+      <div>
+        <div class="stat-label">Total Trees</div>
+        <div class="stat-value">{{ total }}</div>
+        <div class="stat-caption">{% if selected_farm %}{{ selected_farm.name }}{% else %}All farms{% endif %}</div>
       </div>
-      <div class="stat-value" style="font-size:22px;{% if top_disease.color %}color:color-mix(in srgb, {{ top_disease.color }} 45%, white);{% endif %}">{{ top_disease.count|default:0 }}</div>
+      <div class="stat-icon" aria-hidden="true"><i class="bi bi-tree-fill"></i></div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card">
+      <div>
+        <div class="stat-label">Healthy</div>
+        <div class="stat-value">{{ counts.Healthy }}</div>
+        <div class="stat-caption">{{ healthy_pct }}% of trees</div>
+      </div>
+      <div class="stat-icon" aria-hidden="true"><i class="bi bi-check-circle"></i></div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card is-danger">
+      <div>
+        <div class="stat-label">Diseased</div>
+        <div class="stat-value">{{ diseased }}</div>
+        <div class="stat-caption">{{ diseased_pct }}% of trees</div>
+      </div>
+      <div class="stat-icon" aria-hidden="true"><i class="bi bi-exclamation-triangle-fill"></i></div>
+    </div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="stat-card">
+      <div>
+        <div class="stat-label">Top Disease</div>
+        <div class="stat-value">{% if top_disease %}{{ top_disease.count }}{% else %}—{% endif %}</div>
+        <div class="stat-caption">
+          {% if top_disease %}<span class="stat-dot" style="--c:{{ top_disease.color }};" aria-hidden="true"></span>{{ top_disease.name }}{% else %}No disease detected{% endif %}
+        </div>
+      </div>
+      <div class="stat-icon" aria-hidden="true"><i class="bi bi-virus"></i></div>
     </div>
   </div>
 </div>
@@ -87,32 +108,35 @@
           <th>DISEASE</th>
           <th>CONF.</th>
           <th>DATE</th>
-          <th></th>
+          <th aria-label="Actions"></th>
         </tr>
       </thead>
       <tbody>
         {% for t in trees %}
-        <tr>
-          <td class="fw-bold" style="color:var(--primary-text);">{{ t.tree_id }}</td>
+        {# t.is_healthy is true for EVERY healthy class (trunk "Healthy", "Healthy Roots", ...). Healthy rows stay neutral; diseased rows get a 3px stripe in the disease's admin colour. #}
+        <tr{% if not t.is_healthy %} class="row-diseased" style="--c:{{ t.color }};"{% endif %}>
+          <td><a href="{% url 'tree_details' t.tree_id %}" class="cell-id">{{ t.tree_id }}</a></td>
           <td>
-            <a href="{% url 'farm_detail' t.farm.farm_id %}" style="text-decoration:none;">
+            <a href="{% url 'farm_detail' t.farm.farm_id %}" class="text-decoration-none">
               <span class="badge-farm">{{ t.farm.farm_id }}</span>
             </a>
           </td>
           <td>
-            <span class="badge-disease" style="--c:{{ t.disease|disease_color }};">
-              {{ t.disease }}
-            </span>
+            {% if t.is_healthy %}
+            <span class="disease-plain"><span class="dot-neutral" aria-hidden="true"></span>{{ t.disease }}</span>
+            {% else %}
+            <span class="badge-disease" style="--c:{{ t.color }};">{{ t.disease }}</span>
+            {% endif %}
           </td>
           <td>
-            <div class="fw-semibold" style="font-size:12px;">{{ t.confidence }}%</div>
+            <div class="fw-semibold">{{ t.confidence }}%</div>
             <div class="conf-bar">
-              <div class="conf-fill" style="width:{{ t.confidence }}%;background:{{ t.color }};"></div>
+              <div class="conf-fill" style="width:{{ t.confidence }}%;"></div>
             </div>
           </td>
-          <td class="text-muted" style="font-size:12px;">{{ t.date_scanned }}</td>
+          <td class="text-muted">{{ t.date_scanned }}</td>
           <td>
-            <a href="{% url 'tree_details' t.tree_id %}" class="btn btn-sm btn-outline-primary" style="font-size:11px;" aria-label="View tree {{ t.tree_id }}">
+            <a href="{% url 'tree_details' t.tree_id %}" class="btn btn-sm btn-outline-primary btn-icon" aria-label="View tree {{ t.tree_id }}">
               <i class="bi bi-eye" aria-hidden="true"></i>
             </a>
           </td>
@@ -158,7 +182,7 @@
   </div>
   {% endif %}
 
-  <div class="px-3 py-2 border-top d-flex justify-content-between" style="font-size:12px;color:var(--text-faint);">
+  <div class="px-3 py-2 border-top d-flex justify-content-between text-faint" style="font-size:12px;">
     <span>Showing {{ trees.start_index }}–{{ trees.end_index }} of {{ trees.paginator.count }} records</span>
     <span>{% if selected_farm %}{{ selected_farm.name }}{% else %}All Farms{% endif %}</span>
   </div>

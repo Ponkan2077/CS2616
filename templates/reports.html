@@ -3,43 +3,43 @@
 {% block page_title %}Reports & Analytics{% endblock %}
 
 {% block content %}
-<div class="text-muted mb-2" style="font-size:12px;">
-  <i class="bi bi-info-circle"></i> Historical trends and exportable reports. For a quick live snapshot, see the <a href="{% url 'dashboard' %}" style="color:var(--primary-text);">Dashboard</a>.
+<div class="text-muted mb-2 text-sm-rg">
+  <i class="bi bi-info-circle"></i> Historical trends and exportable reports. For a quick live snapshot, see the <a href="{% url 'dashboard' %}">Dashboard</a>.
 </div>
 
-<!-- Summary Cards -->
+<!-- Summary Cards: neutral, except Disease Cases (danger) -->
 <div class="row g-2 g-md-3 mb-3">
   <div class="col-6 col-lg-3">
     <div class="summary-card">
-      <div class="summary-icon" style="background:rgba(59,130,246,.16);color:var(--primary-text);"><i class="bi bi-tree-fill"></i></div>
+      <div class="summary-icon"><i class="bi bi-tree-fill"></i></div>
       <div><div class="summary-label">Total Trees</div><div class="summary-value">{{ total }}</div></div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
     <div class="summary-card">
-      <div class="summary-icon" style="background:var(--pink-bg);color:var(--pink);"><i class="bi bi-exclamation-triangle-fill"></i></div>
-      <div><div class="summary-label">Disease Cases</div><div class="summary-value text-pink">{{ diseased }}</div></div>
+      <div class="summary-icon is-danger"><i class="bi bi-exclamation-triangle-fill"></i></div>
+      <div><div class="summary-label">Disease Cases</div><div class="summary-value is-danger">{{ diseased }}</div></div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
     <div class="summary-card">
-      <div class="summary-icon" style="background:rgba(208,153,95,.18);color:#e0aa6f;"><i class="bi bi-geo-alt-fill"></i></div>
+      <div class="summary-icon"><i class="bi bi-heart-pulse-fill"></i></div>
       <div><div class="summary-label">Health Rate</div><div class="summary-value">{{ pcts.Healthy }}%</div></div>
     </div>
   </div>
   <div class="col-6 col-lg-3">
     <div class="summary-card">
-      <div class="summary-icon" style="background:var(--healthy-bg);color:var(--healthy);"><i class="bi bi-check-circle-fill"></i></div>
-      <div><div class="summary-label">Healthy Trees</div><div class="summary-value text-healthy">{{ counts.Healthy }}</div></div>
+      <div class="summary-icon"><i class="bi bi-check-circle-fill"></i></div>
+      <div><div class="summary-label">Healthy Trees</div><div class="summary-value">{{ counts.Healthy }}</div></div>
     </div>
   </div>
 </div>
 
 <!-- Export Buttons -->
 <div class="d-flex gap-2 mb-3 flex-wrap">
-  <a href="{% url 'export_pdf' %}" class="btn btn-sm btn-primary"><i class="bi bi-file-earmark-pdf-fill me-1"></i>Export PDF</a>
-  <a href="{% url 'export_csv' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-filetype-csv me-1"></i>Export CSV</a>
-  <a href="{% url 'export_excel' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-file-earmark-excel-fill me-1"></i>Export Excel</a>
+  <a href="{% url 'export_pdf' %}" class="btn btn-primary"><i class="bi bi-file-earmark-pdf-fill me-1"></i>Export PDF</a>
+  <a href="{% url 'export_csv' %}" class="btn btn-outline-secondary"><i class="bi bi-filetype-csv me-1"></i>Export CSV</a>
+  <a href="{% url 'export_excel' %}" class="btn btn-outline-secondary"><i class="bi bi-file-earmark-excel-fill me-1"></i>Export Excel</a>
 </div>
 
 <!-- Key Insights -->
@@ -69,7 +69,7 @@
           <li class="text-muted">Nothing needs action right now.</li>
           {% endfor %}
         </ul>
-        <div class="mt-2" style="font-size:11px;color:var(--text-faint);">
+        <div class="mt-2 text-faint text-sm-rg">
           <i class="bi bi-info-circle me-1"></i>General guidance only — confirm with a qualified agricultural technician before treatment.
         </div>
       </div>
@@ -83,12 +83,12 @@
     <div class="report-chart-card">
       <div class="card-header-rg"><i class="bi bi-pie-chart-fill"></i> Disease Severity Distribution</div>
       <div class="card-body-rg d-flex flex-column align-items-center">
-        <div style="max-width:220px;width:100%;"><canvas id="severityPie"></canvas></div>
-        <div class="mt-3 d-flex flex-wrap gap-2 justify-content-center" style="font-size:11px;">
-          <span><span class="legend-dot" style="background:#28a745;"></span>Healthy {{ severity_counts.Healthy }}</span>
-          <span><span class="legend-dot" style="background:#fbbf24;"></span>Mild {{ severity_counts.Mild }}</span>
-          <span><span class="legend-dot" style="background:#f97316;"></span>Moderate {{ severity_counts.Moderate }}</span>
-          <span><span class="legend-dot" style="background:#dc2626;"></span>Severe {{ severity_counts.Severe }}</span>
+        <div class="chart-box-pie"><canvas id="severityPie"></canvas></div>
+        <div class="mt-3 d-flex flex-wrap gap-2 justify-content-center text-sm-rg">
+          <span><span class="legend-dot" style="--c:{{ healthy_color }};"></span>Healthy {{ severity_counts.Healthy }}</span>
+          <span><span class="legend-dot fill-mild"></span>Mild {{ severity_counts.Mild }}</span>
+          <span><span class="legend-dot fill-moderate"></span>Moderate {{ severity_counts.Moderate }}</span>
+          <span><span class="legend-dot fill-severe"></span>Severe {{ severity_counts.Severe }}</span>
         </div>
       </div>
     </div>
@@ -108,11 +108,11 @@
   <div class="card-header-rg"><i class="bi bi-graph-up"></i> Disease Reports Over Time</div>
   <div class="card-body-rg">
     {% if monthly %}
-    <div style="height:320px;">
+    <div class="chart-box-lg">
       <canvas id="reportTrend"></canvas>
     </div>
     {% else %}
-    <div class="text-center text-muted py-4" style="font-size:13px;">Not enough scan history yet to show a trend.</div>
+    <div class="text-center text-muted py-4">Not enough scan history yet to show a trend.</div>
     {% endif %}
   </div>
 </div>
@@ -132,7 +132,7 @@
           <div class="affected-count">{{ a.diseased }}</div>
         </div>
         {% empty %}
-        <div class="text-center text-muted py-3" style="font-size:13px;">You haven't added a farm yet. <a href="{% url 'farm_list' %}">Add your first farm</a>.</div>
+        <div class="text-center text-muted py-3">You haven't added a farm yet. <a href="{% url 'farm_list' %}">Add your first farm</a>.</div>
         {% endfor %}
       </div>
     </div>
@@ -163,10 +163,10 @@
         <tr>
           <td class="fw-semibold">{{ e.action }}</td>
           <td>{{ e.treated }}</td>
-          <td class="text-healthy fw-semibold">{{ e.recovered }}</td>
+          <td class="fw-semibold">{{ e.recovered }}</td>
           <td>
-            <div class="conf-bar" style="width:80px;"><div class="conf-fill" style="width:{{ e.recovery_pct }}%;background:var(--healthy);"></div></div>
-            <div style="font-size:11px;margin-top:2px;">{{ e.recovery_pct }}%</div>
+            <div class="conf-bar conf-bar-md"><div class="conf-fill" style="width:{{ e.recovery_pct }}%;"></div></div>
+            <div class="bar-caption">{{ e.recovery_pct }}%</div>
           </td>
         </tr>
         {% endfor %}
@@ -181,11 +181,11 @@
 <div class="card-rg mb-3">
   <div class="card-header-rg"><i class="bi bi-geo-alt-fill"></i> Disease Breakdown by Farm</div>
   <div class="table-responsive-rg">
-    <table class="table-rg" style="min-width:640px;">
+    <table class="table-rg table-min-640">
       <thead>
         <tr>
           <th>FARM</th><th>OWNER</th><th>TOTAL</th>
-          <th style="color:var(--healthy);">HEALTHY</th>
+          <th>HEALTHY</th>
           <th class="text-danger">DISEASED</th>
           <th>HEALTH RATE</th>
         </tr>
@@ -194,16 +194,16 @@
         {% for s in farm_summaries %}
         <tr>
           <td>
-            <a href="{% url 'farm_detail' s.farm.farm_id %}" style="color:var(--primary-text);text-decoration:none;font-weight:600;">{{ s.farm.farm_id }}</a>
-            <div class="text-muted" style="font-size:10px;">{{ s.farm.name }}</div>
+            <a href="{% url 'farm_detail' s.farm.farm_id %}" class="cell-id">{{ s.farm.farm_id }}</a>
+            <div class="text-muted text-sm-rg">{{ s.farm.name }}</div>
           </td>
           <td class="text-muted">{{ s.farm.owner_name }}</td>
           <td class="fw-bold">{{ s.total }}</td>
-          <td class="fw-bold text-healthy">{{ s.counts.Healthy }}</td>
+          <td class="fw-bold">{{ s.counts.Healthy }}</td>
           <td class="fw-bold text-danger">{{ s.diseased }}</td>
           <td>
-            <div class="conf-bar" style="width:80px;"><div class="conf-fill" style="width:{{ s.pcts.Healthy }}%;background:var(--healthy);"></div></div>
-            <div style="font-size:11px;margin-top:2px;">{{ s.pcts.Healthy }}%</div>
+            <div class="conf-bar conf-bar-md"><div class="conf-fill" style="width:{{ s.pcts.Healthy }}%;"></div></div>
+            <div class="bar-caption">{{ s.pcts.Healthy }}%</div>
           </td>
         </tr>
         {% endfor %}
@@ -224,6 +224,7 @@
   const REPORTS_DATA = {
     total: {{ total }},
     diseased: {{ diseased }},
+    healthyColor: '{{ healthy_color|escapejs }}',
     diseaseStats: [
       {% for d in disease_stats %}
       { name: '{{ d.name|escapejs }}', count: {{ d.count }}, pct: {{ d.pct }}, color: '{{ d.color|escapejs }}', isHealthy: {{ d.is_healthy|yesno:"true,false" }} },

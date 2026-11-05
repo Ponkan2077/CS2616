@@ -1,13 +1,12 @@
 {% extends "base.html" %}
-{% load disease_extras %}
 {% block title %}{{ tree.tree_id }} Details{% endblock %}
 {% block page_title %}Tree Details — {{ tree.tree_id }}{% endblock %}
 
 {% block content %}
 <nav aria-label="breadcrumb" class="mb-3">
-  <ol class="breadcrumb" style="font-size:12px;">
-    <li class="breadcrumb-item"><a href="{% url 'tree_inventory' %}" style="color:var(--primary-text);">Inventory</a></li>
-    <li class="breadcrumb-item"><a href="{% url 'farm_detail' tree.farm.farm_id %}" style="color:var(--primary-text);">{{ tree.farm.name }}</a></li>
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="{% url 'tree_inventory' %}">Inventory</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'farm_detail' tree.farm.farm_id %}">{{ tree.farm.name }}</a></li>
     <li class="breadcrumb-item active">{{ tree.tree_id }}</li>
   </ol>
 </nav>
@@ -21,38 +20,40 @@
       <div class="card-header-rg"><i class="bi bi-tree-fill"></i> Tree Information</div>
       <div class="card-body-rg">
         <div class="d-flex align-items-center gap-3 mb-3">
-          <div style="width:52px;height:52px;border-radius:12px;border:2px solid {{ tree.color }};
-               display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-            <i class="bi bi-tree-fill" style="font-size:22px;color:{{ tree.color }};"></i>
+          {# Neutral tile; only a diseased tree carries its disease colour (--c). #}
+          <div class="tree-tile{% if not tree.is_healthy %} is-diseased{% endif %}"{% if not tree.is_healthy %} style="--c:{{ tree.color }};"{% endif %}>
+            <i class="bi bi-tree-fill"></i>
           </div>
           <div>
-            <div class="fw-bold" style="font-size:20px;">{{ tree.tree_id }}</div>
-            <span class="badge-disease" style="--c:{{ tree.disease|disease_color }};">
-              {{ tree.disease }}
-            </span>
+            <div class="tree-title">{{ tree.tree_id }}</div>
+            {% if tree.is_healthy %}
+            <span class="disease-plain"><span class="dot-neutral"></span>{{ tree.disease }}</span>
+            {% else %}
+            <span class="badge-disease" style="--c:{{ tree.color }};">{{ tree.disease }}</span>
+            {% endif %}
           </div>
         </div>
 
         <a href="{% url 'disease_detection' %}?rescan_tree_id={{ tree.tree_id }}&rescan_farm_pk={{ tree.farm.pk }}"
-           class="btn btn-sm btn-outline-primary mb-3" style="font-size:12px;">
+           class="btn btn-primary mb-3">
           <i class="bi bi-camera-fill"></i> Scan This Tree Again
         </a>
 
         <div class="detail-grid">
           <span class="detail-label">Farm</span>
-          <span><a href="{% url 'farm_detail' tree.farm.farm_id %}" style="color:var(--primary-text);text-decoration:none;">{{ tree.farm.farm_id }} — {{ tree.farm.name }}</a></span>
+          <span><a href="{% url 'farm_detail' tree.farm.farm_id %}" class="link-plain">{{ tree.farm.farm_id }} — {{ tree.farm.name }}</a></span>
 
           <span class="detail-label">Owner</span>
           <span>{{ tree.farm.owner_name }}</span>
 
           <span class="detail-label">GPS</span>
-          <span style="font-size:12px;">{{ tree.lat }}, {{ tree.lng }}</span>
+          <span class="text-sm-rg">{{ tree.lat }}, {{ tree.lng }}</span>
 
           <span class="detail-label">Confidence</span>
           <span>
             <span class="fw-semibold">{{ tree.confidence }}%</span>
-            <div class="conf-bar" style="width:100px;margin-top:3px;">
-              <div class="conf-fill" style="width:{{ tree.confidence }}%;background:{{ tree.color }};"></div>
+            <div class="conf-bar conf-bar-lg">
+              <div class="conf-fill{% if not tree.is_healthy %} is-diseased{% endif %}" style="width:{{ tree.confidence }}%;{% if not tree.is_healthy %}--c:{{ tree.color }};{% endif %}"></div>
             </div>
           </span>
 
@@ -61,13 +62,17 @@
 
           {% if tree.root_condition %}
           <span class="detail-label">Root Condition</span>
-          <span class="fw-semibold {% if tree.root_condition == 'Exposed Roots Detected' %}text-pink{% else %}text-healthy{% endif %}">
-            {{ tree.root_condition }}
+          <span>
+            {% if tree.root_condition == 'Exposed Roots Detected' %}
+            <span class="pill-danger">{{ tree.root_condition }}</span>
+            {% else %}
+            <span class="disease-plain"><span class="dot-neutral"></span>{{ tree.root_condition }}</span>
+            {% endif %}
           </span>
           {% endif %}
 
           <span class="detail-label">Notes</span>
-          <span style="font-size:12px;color:var(--text-main);">{{ tree.notes }}</span>
+          <span class="text-sm-rg">{{ tree.notes }}</span>
         </div>
       </div>
     </div>
@@ -79,17 +84,17 @@
         <div class="row g-2">
           {% if tree.root_image %}
           <div class="col-6">
-            <div class="text-muted mb-1" style="font-size:11px;font-weight:600;letter-spacing:.6px;">ROOT</div>
+            <div class="photo-label">ROOT</div>
             <a href="{{ tree.root_image.url }}" target="_blank">
-              <img src="{{ tree.root_image.url }}" alt="Root photo" style="width:100%;border-radius:8px;border:1px solid var(--border);">
+              <img src="{{ tree.root_image.url }}" alt="Root photo" class="photo-thumb">
             </a>
           </div>
           {% endif %}
           {% if tree.trunk_image %}
           <div class="col-6">
-            <div class="text-muted mb-1" style="font-size:11px;font-weight:600;letter-spacing:.6px;">TRUNK</div>
+            <div class="photo-label">TRUNK</div>
             <a href="{{ tree.trunk_image.url }}" target="_blank">
-              <img src="{{ tree.trunk_image.url }}" alt="Trunk photo" style="width:100%;border-radius:8px;border:1px solid var(--border);">
+              <img src="{{ tree.trunk_image.url }}" alt="Trunk photo" class="photo-thumb">
             </a>
           </div>
           {% endif %}
@@ -105,7 +110,7 @@
         <div class="p-3 rounded-3 recommendation-box {{ tree.severity_label|lower }}">
           <i class="bi bi-lightbulb-fill me-2"></i>{{ tree.recommended_action }}
         </div>
-        <div class="mt-2" style="font-size:11px;color:var(--text-faint);">
+        <div class="mt-2 text-faint text-sm-rg">
           <i class="bi bi-info-circle me-1"></i>Consult DA Field Office IX for field verification.
         </div>
       </div>
@@ -123,7 +128,7 @@
         <div id="mini-map" class="map-mini"></div>
       </div>
       <div class="px-3 pb-3">
-        <a href="{% url 'farm_map' %}" class="btn btn-sm btn-outline-primary" style="font-size:12px;">
+        <a href="{% url 'farm_map' %}" class="btn btn-outline-secondary">
           <i class="bi bi-arrow-up-right-square"></i> View Full Farm Map
         </a>
       </div>
@@ -135,13 +140,13 @@
       <div class="card-body-rg">
         {% if history %}
         <canvas id="historyChart" height="130"></canvas>
-        <div class="mt-3 d-flex flex-wrap gap-3 justify-content-center" style="font-size:11px;">
+        <div class="mt-3 d-flex flex-wrap gap-3 justify-content-center text-sm-rg">
           {% for d in legend_diseases %}
-          <span><span class="legend-dot" style="background:{{ d.color_hex }};"></span>{{ d.name }}</span>
+          <span><span class="legend-dot" style="--c:{{ d.color_hex }};"></span>{{ d.name }}</span>
           {% endfor %}
         </div>
         {% else %}
-        <div class="text-center text-muted py-4" style="font-size:13px;">No scan history available.</div>
+        <div class="text-center text-muted py-4">No scan history available.</div>
         {% endif %}
       </div>
     </div>
@@ -159,7 +164,7 @@
         {% endif %}
       </div>
       {% if progression.detail and progression.trend != "Insufficient data" %}
-      <div class="px-3 pt-2 text-muted" style="font-size:11.5px;">{{ progression.detail }}</div>
+      <div class="px-3 pt-2 text-muted text-sm-rg">{{ progression.detail }}</div>
       {% endif %}
       <div class="table-responsive-rg">
         <table class="table-rg">
@@ -173,15 +178,17 @@
           </thead>
           <tbody>
             {% for h in history %}
-            <tr>
-              <td style="font-size:12px;">{{ h.date }}</td>
+            <tr{% if not h.is_healthy %} class="row-diseased" style="--c:{{ h.color }};"{% endif %}>
+              <td>{{ h.date }}</td>
               <td>
-                <span class="badge-disease" style="--c:{{ h.disease|disease_color }};">
-                  {{ h.disease }}
-                </span>
+                {% if h.is_healthy %}
+                <span class="disease-plain"><span class="dot-neutral"></span>{{ h.disease }}</span>
+                {% else %}
+                <span class="badge-disease" style="--c:{{ h.color }};">{{ h.disease }}</span>
+                {% endif %}
               </td>
-              <td class="fw-semibold" style="font-size:12px;">{{ h.confidence }}%</td>
-              <td class="text-muted" style="font-size:12px;">{{ h.inspector }}</td>
+              <td class="fw-semibold">{{ h.confidence }}%</td>
+              <td class="text-muted">{{ h.inspector }}</td>
             </tr>
             {% empty %}
             <tr><td colspan="4" class="text-center text-muted py-3">No scan history available.</td></tr>
@@ -222,15 +229,15 @@
       <div class="card-body-rg d-flex flex-wrap gap-3">
         <div class="stat-box flex-fill">
           <div class="stat-value">{{ history.paginator.count }}</div>
-          <div class="stat-label" style="margin-top:4px;">Total Inspections</div>
+          <div class="stat-label">Total Inspections</div>
         </div>
         <div class="stat-box flex-fill">
-          <div class="stat-value" style="font-size:15px;">{{ tree.date_scanned }}</div>
-          <div class="stat-label" style="margin-top:4px;">Latest Scan</div>
+          <div class="stat-value is-sm">{{ tree.date_scanned }}</div>
+          <div class="stat-label">Latest Scan</div>
         </div>
         <div class="stat-box flex-fill">
           <div class="stat-value">{{ tree.confidence }}%</div>
-          <div class="stat-label" style="margin-top:4px;">Current Confidence</div>
+          <div class="stat-label">Current Confidence</div>
         </div>
       </div>
     </div>
@@ -245,11 +252,12 @@
     tree: {
       lat: {{ tree.lat }},
       lng: {{ tree.lng }},
-      tree_id: '{{ tree.tree_id }}',
-      disease: '{{ tree.disease }}',
-      color: '{{ tree.color }}',
-      farm_owner: '{{ tree.farm.owner_name }}',
-      farm_id: '{{ tree.farm.farm_id }}',
+      tree_id: '{{ tree.tree_id|escapejs }}',
+      disease: '{{ tree.disease|escapejs }}',
+      color: '{{ tree.color|escapejs }}',
+      isHealthy: {{ tree.is_healthy|yesno:"true,false" }},
+      farm_owner: '{{ tree.farm.owner_name|escapejs }}',
+      farm_id: '{{ tree.farm.farm_id|escapejs }}',
       farm_name: '{{ tree.farm.name|escapejs }}'
     },
     farmBoundary: {{ tree_farm_boundary|safe }},

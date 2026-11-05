@@ -5,7 +5,7 @@
 {% block content %}
 {% if messages %}
   {% for message in messages %}
-  <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} py-2" style="font-size:13px;">
+  <div class="alert {% if message.tags == 'error' %}alert-danger{% else %}alert-success{% endif %} py-2">
     {{ message }}
   </div>
   {% endfor %}
@@ -17,7 +17,7 @@
 <!-- Shown/hidden by offline_queue.js (it toggles the d-flex class, so d-flex
      is NOT in this class list -- Bootstrap's !important display utilities
      would otherwise keep the banner visible). -->
-<div id="offline-banner" class="alert alert-warning py-2 align-items-center gap-2" style="display:none;font-size:12.5px;">
+<div id="offline-banner" class="alert alert-warning py-2 align-items-center gap-2" style="display:none;">
   <i class="bi bi-wifi-off"></i>
   <span>You're offline — you can still group photos and press Save. Trees are stored on this device and sync automatically once you're back online. Photos without their own GPS need a map pick, which needs a connection.</span>
 </div>
@@ -27,7 +27,7 @@
 <div class="card-rg mb-3" id="pending-scans-section" style="display:none;">
   <div class="card-header-rg d-flex justify-content-between align-items-center">
     <span><i class="bi bi-cloud-arrow-up"></i> Pending Sync <span class="badge bg-secondary ms-1" id="pending-scans-count">0</span></span>
-    <button type="button" class="btn btn-sm btn-outline-primary rg-tap" id="sync-now-btn" style="font-size:12px;">
+    <button type="button" class="btn btn-sm btn-outline-primary rg-tap" id="sync-now-btn">
       <i class="bi bi-arrow-repeat"></i> Sync Now
     </button>
   </div>
@@ -37,7 +37,7 @@
 <div class="card-rg mb-3">
   <div class="card-header-rg"><i class="bi bi-images"></i> Select Photos</div>
   <div class="card-body-rg">
-    <div class="text-muted mb-3" style="font-size:12.5px;">
+    <div class="text-muted mb-3 text-sm-rg">
       Pick every root and trunk photo from this farm visit at once. They're grouped into trees automatically by
       timestamp (and GPS, when a photo has it) — review the groups below before saving. No signal? Save anyway:
       trees are kept on this device and sync automatically when you're back online.
@@ -53,15 +53,15 @@
         </select>
       </div>
       <div class="col-12 col-sm-6">
-        <label class="file-pick position-relative btn btn-primary btn-sm w-100" style="cursor:pointer;">
+        <label class="file-pick position-relative btn btn-primary btn-sm w-100">
           <i class="bi bi-folder2-open"></i> Choose Photos
           <input type="file" id="bulk-file-input" accept="image/*" multiple class="visually-hidden">
         </label>
       </div>
     </div>
-    <div id="bulk-status" class="text-muted" role="status" aria-live="polite" style="font-size:12.5px;"></div>
+    <div id="bulk-status" class="text-muted text-sm-rg" role="status" aria-live="polite"></div>
     {% if not ai_enabled %}
-    <div class="mt-2 p-2 rounded-3" style="background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);color:#fbbf24;font-size:12px;">
+    <div class="mt-2 notice">
       <i class="bi bi-exclamation-triangle-fill me-1" aria-hidden="true"></i> Disease detection isn't available right now. Trees you save are kept on this device and sync automatically once it's back.
     </div>
     {% endif %}
@@ -75,26 +75,26 @@
     <button id="bulk-process-btn" class="btn btn-primary btn-sm">
       <i class="bi bi-cloud-arrow-up"></i> Save All Ready Trees
     </button>
-    <span id="bulk-summary" class="text-muted" style="font-size:12.5px;"></span>
+    <span id="bulk-summary" class="text-muted text-sm-rg"></span>
   </div>
 </div>
 
 <!-- Reusable manual-location picker, shared across all group cards -->
 <div class="modal fade" id="bulk-location-modal" tabindex="-1" aria-labelledby="bulk-location-title" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content" style="background:var(--card-bg);color:var(--text);">
-      <div class="modal-header" style="border-color:var(--border);">
+    <div class="modal-content">
+      <div class="modal-header">
         <h2 class="modal-title h6" id="bulk-location-title"><i class="bi bi-geo-alt-fill" aria-hidden="true"></i> Set Tree Location</h2>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <div class="text-muted mb-2" style="font-size:12px;">This group had no GPS on its own — tap the map where this tree actually is.</div>
-        <div id="bulk-location-offline-note" class="mb-2" style="display:none;font-size:11.5px;color:#fbbf24;">
+        <div class="text-muted mb-2 text-sm-rg">This group had no GPS on its own — tap the map where this tree actually is.</div>
+        <div id="bulk-location-offline-note" class="mb-2 text-sm-rg" style="display:none;">
           <i class="bi bi-wifi-off"></i> You're offline, so the map background won't load. Only use this if you know the exact spot.
         </div>
-        <div id="bulk-location-map" role="application" aria-label="Map: tap the tree's location" style="height:300px;border-radius:8px;"></div>
+        <div id="bulk-location-map" class="map-modal" role="application" aria-label="Map: tap the tree's location"></div>
       </div>
-      <div class="modal-footer" style="border-color:var(--border);">
+      <div class="modal-footer">
         <button type="button" class="btn btn-primary btn-sm rg-tap" id="bulk-location-confirm">Confirm Location</button>
       </div>
     </div>

@@ -1,8 +1,22 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark" data-bs-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    // Applies the saved theme (else the OS preference, else dark) before first
+    // paint so the page never flashes the wrong one. theme.js wires the toggle.
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('rg-theme'); } catch (e) {}
+      if (t !== 'light' && t !== 'dark') {
+        t = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      }
+      var r = document.documentElement;
+      r.setAttribute('data-theme', t);
+      r.setAttribute('data-bs-theme', t);
+    })();
+  </script>
   <title>{% block title %}RubberGuard{% endblock %} — Rubber Tree Disease Detection</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
@@ -38,7 +52,7 @@
   </div>
 
   <div class="px-3 pb-2 pt-2">
-    <div class="nav-section-label mb-1" style="padding:0 0 6px;">Active Farm</div>
+    <div class="nav-section-label nav-section-label--flush mb-1">Active Farm</div>
     <div class="dropdown farm-selector">
       <button class="farm-selector-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false">
         <span class="farm-selector-icon">
@@ -152,7 +166,7 @@
 
   <div class="sidebar-footer">
     <div>RubberGuard v1.0</div>
-    <div style="margin-top:3px;">WMSU · Zamboanga City</div>
+    <div class="sidebar-footer-line">WMSU · Zamboanga City</div>
   </div>
 </nav>
 
@@ -167,14 +181,19 @@
       </button>
       <h1 class="page-title">{% block page_title %}RubberGuard{% endblock %}</h1>
       {% if selected_farm %}
-      <span class="badge bg-success ms-1" style="font-size:10px;font-weight:500;">
-        <i class="bi bi-geo-alt-fill"></i> {{ selected_farm.farm_id }}
+      <span class="topbar-farm">
+        <i class="bi bi-geo-alt-fill" aria-hidden="true"></i> {{ selected_farm.farm_id }}
       </span>
       {% else %}
-      <span class="badge bg-secondary ms-1" style="font-size:10px;">All Farms</span>
+      <span class="topbar-farm">All Farms</span>
       {% endif %}
+      {% block topbar_note %}{% endblock %}
     </div>
     <div class="topbar-right">
+      <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Switch to light mode">
+        <span class="theme-opt to-light" aria-hidden="true"><i class="bi bi-sun-fill"></i><span class="theme-word">Light</span></span>
+        <span class="theme-opt to-dark" aria-hidden="true"><i class="bi bi-moon-stars-fill"></i><span class="theme-word">Dark</span></span>
+      </button>
       <div class="dropdown">
         <button type="button" class="topbar-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Notifications{% if notifications %}, {{ notifications|length }} unread{% endif %}">
           <i class="bi bi-bell-fill" aria-hidden="true"></i>
@@ -183,11 +202,11 @@
         <div class="dropdown-menu dropdown-menu-end notif-dropdown">
           <div class="notif-header d-flex justify-content-between align-items-center">
             <span>Notifications</span>
-            <span class="badge bg-danger rounded-pill">{{ notifications|length }}</span>
+            <span class="count-pill-danger">{{ notifications|length }}</span>
           </div>
           {% for n in notifications %}
           <a href="{{ n.url }}" class="notif-item" data-tree-pk="{{ n.tree_pk }}" data-date-scanned="{{ n.date_scanned }}">
-            <i class="bi {{ n.icon }} fs-5 mt-1" style="color:{{ n.color }};"></i>
+            <i class="bi {{ n.icon }} fs-5 mt-1 notif-icon"></i>
             <div class="flex-grow-1">
               <div>{{ n.msg }}</div>
               <div class="notif-time mt-1">{{ n.time }}</div>
@@ -196,7 +215,7 @@
           </a>
           {% empty %}
           <div class="notif-empty">
-            <i class="bi bi-check-circle-fill text-healthy"></i>
+            <i class="bi bi-check-circle-fill"></i>
             No disease alerts right now.
           </div>
           {% endfor %}
@@ -227,7 +246,7 @@
   </main>
 </div>
 
-<div id="toast-container" role="status" aria-live="polite" style="position:fixed;bottom:24px;right:24px;z-index:9999;"></div>
+<div id="toast-container" class="toast-stack" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -238,6 +257,7 @@
      is global so a queue built offline in Bulk Upload syncs as soon as the
      app is opened anywhere with signal (it does nothing when the queue is
      empty). -->
+<script src="{% static 'js/theme.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/csrf.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/offline_queue.js' %}?v={{ STATIC_VERSION }}"></script>
 <script src="{% static 'js/main.js' %}?v={{ STATIC_VERSION }}"></script>
