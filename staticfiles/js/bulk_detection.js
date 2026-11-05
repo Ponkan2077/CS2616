@@ -123,17 +123,17 @@ function renderBulkGroups() {
     const dis = locked ? " disabled" : "";
     const thumbs = g.items.map((item, i) => {
       const role = i === g.rootIdx ? "root" : i === g.trunkIdx ? "trunk" : null;
-      const dim = role ? "" : "opacity:.55;";
+      const dim = role ? "" : " is-dim";
       const photoName = `photo ${i + 1} of tree ${idx + 1}`;
       const alt = role ? `${role === "root" ? "Root" : "Trunk"} ${photoName}` : `Unassigned ${photoName}`;
       return `
-        <div class="text-center" style="width:84px;">
-          <img src="${item.previewUrl}" alt="${alt}" style="width:84px;height:84px;object-fit:cover;border-radius:6px;${dim}">
+        <div class="text-center bulk-thumb-box">
+          <img src="${item.previewUrl}" alt="${alt}" class="bulk-thumb${dim}">
           <div class="d-flex gap-1 mt-1">
-            <button type="button" class="btn btn-sm bulk-role-btn ${role === "root" ? "btn-success" : "btn-outline-secondary"}" aria-pressed="${role === "root"}" aria-label="Use ${photoName} as the root photo" data-action="set-role" data-group="${g.id}" data-item="${i}" data-role="root"${dis}>Root</button>
-            <button type="button" class="btn btn-sm bulk-role-btn ${role === "trunk" ? "btn-primary" : "btn-outline-secondary"}" aria-pressed="${role === "trunk"}" aria-label="Use ${photoName} as the trunk photo" data-action="set-role" data-group="${g.id}" data-item="${i}" data-role="trunk"${dis}>Trunk</button>
+            <button type="button" class="btn btn-sm bulk-role-btn btn-outline-secondary" aria-pressed="${role === "root"}" aria-label="Use ${photoName} as the root photo" data-action="set-role" data-group="${g.id}" data-item="${i}" data-role="root"${dis}>Root</button>
+            <button type="button" class="btn btn-sm bulk-role-btn btn-outline-secondary" aria-pressed="${role === "trunk"}" aria-label="Use ${photoName} as the trunk photo" data-action="set-role" data-group="${g.id}" data-item="${i}" data-role="trunk"${dis}>Trunk</button>
           </div>
-          <button type="button" class="btn btn-sm btn-link text-danger p-0 mt-1 bulk-move-btn" aria-label="Move ${photoName} to a new tree" data-action="split-out" data-group="${g.id}" data-item="${i}"${dis}>Move to new tree</button>
+          <button type="button" class="btn btn-sm btn-link text-muted p-0 mt-1 bulk-move-btn" aria-label="Move ${photoName} to a new tree" data-action="split-out" data-group="${g.id}" data-item="${i}"${dis}>Move to new tree</button>
         </div>`;
     }).join("");
 
@@ -143,26 +143,26 @@ function renderBulkGroups() {
 
     const statusBadge = {
       draft: "",
-      processing: '<span class="badge-disease" style="background:#1e3a5f;color:#7cb8ff;"><i class="bi bi-arrow-repeat"></i> Saving…</span>',
-      done: `<span class="badge-disease" style="background:#1c3a2e;color:#4ade80;"><i class="bi bi-check-circle-fill"></i> Saved as ${escapeHtml(g.savedTreeId)}</span>`,
-      queued: '<span class="badge-disease" style="background:#3b3020;color:#e0b84a;"><i class="bi bi-cloud-arrow-up"></i> Queued — syncs automatically</span>',
-      error: `<span class="badge-disease" style="background:#3b1f24;color:#f87171;">Failed</span>`,
+      processing: '<span class="status-pill is-busy"><i class="bi bi-arrow-repeat"></i> Saving…</span>',
+      done: `<span class="status-pill is-done"><i class="bi bi-check-circle-fill"></i> Saved as ${escapeHtml(g.savedTreeId)}</span>`,
+      queued: '<span class="status-pill is-queued"><i class="bi bi-cloud-arrow-up"></i> Queued — syncs automatically</span>',
+      error: `<span class="status-pill is-error">Failed</span>`,
     }[g.status];
 
-    const errorLine = g.status === "error" ? `<div class="text-danger mt-1" style="font-size:11.5px;">${escapeHtml(g.errorMsg)}</div>` : "";
+    const errorLine = g.status === "error" ? `<div class="text-danger mt-1 text-sm-rg">${escapeHtml(g.errorMsg)}</div>` : "";
     const uncertainLine = g.uncertain
-      ? `<div class="mb-2" style="font-size:11px;color:#fbbf24;"><i class="bi bi-exclamation-triangle-fill"></i> Borderline split from the previous tree — double-check this grouping.</div>`
+      ? `<div class="mb-2 text-sm-rg"><i class="bi bi-exclamation-triangle-fill"></i> Borderline split from the previous tree — double-check this grouping.</div>`
       : "";
     const readyLine = !ready && g.status === "draft"
-      ? `<div class="text-muted mb-2" style="font-size:11px;">Needs a Root photo, a Trunk photo, and a location before it can be saved.</div>` : "";
+      ? `<div class="text-muted mb-2 text-sm-rg">Needs a Root photo, a Trunk photo, and a location before it can be saved.</div>` : "";
 
     return `
       <div class="card-rg mb-3" data-group-card="${g.id}">
         <div class="card-header-rg d-flex justify-content-between align-items-center">
-          <span>Tree ${idx + 1} <span class="text-muted" style="font-size:11px;">(${g.items.length} photo${g.items.length === 1 ? "" : "s"})</span></span>
+          <span>Tree ${idx + 1} <span class="text-muted text-sm-rg">(${g.items.length} photo${g.items.length === 1 ? "" : "s"})</span></span>
           <div class="d-flex align-items-center gap-2">
             ${statusBadge}
-            ${idx > 0 ? `<button type="button" class="btn btn-sm btn-outline-secondary rg-tap" style="font-size:12px;" data-action="merge-up" data-group="${g.id}"${dis || (BULK_LOCKED_STATUSES.has(bulkGroups[idx - 1].status) ? " disabled" : "")}><i class="bi bi-arrow-up" aria-hidden="true"></i> Merge with previous</button>` : ""}
+            ${idx > 0 ? `<button type="button" class="btn btn-sm btn-outline-secondary rg-tap" data-action="merge-up" data-group="${g.id}"${dis || (BULK_LOCKED_STATUSES.has(bulkGroups[idx - 1].status) ? " disabled" : "")}><i class="bi bi-arrow-up" aria-hidden="true"></i> Merge with previous</button>` : ""}
           </div>
         </div>
         <div class="card-body-rg">
@@ -170,8 +170,8 @@ function renderBulkGroups() {
           <div class="d-flex gap-2 flex-wrap mb-2">${thumbs}</div>
           ${readyLine}
           <div class="d-flex justify-content-between align-items-center">
-            <div style="font-size:12px;">${locText}</div>
-            <button type="button" class="btn btn-sm btn-outline-primary rg-tap" style="font-size:12px;" aria-label="${g.location ? "Change" : "Set"} location for tree ${idx + 1}" data-action="set-location" data-group="${g.id}"${dis}>
+            <div class="text-sm-rg">${locText}</div>
+            <button type="button" class="btn btn-sm btn-outline-primary rg-tap" aria-label="${g.location ? "Change" : "Set"} location for tree ${idx + 1}" data-action="set-location" data-group="${g.id}"${dis}>
               <i class="bi bi-geo-alt" aria-hidden="true"></i> ${g.location ? "Change" : "Set"} Location
             </button>
           </div>
@@ -184,6 +184,13 @@ function renderBulkGroups() {
   const readyCount = bulkGroups.filter(g => isGroupReady(g) && g.status !== "done" && g.status !== "queued").length;
   const queuedCount = bulkGroups.filter(g => g.status === "queued").length;
   document.getElementById("bulk-actions").style.display = bulkGroups.length ? "" : "none";
+  // One solid button on the screen: Choose Photos until there are groups to
+  // review, then Save All Ready Trees.
+  const pickBtn = document.getElementById("bulk-file-input").closest("label");
+  if (pickBtn) {
+    pickBtn.classList.toggle("btn-primary", !bulkGroups.length);
+    pickBtn.classList.toggle("btn-outline-secondary", bulkGroups.length > 0);
+  }
   document.getElementById("bulk-summary").textContent =
     `${readyCount} of ${bulkGroups.length} trees ready to save` + (queuedCount ? ` · ${queuedCount} queued` : "");
 }

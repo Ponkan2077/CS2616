@@ -1,3 +1,9 @@
+// Colours: disease colours come from the data (tree.color). Everything else
+// (marker outlines, farm boundary, the severity heat ramp, intervention status,
+// the heat dots) is read from the CSS variables through window.RG (theme.js)
+// and re-read on "themechange", when the markers, boundary, heat layer and the
+// heatmap basemap are rebuilt for the new theme.
+
 // Shared canvas renderer for every circle marker on this map — draws all
 // visible markers into one <canvas> instead of one DOM element per tree.
 const FARM_MAP_CANVAS = L.canvas({ padding: 0.5 });
@@ -24,35 +30,50 @@ function severityTier(score) {
   return 'severe';
 }
 
-// Heat ramp keyed on severity score. Each tier starts on its --sev-* color
-// from style.css (yellow, orange, red) and the top end runs to a hot red, so
-// the worst cases are the most vivid thing on a dark map. (The old ramp ended
-// in a dark maroon, #7f1d1d, which has about 1.6:1 contrast against a dark
-// basemap — the most severe trees were the hardest to see.)
-const SEVERITY_STOPS = [
-  { at: 0,   rgb: [253, 224, 71] },   // #fde047  mild
-  { at: 34,  rgb: [251, 146, 60] },   // #fb923c  moderate
-  { at: 67,  rgb: [239, 68, 68] },    // #ef4444  severe
-  { at: 100, rgb: [255, 46, 99] },    // #ff2e63  most severe
-];
+// Heat ramp keyed on severity score. Each tier starts on its --sev-* token
+// from style.css (yellow, orange, red) and the top end runs to the --sev-peak
+// token, so the worst cases are the most vivid thing on the map. Read from the
+// CSS each time the theme changes (the light and dark tiers differ).
+let severityStopsCache = null;
+
+function severityStops() {
+  if (!severityStopsCache) {
+    const t = RG.tokens();
+    severityStopsCache = [
+      { at: 0,   rgb: RG.toRgb(t.sevMild) },
+      { at: SEVERITY_MODERATE_FROM, rgb: RG.toRgb(t.sevModerate) },
+      { at: SEVERITY_SEVERE_FROM,   rgb: RG.toRgb(t.sevSevere) },
+      { at: 100, rgb: RG.toRgb(t.sevPeak) },
+    ];
+  }
+  return severityStopsCache;
+}
 
 function severityRgb(score) {
+  const stops = severityStops();
   const s = Math.min(Math.max(score, 0), 100);
-  for (let i = 1; i < SEVERITY_STOPS.length; i++) {
-    const a = SEVERITY_STOPS[i - 1], b = SEVERITY_STOPS[i];
+  for (let i = 1; i < stops.length; i++) {
+    const a = stops[i - 1], b = stops[i];
     if (s <= b.at) {
       const t = (s - a.at) / (b.at - a.at);
       return a.rgb.map((v, k) => Math.round(v + (b.rgb[k] - v) * t));
     }
   }
-  return SEVERITY_STOPS[SEVERITY_STOPS.length - 1].rgb;
+  return stops[stops.length - 1].rgb;
 }
 
 // CSS gradient for the legend bar, built from the same stops the map uses so
 // the legend can never drift from what's drawn.
 function severityGradientCss() {
-  const stops = SEVERITY_STOPS.map(s => `rgb(${s.rgb.join(',')}) ${s.at}%`);
+  const stops = severityStops().map(s => `rgb(${s.rgb.join(',')}) ${s.at}%`);
   return `linear-gradient(to right, ${stops.join(', ')})`;
+}
+
+// Ink for things drawn on top of the heatmap basemap (the tree dots and the
+// "worst case" ring): light on the dark basemap, dark on the light one.
+function heatInk() {
+  const t = RG.tokens();
+  return RG.theme() === 'light' ? t.mapRing : t.mapRingInv;
 }
 
 // ------------------------------------------------------------
@@ -83,6 +104,12 @@ const SeverityHeatLayer = L.Layer.extend({
 
   setSpread(meters) {
     this._spreadM = meters;
+    this._draw();
+  },
+
+  // Drops the cached blobs and redraws, after the theme (and so the ramp) changed.
+  refreshColors() {
+    this._sprites = {};
     this._draw();
   },
 
@@ -187,7 +214,7 @@ const SeverityHeatLayer = L.Layer.extend({
     for (const p of screen) ctx.drawImage(this._sprite(p.sev), p.x - R, p.y - R, R * 2, R * 2);
 
     // Small dots so you can still see the individual trees under the glow.
-    ctx.fillStyle = 'rgba(255,255,255,.72)';
+    ctx.fillStyle = RG.alpha(heatInk(), 0.72);
     ctx.beginPath();
     for (const p of screen) { ctx.moveTo(p.x + 1.7, p.y); ctx.arc(p.x, p.y, 1.7, 0, Math.PI * 2); }
     ctx.fill();
@@ -223,7 +250,7 @@ function medianNearestNeighborMeters(points) {
 // ------------------------------------------------------------
 // Markers, popups, clusters
 // ------------------------------------------------------------
-const LOADING_POPUP_HTML = '<div class="tp-disease" style="margin:0;">Loading…</div>';
+const LOADING_POPUP_HTML = '<div class="tp-disease tp-loading">Loading…</div>';
 const POPUP_ERROR_HTML = '<div class="tp-note todo">Failed to load details. Try again.</div>';
 
 // Wires the lazy-loaded popup (fetched only on click, cached afterward).
@@ -252,16 +279,24 @@ function buildTreeCircleMarker(tree, detailCache) {
     renderer: FARM_MAP_CANVAS,
     radius: 6,
     weight: 2,
-    color: '#1a2535',       // dark border so markers stay visible against both basemaps
+    color: RG.tokens().mapRing,   // dark border so markers stay visible against both basemaps
     opacity: 1,
-    fillColor: tree.color || '#94a3b8',
+    fillColor: tree.color || RG.tokens().secondary,
     fillOpacity: 0.92,
   });
   marker.treeId = tree.tree_id;
   marker.diseaseKey = tree.disease;
   marker.diseaseColor = tree.color;
+  marker.isHealthy = !!tree.is_healthy;
   attachTreePopup(marker, tree, detailCache);
   return marker;
+}
+
+// Intervention status colours: needs action = the danger colour, treated = the
+// primary teal (green is reserved for healthy trees).
+function interventionColor(hasIntervention) {
+  const t = RG.tokens();
+  return hasIntervention ? t.primary : t.danger;
 }
 
 // Builds one canvas-rendered circle marker colored by intervention status
@@ -272,9 +307,9 @@ function buildInterventionCircleMarker(tree, detailCache) {
     renderer: FARM_MAP_CANVAS,
     radius: 6,
     weight: 2,
-    color: '#1a2535',
+    color: RG.tokens().mapRing,
     opacity: 1,
-    fillColor: tree.has_intervention ? '#22c55e' : '#ef4444',
+    fillColor: interventionColor(tree.has_intervention),
     fillOpacity: 0.92,
   });
   marker.treeId = tree.tree_id;
@@ -287,7 +322,7 @@ function buildInterventionCircleMarker(tree, detailCache) {
 // Builds the popup HTML from a full tree detail payload fetched on demand.
 function buildPopupHtml(tree) {
   const confidence = Math.max(0, Math.min(100, Number(tree.confidence) || 0));
-  const color = tree.color || '#94a3b8';
+  const color = tree.color || RG.tokens().secondary;
   const rows = [
     ['Confidence', `${confidence}%`],
     tree.severity_label ? ['Severity', tree.severity_label] : null,
@@ -300,14 +335,14 @@ function buildPopupHtml(tree) {
   if (tree.latest_intervention) {
     const more = tree.intervention_count > 1 ? `, ${tree.intervention_count} actions in total` : '';
     note = `<div class="tp-note ok"><i class="bi bi-check-circle-fill"></i> ${esc(tree.latest_intervention)} (${esc(tree.latest_intervention_date)}${more})</div>`;
-  } else if (tree.disease !== 'Healthy') {
+  } else if (!tree.is_healthy) {
     note = '<div class="tp-note todo">No intervention logged yet</div>';
   }
 
   return `
-    <div class="tp-head"><span class="tp-dot" style="background:${esc(color)};"></span>${esc(tree.tree_id)}</div>
+    <div class="tp-head"><span class="tp-dot" style="--c:${esc(color)};"></span>${esc(tree.tree_id)}</div>
     <div class="tp-disease">${esc(tree.disease)}</div>
-    <div class="tp-meter" aria-hidden="true"><i style="width:${confidence}%;background:${esc(color)};"></i></div>
+    <div class="tp-meter" aria-hidden="true"><i style="width:${confidence}%;--c:${esc(color)};"></i></div>
     <dl class="tp-grid">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
     ${note}
     <a class="tp-link" href="/inventory/${encodeURIComponent(tree.tree_id)}/">View details</a>
@@ -334,17 +369,21 @@ function makeClusterIcon(cluster) {
   // trees should still read as "needs attention", not blend into the
   // healthy-green background just because Healthy happens to be the
   // single largest category. So any disease category present outranks
-  // Healthy when picking the bubble color -- Healthy only wins when
-  // it's the ONLY category in the cluster. Among multiple disease
-  // categories, the largest one still decides the color.
-  const diseaseKeys = Object.keys(tally).filter(k => k !== 'Healthy');
-  let dominant = 'Healthy', max = -1;
-  const contenders = diseaseKeys.length > 0 ? diseaseKeys : ['Healthy'];
+  // healthy when picking the bubble color -- a healthy class only wins
+  // when every category in the cluster is healthy. Among multiple
+  // disease categories, the largest one still decides the color.
+  // "Healthy" means any class flagged is_healthy (trunk "Healthy",
+  // "Healthy Roots", ...), not one literal name.
+  const healthyKeys = new Set();
+  children.forEach(m => { if (m.isHealthy) healthyKeys.add(m.diseaseKey); });
+  const diseaseKeys = Object.keys(tally).filter(k => !healthyKeys.has(k));
+  let dominant = null, max = -1;
+  const contenders = diseaseKeys.length > 0 ? diseaseKeys : Object.keys(tally);
   contenders.forEach(k => { if (tally[k] > max) { max = tally[k]; dominant = k; } });
   const dominantMarker = children.find(m => m.diseaseKey === dominant);
   // Only a plain hex colour is allowed into the inline style below.
   const rawColor = dominantMarker && dominantMarker.diseaseColor;
-  const color = /^#[0-9a-fA-F]{3,8}$/.test(rawColor || '') ? rawColor : '#4ade80';
+  const color = /^#[0-9a-fA-F]{3,8}$/.test(rawColor || '') ? rawColor : RG.tokens().textMuted;
   const mixed = Object.keys(tally).length > 1;
 
   const { sizeClass, px } = clusterSizing(count);
@@ -363,7 +402,7 @@ function makeInterventionClusterIcon(cluster) {
   const children = cluster.getAllChildMarkers();
   const count = children.length;
   const anyNeedsAction = children.some(m => m.needsAction);
-  const color = anyNeedsAction ? '#ef4444' : '#22c55e';
+  const color = interventionColor(!anyNeedsAction);
   const { sizeClass, px } = clusterSizing(count);
   return L.divIcon({
     html: `<div class="cluster-bubble ${sizeClass}" style="background:${color};">${count}</div>`,
@@ -454,12 +493,24 @@ document.addEventListener('DOMContentLoaded', () => {
   // polygon on its own canvas underneath the markers' canvas its popup/hover
   // never fired. On one renderer Leaflet hit-tests both, and the marker
   // (drawn later) still wins where they overlap.
+  // Which view is showing: 'markers', 'heatmap' or 'interventions'.
+  let activeView = 'markers';
+
+  // True while the basemap under the layers is the dark one (heatmap mode in
+  // the dark theme).
+  function onDarkBasemap() { return activeView === 'heatmap' && RG.theme() !== 'light'; }
+
+  // The boundary has to read against whichever basemap is under it, so its
+  // colour is a token for light tiles or a token for dark tiles.
+  let boundaryLayer = null;
+  function boundaryStyle() {
+    const t = RG.tokens();
+    const c = onDarkBasemap() ? t.mapBoundaryOnDark : t.mapBoundary;
+    return { color: c, weight: 2.5, dashArray: '8 6', fillColor: c, fillOpacity: 0.05 };
+  }
   if (boundaryPolygon && boundaryPolygon.length >= 3) {
-    L.polygon(boundaryPolygon, {
-      renderer: FARM_MAP_CANVAS,
-      color: '#7cb4ff', weight: 2.5, dashArray: '8 6', fillColor: '#7cb4ff', fillOpacity: 0.05,
-    })
-      .bindPopup(`<b>${esc(farmId)}</b><br>${esc(farmName)}<br><i>${esc(farmOwner)}</i>`)
+    boundaryLayer = L.polygon(boundaryPolygon, { renderer: FARM_MAP_CANVAS, ...boundaryStyle() })
+      .bindPopup(`<b>${esc(farmId)}</b><br>${esc(farmName)}<br><i>${esc(farmOwner)}</i>`, { className: 'rg-popup' })
       .addTo(map);
 
     // Farm name sits just above the top edge of the border. (It used to be
@@ -477,9 +528,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const colorBasemap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors', maxZoom: 19,
   });
-  const grayBasemap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
+  // Heatmap mode uses a muted CARTO basemap so the heat colours stand out; it
+  // follows the theme (dark tiles in the dark theme, light tiles in the light
+  // theme) and is swapped on "themechange".
+  const darkGrayBasemap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors, © CARTO', maxZoom: 19, subdomains: 'abcd',
   });
+  const lightGrayBasemap = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors, © CARTO', maxZoom: 19, subdomains: 'abcd',
+  });
+  const heatBasemap = () => (RG.theme() === 'light' ? lightGrayBasemap : darkGrayBasemap);
+  function removeHeatBasemaps() {
+    [darkGrayBasemap, lightGrayBasemap].forEach(l => { if (map.hasLayer(l)) map.removeLayer(l); });
+  }
   colorBasemap.addTo(map);
 
   // ------------------------------------------------------------
@@ -531,13 +592,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const viewButtons = { markers: markersBtn, heatmap: heatmapBtn, interventions: interventionsBtn };
   const allDiseasesOption = filterSelect ? filterSelect.querySelector('option[value=""]') : null;
   // Whatever's actually in the filter dropdown (server-rendered from the
-  // live DiseaseClass catalog), minus "All Diseases" and Healthy -- a
-  // heatmap of Healthy trees has no meaningful severity gradient.
+  // live DiseaseClass catalog), minus "All Diseases" and every healthy
+  // class -- a heatmap of healthy trees has no meaningful severity
+  // gradient. Healthy names come from the markers (is_healthy) plus the
+  // options' data-healthy flag, which also covers a healthy class that has
+  // no trees on this farm yet.
+  const healthyNames = new Set(markers.filter(t => t.is_healthy).map(t => t.disease));
+  if (filterSelect) {
+    Array.from(filterSelect.options).forEach(o => { if (o.dataset.healthy) healthyNames.add(o.value); });
+  }
   const diseaseOptions = filterSelect
-    ? Array.from(filterSelect.options).map(o => o.value).filter(v => v && v !== 'Healthy')
+    ? Array.from(filterSelect.options).map(o => o.value).filter(v => v && !healthyNames.has(v))
     : [];
-
-  let activeView = 'markers';
 
   // ------------------------------------------------------------
   // Panels and the "nothing matches" message
@@ -594,7 +660,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // diseased trees only -- Interventions mode has nothing meaningful to
   // show for a healthy tree.
   function interventionSubset() {
-    return currentSubset().filter(t => t.disease !== 'Healthy');
+    return currentSubset().filter(t => !t.is_healthy);
   }
 
   function reportEmptySubset(subset) {
@@ -765,7 +831,7 @@ document.addEventListener('DOMContentLoaded', () => {
     map.setView([worst.lat, worst.lng], Math.min(map.getMaxZoom() || 19, 19));
     if (locateRing) map.removeLayer(locateRing);
     locateRing = L.circleMarker([worst.lat, worst.lng], {
-      renderer: FARM_MAP_CANVAS, radius: 16, weight: 2.5, color: '#ffffff', fill: false, interactive: false,
+      renderer: FARM_MAP_CANVAS, radius: 16, weight: 2.5, color: heatInk(), fill: false, interactive: false,
     }).addTo(map);
     const note = $('heat-worst');
     note.innerHTML = `Worst case: <a href="/inventory/${encodeURIComponent(worst.id)}/">${esc(worst.id)}</a>, severity ${Math.round(worst.sev)}`;
@@ -779,8 +845,9 @@ document.addEventListener('DOMContentLoaded', () => {
     activeView = 'markers';
     clearHeatLayer();
     hideEmpty();
-    if (map.hasLayer(grayBasemap)) map.removeLayer(grayBasemap);
+    removeHeatBasemaps();
     if (!map.hasLayer(colorBasemap)) colorBasemap.addTo(map);
+    restyleBoundary();
     if (allDiseasesOption) allDiseasesOption.hidden = false;
     if (searchInput) { searchInput.disabled = false; searchInput.placeholder = 'Search tree ID'; }
     showPanel('markers');
@@ -792,7 +859,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Heatmap mode never renders individual circle markers or clusters.
     if (activeClusterGroup && map.hasLayer(activeClusterGroup)) map.removeLayer(activeClusterGroup);
     if (map.hasLayer(colorBasemap)) map.removeLayer(colorBasemap);
-    if (!map.hasLayer(grayBasemap)) grayBasemap.addTo(map);
+    removeHeatBasemaps();
+    heatBasemap().addTo(map);
+    restyleBoundary();
     if (allDiseasesOption) allDiseasesOption.hidden = true;
     if (searchInput) { searchInput.disabled = true; searchInput.placeholder = 'Search (markers only)'; }
     showPanel('heatmap');
@@ -803,8 +872,9 @@ document.addEventListener('DOMContentLoaded', () => {
     activeView = 'interventions';
     clearHeatLayer();
     hideEmpty();
-    if (map.hasLayer(grayBasemap)) map.removeLayer(grayBasemap);
+    removeHeatBasemaps();
     if (!map.hasLayer(colorBasemap)) colorBasemap.addTo(map);
+    restyleBoundary();
     if (allDiseasesOption) allDiseasesOption.hidden = false;
     if (searchInput) { searchInput.disabled = false; searchInput.placeholder = 'Search tree ID'; }
     showPanel('interventions');
@@ -840,6 +910,34 @@ document.addEventListener('DOMContentLoaded', () => {
     else if (activeView === 'interventions') applyInterventionFilters();
     else applyMarkerFilters();
     fitFarm();
+  });
+
+  // ------------------------------------------------------------
+  // Theme switch: re-read every colour that comes from the CSS variables.
+  // Markers, clusters and the heat layer are rebuilt (their colours were
+  // fixed when they were drawn), the boundary and ring are restyled, and the
+  // heatmap basemap swaps between the dark and light tiles.
+  // ------------------------------------------------------------
+  function restyleBoundary() {
+    if (boundaryLayer) boundaryLayer.setStyle(boundaryStyle());
+  }
+
+  RG.onThemeChange(() => {
+    severityStopsCache = null;
+    $('heat-ramp').style.background = severityGradientCss();
+    if (activeView === 'heatmap') {
+      removeHeatBasemaps();
+      heatBasemap().addTo(map);
+      if (heatLayer) heatLayer.refreshColors();
+      if (locateRing) locateRing.setStyle({ color: heatInk() });
+    } else if (activeView === 'interventions') {
+      rebuildClusterGroup(interventionSubset(), buildInterventionCircleMarker, makeInterventionClusterIcon);
+      activeClusterGroup.addTo(map);
+    } else {
+      rebuildClusterGroup(currentSubset());
+      activeClusterGroup.addTo(map);
+    }
+    restyleBoundary();
   });
 
   // ------------------------------------------------------------
