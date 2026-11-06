@@ -202,6 +202,12 @@ async function syncOneScan(record) {
   saveForm.append("root_condition", analyzeData.root_condition);
   saveForm.append("lat", record.lat);
   saveForm.append("lng", record.lng);
+  // How accurate that location is, when known (items queued by older
+  // versions of the app don't have it, and hand-picked map spots have none).
+  if (record.accuracy != null) saveForm.append("gps_accuracy", record.accuracy);
+  // Signed result of the analyze call just above; saves the model being run
+  // a second time at save.
+  if (analyzeData.token) saveForm.append("analysis_token", analyzeData.token);
   const capturedAt = new Date(record.capturedAt);
   if (record.capturedAt && !isNaN(capturedAt)) saveForm.append("captured_at", capturedAt.toISOString());
   saveForm.append("root_image", record.rootBlob, record.rootBlob.name || "root.webp");
