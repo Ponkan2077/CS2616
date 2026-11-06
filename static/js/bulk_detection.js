@@ -11,6 +11,16 @@ const BULK_DIST_M = 8;
 const BULK_TIME_GAP_UNCERTAIN_S = 70;
 const BULK_DIST_UNCERTAIN_M = 6;
 
+// GPS is rarely better than a few metres and under canopy is often much
+// worse, so a fixed 8 m "different tree" distance splits one tree into two
+// whenever its photos' fixes wander. The distance limit is therefore widened
+// to what the two photos' own accuracy could explain. BULK_ASSUMED_ACCURACY_M
+// stands in for photos that don't say how accurate their fix was.
+const BULK_ASSUMED_ACCURACY_M = 10;
+// In a group of 3+ photos, a fix this far from the group's median position
+// is a stray reading and is left out when averaging the tree's location.
+const BULK_OUTLIER_M = 30;
+
 // A group in one of these states has been (or is being) saved, so its
 // photos, roles and location can't be changed any more.
 const BULK_LOCKED_STATUSES = new Set(["processing", "done", "queued"]);
@@ -40,15 +50,32 @@ function haversineMeters(lat1, lng1, lat2, lng2) {
 
 async function extractItemMetadata(file) {
   const exif = window.extractGPSFromFile ? await window.extractGPSFromFile(file) : null;
+  // A photo whose own accuracy figure is worse than GPS_MAX_ACCURACY_M
+  // (gps_exif.js) is treated like a photo with no GPS: its position isn't
+  // trustworthy enough to place a tree, so the group asks for a map pick.
+  // tooImprecise keeps the number so the card can say why.
+  const tooImprecise = exif && exif.accuracy != null && exif.accuracy > GPS_MAX_ACCURACY_M ? exif.accuracy : null;
+  const usable = exif && tooImprecise === null;
   return {
     file,
     previewUrl: URL.createObjectURL(file),
-    lat: exif ? exif.lat : null,
-    lng: exif ? exif.lng : null,
+    lat: usable ? exif.lat : null,
+    lng: usable ? exif.lng : null,
+    accuracy: usable ? exif.accuracy : null,   // metres, null = the photo doesn't say
+    tooImprecise,
     // file.lastModified always exists, even with zero EXIF -- keeps
     // clustering possible for every photo, not just ones with a real tag.
     capturedAt: (exif && exif.capturedAt) || file.lastModified,
   };
+}
+
+// How far apart two photos' positions may be and still count as one tree:
+// the fixed base distance, or what both photos' accuracy figures could
+// explain together if that's larger.
+function distanceLimitM(a, b) {
+  const accA = a.accuracy != null ? a.accuracy : BULK_ASSUMED_ACCURACY_M;
+  const accB = b.accuracy != null ? b.accuracy : BULK_ASSUMED_ACCURACY_M;
+  return Math.max(BULK_DIST_M, Math.hypot(accA, accB));
 }
 
 // Sequential clustering: sorted by time, walk once, compare each photo
@@ -63,10 +90,11 @@ function clusterItems(items) {
     const last = g.items[g.items.length - 1];
     const gapS = (item.capturedAt - last.capturedAt) / 1000;
     const dist = item.lat != null && last.lat != null ? haversineMeters(item.lat, item.lng, last.lat, last.lng) : null;
-    const breaks = gapS > BULK_TIME_GAP_S || (dist !== null && dist > BULK_DIST_M);
+    const limit = distanceLimitM(item, last);
+    const breaks = gapS > BULK_TIME_GAP_S || (dist !== null && dist > limit);
     if (breaks) {
-      const uncertain = gapS <= BULK_TIME_GAP_S * 1.34 && (dist === null || dist <= BULK_DIST_M * 1.34)
-        && (gapS > BULK_TIME_GAP_UNCERTAIN_S || (dist !== null && dist > BULK_DIST_UNCERTAIN_M));
+      const uncertain = gapS <= BULK_TIME_GAP_S * 1.34 && (dist === null || dist <= limit * 1.34)
+        && (gapS > BULK_TIME_GAP_UNCERTAIN_S || (dist !== null && dist > limit * (BULK_DIST_UNCERTAIN_M / BULK_DIST_M)));
       groups.push({ items: [item], uncertain });
     } else {
       g.items.push(item);
@@ -75,12 +103,36 @@ function clusterItems(items) {
   return groups;
 }
 
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+// One location for the whole group. A stray reading (3+ photos, one of them
+// BULK_OUTLIER_M or more from the median position) is dropped, and the rest
+// are averaged weighted by 1/accuracy^2, so a 4 m fix counts far more than a
+// 25 m one instead of the two being averaged as equals. The accuracy reported
+// is the best individual figure in the group (null if no photo gave one).
 function groupLocation(items) {
-  const withGps = items.filter(i => i.lat != null);
-  if (!withGps.length) return null;
-  const lat = withGps.reduce((s, i) => s + i.lat, 0) / withGps.length;
-  const lng = withGps.reduce((s, i) => s + i.lng, 0) / withGps.length;
-  return { lat, lng, manual: false };
+  let pts = items.filter(i => i.lat != null);
+  if (!pts.length) return null;
+  if (pts.length >= 3) {
+    const midLat = median(pts.map(p => p.lat));
+    const midLng = median(pts.map(p => p.lng));
+    const kept = pts.filter(p => haversineMeters(p.lat, p.lng, midLat, midLng) < BULK_OUTLIER_M);
+    if (kept.length) pts = kept;
+  }
+  let weightSum = 0, latSum = 0, lngSum = 0, bestAccuracy = null;
+  for (const p of pts) {
+    const acc = p.accuracy != null ? p.accuracy : BULK_ASSUMED_ACCURACY_M;
+    const weight = 1 / (Math.max(acc, 3) ** 2);   // floor: a claimed 0.1 m shouldn't swamp everything
+    weightSum += weight;
+    latSum += p.lat * weight;
+    lngSum += p.lng * weight;
+    if (p.accuracy != null && (bestAccuracy === null || p.accuracy < bestAccuracy)) bestAccuracy = p.accuracy;
+  }
+  return { lat: latSum / weightSum, lng: lngSum / weightSum, accuracy: bestAccuracy, manual: false };
 }
 
 async function handleBulkFiles(fileList) {
@@ -108,6 +160,12 @@ async function handleBulkFiles(fileList) {
   }));
 
   statusEl.textContent = `Grouped into ${bulkGroups.length} possible tree${bulkGroups.length === 1 ? "" : "s"} — review before saving.`;
+  // Android's gallery picker often strips GPS out of the photos it hands
+  // over, so a whole batch can arrive with none. Say so once, up front,
+  // instead of leaving the farmer to wonder why every tree asks for a location.
+  if (!items.some(i => i.lat != null)) {
+    statusEl.textContent += " None of these photos carry usable GPS (Android's gallery picker often removes it) — set each tree's location on the map, or use Take Photo for trees you're standing at.";
+  }
   renderBulkGroups();
 }
 
@@ -137,9 +195,16 @@ function renderBulkGroups() {
         </div>`;
     }).join("");
 
+    // When no photo in the group had a usable fix, say if that was because
+    // they were too imprecise (and by how much) rather than missing outright.
+    const weakest = g.items.map(i => i.tooImprecise).filter(v => v != null).sort((a, b) => a - b)[0];
+    const noGpsText = weakest != null
+      ? `GPS on these photos is too imprecise (best about ±${Math.round(weakest)} m) — location needed`
+      : "No GPS on these photos — location needed";
+    const accuracyText = g.location && g.location.accuracy != null ? ` · ±${Math.round(g.location.accuracy)} m` : "";
     const locText = g.location
-      ? `📍 ${g.location.lat.toFixed(5)}, ${g.location.lng.toFixed(5)}${g.location.manual ? " (manual)" : ""}`
-      : `<span class="text-danger">No GPS on these photos — location needed</span>`;
+      ? `📍 ${g.location.lat.toFixed(5)}, ${g.location.lng.toFixed(5)}${accuracyText}${g.location.manual ? " (manual)" : ""}`
+      : `<span class="text-danger">${noGpsText}</span>`;
 
     const statusBadge = {
       draft: "",
@@ -327,6 +392,7 @@ async function processBulkGroups() {
           farmPk, treeId: "",
           rootBlob, trunkBlob,
           lat: g.location.lat, lng: g.location.lng,
+          accuracy: g.location.manual ? null : (g.location.accuracy != null ? g.location.accuracy : null),
           gpsSource: g.location.manual ? "manual" : "exif",
           capturedAt: rootItem.capturedAt,
         };

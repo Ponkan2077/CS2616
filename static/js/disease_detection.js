@@ -30,20 +30,40 @@ let locationPermission = "unknown";
 // attachment from showResult() as the fallback).
 let directUploadPromise = null;
 
-// One-shot read of the device's current position, promisified. Used as a
-// fallback when a photo has no EXIF GPS of its own (see resolveImageGPS
-// below), and to trigger the browser's permission prompt up front (see
-// requestLocationPermission below).
+// Reads the device's position and resolves with the best fix it can get in a
+// short window -- not just the first one the browser hands back.
 //
-// Returns { lat, lng, source: "device" } on success, or null with a
-// human-readable reason on failure -- distinguishing "you denied the
-// permission prompt" from "GPS hardware couldn't get a fix in time" matters
-// a lot in the field (e.g. under rubber tree canopy), since the fix for
-// each is completely different.
-function getDeviceGPS() {
-  console.log("[GPS DEBUG] getDeviceGPS() called. navigator.geolocation present:", !!navigator.geolocation);
+// The first reading from a phone is often the coarsest (cell/Wi-Fi based,
+// tens or hundreds of metres off); the GPS chip tightens it over the next few
+// seconds, especially under rubber tree canopy. So this watches the position
+// and keeps the most accurate fix seen. It stops as soon as one is within
+// GPS_TARGET_ACCURACY_M and, when the window ends, accepts the best one only
+// if it is within GPS_MAX_ACCURACY_M (both in gps_exif.js) -- otherwise it
+// reports the fix as too imprecise instead of tagging the tree with a
+// position that could be off by a whole row.
+//
+// maximumAge is 0: a cached position (the browser may still hold one from the
+// previous tree) is never used. The one exception is a fix THIS function took
+// within the last RECENT_FIX_MAX_AGE_MS -- the root and trunk photos of one
+// tree are shot seconds apart, so the trunk reuses the root's fix instead of
+// making the farmer wait twice.
+//
+// Resolves { lat, lng, accuracy, source: "device", capturedAt } on success, or
+// { error, code } on failure. The codes are the Geolocation API's (1 blocked,
+// 2 no fix, 3 timed out) plus 4 = fix too imprecise: telling them apart
+// matters a lot in the field, since the remedy for each is different.
+//
+// opts.permissionOnly: used by requestLocationPermission() just to raise the
+// browser's permission prompt -- resolves on the first fix of any quality.
+const GPS_FIX_WINDOW_MS = 20000;
+const RECENT_FIX_MAX_AGE_MS = 10000;
+let recentDeviceFix = null;   // last good fix from getDeviceGPS(), for the trunk photo to reuse
+
+function getDeviceGPS(opts) {
+  const permissionOnly = !!(opts && opts.permissionOnly);
+  console.log("[GPS DEBUG] getDeviceGPS() called. navigator.geolocation present:", !!navigator.geolocation, "permissionOnly:", permissionOnly);
   // Fire-and-forget permission read, purely for diagnostics -- doesn't
-  // block or change the actual getCurrentPosition() call below.
+  // block or change the actual geolocation call below.
   if (navigator.permissions && navigator.permissions.query) {
     navigator.permissions.query({ name: "geolocation" })
       .then(status => console.log("[GPS DEBUG] permission state at call time:", status.state))
@@ -51,27 +71,77 @@ function getDeviceGPS() {
   }
   return new Promise(resolve => {
     if (!navigator.geolocation) { console.log("[GPS DEBUG] no navigator.geolocation -- resolving with error immediately"); resolve({ error: "This browser doesn't support device location." }); return; }
+
+    if (!permissionOnly && recentDeviceFix && Date.now() - recentDeviceFix.fixedAt <= RECENT_FIX_MAX_AGE_MS) {
+      console.log("[GPS DEBUG] reusing the fix taken moments ago:", recentDeviceFix);
+      resolve({ ...recentDeviceFix, capturedAt: Date.now() });
+      return;
+    }
+
+    const reasons = {
+      1: "Location access is blocked. Check two settings: the site permission (tap the location icon in your address bar) and your browser app's own OS permission (Android: Settings → Apps → Chrome → Permissions → Location) -- granting one without the other still fails.",
+      2: "Couldn't get a GPS fix. Try moving to open sky, away from thick canopy or buildings.",
+      3: "GPS location timed out. Try again, ideally with a clearer view of the sky.",
+    };
     const startedAt = Date.now();
-    console.log("[GPS DEBUG] calling getCurrentPosition at", new Date(startedAt).toISOString());
-    navigator.geolocation.getCurrentPosition(
+    let best = null;        // most accurate fix seen so far
+    let lastError = null;
+    let settled = false;
+    let watchId = null;
+    let timer = null;
+
+    const done = result => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      console.log("[GPS DEBUG] getDeviceGPS() settled after", Date.now() - startedAt, "ms:", result);
+      resolve(result);
+    };
+    const accept = fix => {
+      if (settled) return;   // a reading that arrives after the lookup finished must not touch the cache
+      if (!permissionOnly) recentDeviceFix = { ...fix, fixedAt: Date.now() };
+      done(fix);
+    };
+
+    // Window over: take the best fix if it's good enough, otherwise say why not.
+    timer = setTimeout(() => {
+      if (best && (best.accuracy === null || best.accuracy <= GPS_MAX_ACCURACY_M)) { accept(best); return; }
+      if (best) {
+        done({
+          error: `The GPS fix is too imprecise right now (about ${Math.round(best.accuracy)} m). Move to open sky, away from thick canopy, wait a few seconds, then try again.`,
+          code: 4,
+          accuracy: best.accuracy,
+        });
+        return;
+      }
+      const code = lastError ? lastError.code : 3;
+      done({ error: reasons[code] || "Couldn't get your device's location.", code });
+    }, permissionOnly ? 15000 : GPS_FIX_WINDOW_MS);
+
+    watchId = navigator.geolocation.watchPosition(
       pos => {
-        console.log("[GPS DEBUG] getCurrentPosition SUCCESS after", Date.now() - startedAt, "ms", pos.coords);
-        resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, source: "device", capturedAt: Date.now() });
+        if (settled) return;
+        const c = pos.coords;
+        const fix = {
+          lat: c.latitude,
+          lng: c.longitude,
+          accuracy: Number.isFinite(c.accuracy) ? c.accuracy : null,
+          source: "device",
+          capturedAt: Date.now(),
+        };
+        console.log("[GPS DEBUG] position update after", Date.now() - startedAt, "ms:", c.latitude, c.longitude, "accuracy", c.accuracy);
+        if (!best || (fix.accuracy !== null && (best.accuracy === null || fix.accuracy < best.accuracy))) best = fix;
+        if (permissionOnly || (best.accuracy !== null && best.accuracy <= GPS_TARGET_ACCURACY_M)) accept(best);
       },
       err => {
-        console.warn("[GPS DEBUG] getCurrentPosition ERROR after", Date.now() - startedAt, "ms -- code:", err.code, "message:", err.message);
-        const reasons = {
-          1: "Location access is blocked. Check two settings: the site permission (tap the location icon in your address bar) and your browser app's own OS permission (Android: Settings → Apps → Chrome → Permissions → Location) -- granting one without the other still fails.",
-          2: "Couldn't get a GPS fix. Try moving to open sky, away from thick canopy or buildings.",
-          3: "GPS location timed out. Try again, ideally with a clearer view of the sky.",
-        };
-        resolve({ error: reasons[err.code] || "Couldn't get your device's location.", code: err.code });
+        console.warn("[GPS DEBUG] geolocation ERROR after", Date.now() - startedAt, "ms -- code:", err.code, "message:", err.message);
+        lastError = err;
+        // Blocked permission won't fix itself in the next few seconds; the
+        // other errors can be transient while the GPS chip is still starting.
+        if (err.code === 1) done({ error: reasons[1], code: 1 });
       },
-      // 15s (not the default 3 typical minimum) since a fix can genuinely
-      // take longer under rubber tree canopy; maximumAge lets the trunk
-      // photo reuse a fix from moments ago (root photo) instead of
-      // re-polling GPS hardware and making the farmer wait twice.
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: GPS_FIX_WINDOW_MS }
     );
   });
 }
@@ -95,13 +165,25 @@ function getDeviceGPS() {
 //   policy since Android 13, independent of Camera/Location settings -- so
 //   this path failing is expected, not a bug to chase.)
 //
-// Returns { lat, lng, source } on success, or { error } on failure --
-// never plain null, so the caller always has something to show the user.
+// Returns { lat, lng, source, accuracy } on success (accuracy in metres, or
+// null when unknown), or { error } on failure -- never plain null, so the
+// caller always has something to show the user.
 async function resolveImageGPS(file, source) {
   console.log("[GPS DEBUG] resolveImageGPS() start -- source:", source, "file:", file && file.name, file && file.type, file && file.size, "bytes");
   const exifGps = await extractGPSFromFile(file);
   console.log("[GPS DEBUG] extractGPSFromFile() returned:", exifGps);
-  if (exifGps) return exifGps;
+  if (exifGps) {
+    // A photo that says how accurate its own fix was is held to the same
+    // limit as a live reading. (Most don't say, and are taken as they are.)
+    if (exifGps.accuracy === null || exifGps.accuracy <= GPS_MAX_ACCURACY_M) return exifGps;
+    console.log("[GPS DEBUG] EXIF GPS present but too imprecise:", exifGps.accuracy, "m");
+    if (source !== "camera") {
+      return {
+        error: `This photo's location is too imprecise (about ${Math.round(exifGps.accuracy)} m). Use Take Photo at the tree instead so we can read a fresh, accurate location.`,
+      };
+    }
+    // Camera capture: fall through to a live device reading below.
+  }
   if (source !== "camera") {
     console.log("[GPS DEBUG] no EXIF and source isn't camera -- rejecting without touching device GPS");
     return {
@@ -161,7 +243,9 @@ function showLocationBanner(reason, kind, buttonLabel) {
 async function requestLocationPermission() {
   const enableBtn = document.getElementById("location-enable-btn");
   if (enableBtn) { enableBtn.disabled = true; enableBtn.textContent = "Waiting for location…"; }
-  const result = await getDeviceGPS(); // this call is what raises the browser's prompt
+  // This call is what raises the browser's prompt. Any fix at all proves the
+  // permission works, so it doesn't wait around for an accurate one.
+  const result = await getDeviceGPS({ permissionOnly: true });
   if (enableBtn) enableBtn.disabled = false;
 
   if (result && !result.error) {
@@ -186,15 +270,17 @@ async function requestLocationPermission() {
   return false;
 }
 
-// Starts the GPS hardware warming up the moment Take Photo is tapped, so
-// the fix is usually already there when the camera returns instead of the
-// farmer waiting on it afterwards. The result is discarded here -- the
-// browser caches it, and getDeviceGPS()'s maximumAge reuses it.
+// Starts the GPS hardware warming up the moment Take Photo is tapped, so the
+// chip already has satellites locked when the camera returns and the fix
+// that getDeviceGPS() then asks for comes back quickly. The readings here are
+// thrown away on purpose: the farmer may walk or spend a while in the camera
+// app, so only a fix taken after the photo counts as the tree's position.
 let lastGpsWarmUp = 0;
 function warmUpGps() {
   if (!navigator.geolocation || Date.now() - lastGpsWarmUp < 10000) return;
   lastGpsWarmUp = Date.now();
-  navigator.geolocation.getCurrentPosition(() => {}, () => {}, { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 });
+  const watchId = navigator.geolocation.watchPosition(() => {}, () => {}, { enableHighAccuracy: true, maximumAge: 0 });
+  setTimeout(() => navigator.geolocation.clearWatch(watchId), 8000);
 }
 
 function setCaptureStatus(kind, message, cssClass) {
@@ -404,6 +490,17 @@ function startDirectUploads() {
 }
 
 
+// Picks the better of the root photo's and the trunk photo's location: the one
+// with the smaller accuracy figure; a known accuracy beats an unknown one; a
+// tie keeps the root. Either may be null (not captured yet).
+function betterGps(rootFix, trunkFix) {
+  if (!rootFix) return trunkFix;
+  if (!trunkFix) return rootFix;
+  const r = rootFix.accuracy, t = trunkFix.accuracy;
+  if (t != null && (r == null || t < r)) return trunkFix;
+  return rootFix;
+}
+
 // Resolves GPS from the original file (has to happen before resize, since
 // redrawing onto a canvas strips all EXIF including GPS), resizes it, and
 // only then accepts the capture -- rejecting outright if neither the
@@ -440,17 +537,19 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
       trunkGPS = gps;
     }
     if (statusEl) {
-      statusEl.textContent = `📍 Location from ${gps.source === "exif" ? "photo" : "device"}`;
+      const accuracyNote = gps.accuracy != null ? ` (±${Math.round(gps.accuracy)} m)` : "";
+      statusEl.textContent = `📍 Location from ${gps.source === "exif" ? "photo" : "device"}${accuracyNote}`;
       statusEl.className = "text-main text-sm-rg mt-1";
     }
 
-    // The tree gets one location -- prefer the root photo's, since
-    // root and trunk are shot moments apart at the same tree and root is
-    // captured first. Refreshed every time either GPS resolves, so
-    // whichever was captured most recently is reflected immediately.
-    const chosenGps = rootGPS || trunkGPS;
+    // The tree gets one location. Root and trunk are shot moments apart at
+    // the same tree, so whichever fix is more accurate is the better one;
+    // on a tie (or when neither says) the root photo's wins, since it was
+    // captured first. Refreshed every time either GPS resolves.
+    const chosenGps = betterGps(rootGPS, trunkGPS);
     document.getElementById("save-lat").value = chosenGps.lat;
     document.getElementById("save-lng").value = chosenGps.lng;
+    document.getElementById("save-gps-accuracy").value = chosenGps.accuracy != null ? chosenGps.accuracy : "";
     if (chosenGps.capturedAt) document.getElementById("save-captured-at").value = new Date(chosenGps.capturedAt).toISOString();
 
     previewImg.src = URL.createObjectURL(resizedFile);
@@ -518,7 +617,7 @@ async function runAnalysis() {
     }
     const data = await res.json().catch(() => { throw new Error("Analysis didn't work this time. Please try again."); });
     if (!res.ok) throw new Error(data.error || "Analysis didn't work this time. Please try again.");
-    showResult(data.disease, data.confidence, data.root_condition, data.action);
+    showResult(data.disease, data.confidence, data.root_condition, data.action, data.token);
     setWorkflowStep(3);
   } catch (err) {
     errorBox.textContent = err.message || "Analysis didn't work this time. Please try again.";
@@ -533,7 +632,7 @@ async function runAnalysis() {
 
 // Populates and reveals the result panel, hides the class reference card,
 // and fills the hidden save-form fields (including the two image files).
-function showResult(disease, confidence, rootCondition, action) {
+function showResult(disease, confidence, rootCondition, action, analysisToken) {
   document.getElementById("result-disease").textContent = disease;
   document.getElementById("result-conf").textContent = `${confidence}%`;
   document.getElementById("result-fill").style.width = `${confidence}%`;
@@ -567,6 +666,9 @@ function showResult(disease, confidence, rootCondition, action) {
   document.getElementById("save-disease").value = disease;
   document.getElementById("save-confidence").value = confidence;
   document.getElementById("save-root-condition").value = rootCondition;
+  // Signed proof of this exact result for these exact photos; lets the
+  // server save it without running the model a second time.
+  document.getElementById("save-analysis-token").value = analysisToken || "";
 
   // Attach the two resized image files to the actual file inputs inside
   // the save form, so the normal multipart form submission uploads them.

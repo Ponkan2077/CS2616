@@ -31,6 +31,9 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # First, so every HTML/JSON response (the farm map embeds a few thousand
+    # markers in its page) is compressed for browsers that accept gzip.
+    'django.middleware.gzip.GZipMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -67,6 +70,10 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        # SQLite allows one writer at a time. Several farmers syncing bulk
+        # uploads at once would otherwise fail after Django's default 5 s
+        # wait with "database is locked"; 20 s lets the queue drain instead.
+        'OPTIONS': {'timeout': 20},
     }
 }
 
@@ -122,3 +129,18 @@ if CLOUD_STORAGE_ENABLED:
     }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# --- GPS quality rules (used by save_detection in farmmap/views.py) ---------
+# Worst horizontal accuracy, in metres, a scan's GPS fix may report and still
+# be saved. Keep in step with GPS_MAX_ACCURACY_M in static/js/gps_exif.js,
+# which applies the same limit on the phone before a photo is accepted.
+GPS_MAX_ACCURACY_M = 50
+# A new location this far from the average of the farm's existing trees is
+# treated as a bad fix (cell-tower or stale position) rather than a real tree.
+# Only checked once the farm has FARM_DISTANCE_CHECK_MIN_TREES trees.
+FARM_MAX_DISTANCE_KM = 5
+FARM_DISTANCE_CHECK_MIN_TREES = 10
+
+# How long (seconds) the signed result from /detection/analyze/ stays valid
+# for /detection/save/, so the model isn't run a second time at save.
+ANALYSIS_TOKEN_MAX_AGE_S = 2 * 60 * 60
