@@ -29,6 +29,30 @@ document.addEventListener("DOMContentLoaded", () => {
   // "themechange").
   const treatedTree = { get color() { return RG.tokens().primary; } };
 
+  // Treated trees sit only metres apart, so at farm zoom the pins would pile
+  // on top of each other. Group them into numbered bubbles (the same bubble
+  // style as the farm map) that split apart as the map is zoomed in. If the
+  // cluster plugin didn't load, fall back to plain pins on the map.
+  const clustered = typeof L.markerClusterGroup === "function";
+  const group = clustered ? L.markerClusterGroup({
+    showCoverageOnHover: false,
+    maxClusterRadius: 45,
+    iconCreateFunction: cluster => {
+      const count = cluster.getChildCount();
+      const [sizeClass, px] = count >= 250 ? ["cluster-lg", 58] : count >= 40 ? ["cluster-md", 46] : ["cluster-sm", 36];
+      return L.divIcon({
+        html: `<div class="cluster-bubble ${sizeClass}" style="background:${RG.tokens().primary};">${count}</div>`,
+        className: "marker-cluster-custom",
+        iconSize: L.point(px, px),
+      });
+    },
+  }) : null;
+  if (group) {
+    group.addTo(map);
+    // Bubbles use the theme colour, so redraw them after a theme switch.
+    RG.onThemeChange(() => group.refreshClusters());
+  }
+
   const markerList = [];
   trees.forEach(tree => {
     const more = tree.intervention_count > 1
@@ -44,12 +68,18 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="tp-note ok"><i class="bi bi-check-circle-fill"></i> ${esc(tree.latest_intervention)} (${esc(tree.latest_intervention_date)})</div>
       ${more}
       <a class="tp-link" href="/inventory/${encodeURIComponent(tree.tree_id)}/">View details</a>
-    `, { maxWidth: 260, className: "rg-popup" }).addTo(map);
+    `, { maxWidth: 260, className: "rg-popup" });
+    if (group) group.addLayer(marker); else marker.addTo(map);
     markerList.push({ el: marker, tree: treatedTree });
   });
 
   setTimeout(() => {
     map.invalidateSize();
+    // Start zoomed to where the treated trees are, instead of a fixed zoom
+    // centred on the first one (which can leave most of them off screen).
+    if (trees.length) {
+      map.fitBounds(L.latLngBounds(trees.map(t => [t.lat, t.lng])), { padding: [30, 30], maxZoom: 18 });
+    }
     rgAttachPinScaling(map, markerList);
   }, 150);
 });

@@ -2,6 +2,11 @@
 {% block title %}Interventions Map{% endblock %}
 {% block page_title %}Interventions Map{% endblock %}
 
+{% block extra_head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <div class="text-muted small">{{ intervention_count }} intervention(s) logged across treated trees</div>
@@ -14,7 +19,7 @@
   <div class="card-header-rg"><i class="bi bi-clipboard2-pulse-fill"></i> Trees with Logged Interventions</div>
   <div id="intervention-map" class="map-container-rg"></div>
   <div class="p-3 border-top text-muted text-sm-rg">
-    <i class="bi bi-info-circle"></i> Click a marker to see what action was taken and when. Trees with no interventions logged are not shown here — use the Full Farm Map to see all trees.
+    <i class="bi bi-info-circle"></i> Tap a number to zoom into a group, then tap a marker to see what action was taken and when. Trees with no interventions logged are not shown here — use the Full Farm Map to see all trees.
   </div>
 </div>
 {% endblock %}
@@ -24,5 +29,6 @@
   const INTERVENTION_TREES = {{ trees_json|safe }};
 </script>
 {% load static %}
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="{% static 'js/interventions_map.js' %}?v={{ STATIC_VERSION }}"></script>
 {% endblock %}
