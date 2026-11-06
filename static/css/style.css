@@ -61,6 +61,7 @@
   --map-ring-inv:         #ffffff;   /* centre dot of a pin, outline of small markers */
   --map-boundary:         #1d4ed8;   /* farm boundary on light tiles */
   --map-boundary-on-dark: #7cb4ff;   /* farm boundary on the dark heatmap tiles */
+  --map-heat-bg:         #0d0f0e;   /* behind the heatmap tiles */
 
   /* Depth */
   --glow:           rgba(45,212,191,.10);
@@ -115,6 +116,7 @@
   --sev-peak:       #be123c;
 
   --glow:           rgba(15,118,110,.08);
+  --map-heat-bg:   #e3ebe6;
   --bar-track:      #dde8e2;
   --hover:          rgba(15,40,28,.05);
   --shadow:         0 1px 2px rgba(15,40,28,.06), 0 4px 12px rgba(15,40,28,.05);
@@ -1001,6 +1003,14 @@ body {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--card-bg) 45%, transparent), 0 2px 8px rgba(0,0,0,.45);
   cursor: pointer;
 }
+/* Interventions clusters: a two-colour ring (done vs needs action) around a plain centre */
+.cluster-bubble.cluster-ring { border: none; padding: 5px; box-sizing: border-box; color: var(--text-main); }
+.cluster-ring.cluster-md { padding: 6px; }
+.cluster-ring.cluster-lg { padding: 7px; }
+.cluster-ring > span {
+  width: 100%; height: 100%; border-radius: 50%; background: var(--card-bg);
+  display: flex; align-items: center; justify-content: center;
+}
 .cluster-bubble.cluster-sm { font-size: 12px; }
 .cluster-bubble.cluster-md { font-size: 14px; border-width: 4px; }
 .cluster-bubble.cluster-lg { font-size: 16px; border-width: 5px; }
@@ -1354,4 +1364,8 @@ body {
 code { color: var(--text-main); background: var(--card-bg-alt); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
 .breadcrumb-item.active { color: var(--text-muted); }
 .breadcrumb-item + .breadcrumb-item::before { color: var(--text-faint); }
+.leaflet-container.map-heat { background: var(--map-heat-bg); }   /* behind the heatmap tiles while they load */
+/* Heatmap tiles: the normal street map, muted so the heat colours carry the picture. */
+.rg-heat-tiles { filter: grayscale(.8) contrast(.9) brightness(1.04); }
+:root:not([data-theme="light"]) .rg-heat-tiles { filter: invert(1) hue-rotate(180deg) grayscale(.7) brightness(1.2) contrast(1.1); }
 .leaflet-container .leaflet-control-attribution a { text-decoration: underline; }   /* links must not rely on colour alone */

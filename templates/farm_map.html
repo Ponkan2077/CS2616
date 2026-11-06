@@ -253,10 +253,18 @@
         <p class="iv-summary"><b id="iv-done">0</b> of <b id="iv-total">0</b> diseased trees shown have an action logged.</p>
         <div class="progress-track" role="presentation"><div class="progress-fill progress-fill-ok" id="iv-bar" style="width:0%;"></div></div>
         <ul class="legend-list">
-          <li class="legend-row legend-row-static"><span class="legend-dot dot-treated"></span><span class="legend-name">Action taken</span><span class="legend-count" id="iv-count-done">0</span></li>
-          <li class="legend-row legend-row-static"><span class="legend-dot dot-todo"></span><span class="legend-name">Needs action</span><span class="legend-count" id="iv-count-todo">0</span></li>
+          <li>
+            <button type="button" class="legend-row" data-status="todo" aria-pressed="false">
+              <span class="legend-dot dot-todo"></span><span class="legend-name">Needs action</span><span class="legend-count" id="iv-count-todo">0</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" class="legend-row" data-status="done" aria-pressed="false">
+              <span class="legend-dot dot-treated"></span><span class="legend-name">Action taken</span><span class="legend-count" id="iv-count-done">0</span>
+            </button>
+          </li>
         </ul>
-        <p class="map-panel-hint">Healthy trees are hidden here because they don't need an intervention.</p>
+        <p class="map-panel-hint">Tap a status to show only those trees. The ring on a bubble shows how many of its trees already have an action logged. Healthy trees are hidden because they don't need an intervention.</p>
       </div>
     </aside>
   </div>

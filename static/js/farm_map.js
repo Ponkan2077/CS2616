@@ -1,8 +1,8 @@
 // Colours: disease colours come from the data (tree.color). Everything else
 // (marker outlines, farm boundary, the severity heat ramp, intervention status,
 // the heat dots) is read from the CSS variables through window.RG (theme.js)
-// and re-read on "themechange", when the markers, boundary, heat layer and the
-// heatmap basemap are rebuilt for the new theme.
+// and re-read on "themechange", when the markers, boundary and heat layer are
+// rebuilt for the new theme.
 
 // Shared canvas renderer for every circle marker on this map — draws all
 // visible markers into one <canvas> instead of one DOM element per tree.
@@ -394,18 +394,22 @@ function makeClusterIcon(cluster) {
   });
 }
 
-// Cluster bubble icon for Interventions mode — red/needs-action outranks
-// green/treated the same way a disease outranks Healthy above: a cluster
-// is only "all clear" green when every diseased tree inside it has a
-// logged intervention.
+// Cluster bubble icon for Interventions mode: the number is how many
+// diseased trees are inside, and the ring around it is split into the share
+// that already has an action logged (treated colour) and the share that
+// still needs one (danger colour). A fully red ring means nothing has been
+// done there yet; a fully teal ring means the cluster is all dealt with.
 function makeInterventionClusterIcon(cluster) {
   const children = cluster.getAllChildMarkers();
   const count = children.length;
-  const anyNeedsAction = children.some(m => m.needsAction);
-  const color = interventionColor(!anyNeedsAction);
+  const todo = children.filter(m => m.needsAction).length;
+  const donePct = Math.round((count - todo) / count * 100);
+  const done = interventionColor(true);
+  const needs = interventionColor(false);
+  const ring = `conic-gradient(${done} 0 ${donePct}%, ${needs} ${donePct}% 100%)`;
   const { sizeClass, px } = clusterSizing(count);
   return L.divIcon({
-    html: `<div class="cluster-bubble ${sizeClass}" style="background:${color};">${count}</div>`,
+    html: `<div class="cluster-bubble cluster-ring ${sizeClass}" style="background:${ring};" title="${todo} need action, ${count - todo} done"><span>${count}</span></div>`,
     className: 'marker-cluster-custom',
     iconSize: L.point(px, px),
   });
@@ -528,18 +532,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const colorBasemap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors', maxZoom: 19,
   });
-  // Heatmap mode uses a muted CARTO basemap so the heat colours stand out; it
-  // follows the theme (dark tiles in the dark theme, light tiles in the light
-  // theme) and is swapped on "themechange".
-  const darkGrayBasemap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors, © CARTO', maxZoom: 19, subdomains: 'abcd',
+  // Heatmap mode shows the same OpenStreetMap streets, muted by a CSS filter
+  // (.rg-heat-tiles in style.css, a dark version in the dark theme) so the heat
+  // colours stand out. It used CARTO tiles before; those now require an API
+  // key and were showing an "API KEY REQUIRED" watermark across the map.
+  // Same tile URLs as colorBasemap, so switching views reuses cached tiles.
+  const heatBasemap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors', maxZoom: 19, className: 'rg-heat-tiles',
   });
-  const lightGrayBasemap = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors, © CARTO', maxZoom: 19, subdomains: 'abcd',
-  });
-  const heatBasemap = () => (RG.theme() === 'light' ? lightGrayBasemap : darkGrayBasemap);
-  function removeHeatBasemaps() {
-    [darkGrayBasemap, lightGrayBasemap].forEach(l => { if (map.hasLayer(l)) map.removeLayer(l); });
+  // .map-heat paints the themed surface behind the tiles (while they load, or
+  // if they can't be reached) and is what the heat view's dark/light look keys on.
+  function setHeatBasemap(on) {
+    map.getContainer().classList.toggle('map-heat', on);
+    const show = on ? heatBasemap : colorBasemap;
+    const hide = on ? colorBasemap : heatBasemap;
+    if (map.hasLayer(hide)) map.removeLayer(hide);
+    if (!map.hasLayer(show)) show.addTo(map);
   }
   colorBasemap.addTo(map);
 
@@ -658,10 +666,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Same search+filter logic as currentSubset(), further limited to
   // diseased trees only -- Interventions mode has nothing meaningful to
-  // show for a healthy tree.
-  function interventionSubset() {
+  // show for a healthy tree. The status filter ('todo' / 'done' / '') is
+  // applied on top, so the counts in the panel always describe the trees
+  // before it, and the legend rows can show both numbers while one is picked.
+  let ivStatus = '';
+  function interventionBase() {
     return currentSubset().filter(t => !t.is_healthy);
   }
+  function interventionSubset() {
+    const base = interventionBase();
+    if (ivStatus === 'todo') return base.filter(t => !t.has_intervention);
+    if (ivStatus === 'done') return base.filter(t => t.has_intervention);
+    return base;
+  }
+
+  const ivRows = Array.from(document.querySelectorAll('#panel-interventions .legend-row[data-status]'));
+  function syncIvPressed() {
+    ivRows.forEach(row => row.setAttribute('aria-pressed', row.dataset.status === ivStatus ? 'true' : 'false'));
+  }
+  // Same idea as the disease legend: tap a status to show only those trees,
+  // tap it again to show all of them.
+  ivRows.forEach(row => row.addEventListener('click', () => {
+    ivStatus = ivStatus === row.dataset.status ? '' : row.dataset.status;
+    applyInterventionFilters();
+  }));
 
   function reportEmptySubset(subset) {
     if (subset.length) { hideEmpty(); return; }
@@ -695,17 +723,26 @@ document.addEventListener('DOMContentLoaded', () => {
   // intervention-status marker and cluster-icon builders.
   function applyInterventionFilters() {
     if (activeView !== 'interventions') return;
+    const base = interventionBase();
     const subset = interventionSubset();
     rebuildClusterGroup(subset, buildInterventionCircleMarker, makeInterventionClusterIcon);
     activeClusterGroup.addTo(map);
-    fillInterventionSummary(subset);
-    reportEmptySubset(subset);
+    fillInterventionSummary(base);
+    syncIvPressed();
+    if (!subset.length && base.length && ivStatus === 'todo') {
+      showEmpty('All caught up', 'Every diseased tree shown has an action logged.');
+    } else if (!subset.length && base.length && ivStatus === 'done') {
+      showEmpty('No actions logged yet', 'None of the diseased trees shown have an action logged.');
+    } else {
+      reportEmptySubset(subset);
+    }
     zoomToSingleMatch(subset);
   }
 
-  // Progress numbers in the Interventions panel. Counts the trees currently
-  // shown, so they always agree with the markers on the map (a disease
-  // filter or search narrows both).
+  // Progress numbers in the Interventions panel. Counts the diseased trees
+  // that match the search and disease filter (before the status filter), so
+  // the numbers stay put while a status is picked and a disease filter or
+  // search narrows both the map and the panel.
   function fillInterventionSummary(subset) {
     const done = subset.filter(t => t.has_intervention).length;
     $('iv-total').textContent = subset.length;
@@ -845,8 +882,7 @@ document.addEventListener('DOMContentLoaded', () => {
     activeView = 'markers';
     clearHeatLayer();
     hideEmpty();
-    removeHeatBasemaps();
-    if (!map.hasLayer(colorBasemap)) colorBasemap.addTo(map);
+    setHeatBasemap(false);
     restyleBoundary();
     if (allDiseasesOption) allDiseasesOption.hidden = false;
     if (searchInput) { searchInput.disabled = false; searchInput.placeholder = 'Search tree ID'; }
@@ -858,9 +894,7 @@ document.addEventListener('DOMContentLoaded', () => {
     activeView = 'heatmap';
     // Heatmap mode never renders individual circle markers or clusters.
     if (activeClusterGroup && map.hasLayer(activeClusterGroup)) map.removeLayer(activeClusterGroup);
-    if (map.hasLayer(colorBasemap)) map.removeLayer(colorBasemap);
-    removeHeatBasemaps();
-    heatBasemap().addTo(map);
+    setHeatBasemap(true);
     restyleBoundary();
     if (allDiseasesOption) allDiseasesOption.hidden = true;
     if (searchInput) { searchInput.disabled = true; searchInput.placeholder = 'Search (markers only)'; }
@@ -872,8 +906,7 @@ document.addEventListener('DOMContentLoaded', () => {
     activeView = 'interventions';
     clearHeatLayer();
     hideEmpty();
-    removeHeatBasemaps();
-    if (!map.hasLayer(colorBasemap)) colorBasemap.addTo(map);
+    setHeatBasemap(false);
     restyleBoundary();
     if (allDiseasesOption) allDiseasesOption.hidden = false;
     if (searchInput) { searchInput.disabled = false; searchInput.placeholder = 'Search tree ID'; }
@@ -906,6 +939,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (resetBtn) resetBtn.addEventListener('click', () => {
     if (searchInput) searchInput.value = '';
     if (filterSelect) filterSelect.value = '';
+    ivStatus = '';
     if (activeView === 'heatmap') drawHeatForCurrentDisease();
     else if (activeView === 'interventions') applyInterventionFilters();
     else applyMarkerFilters();
@@ -915,8 +949,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // ------------------------------------------------------------
   // Theme switch: re-read every colour that comes from the CSS variables.
   // Markers, clusters and the heat layer are rebuilt (their colours were
-  // fixed when they were drawn), the boundary and ring are restyled, and the
-  // heatmap basemap swaps between the dark and light tiles.
+  // fixed when they were drawn), and the boundary and ring are restyled. The
+  // heatmap tiles follow the theme through CSS alone.
   // ------------------------------------------------------------
   function restyleBoundary() {
     if (boundaryLayer) boundaryLayer.setStyle(boundaryStyle());
@@ -926,8 +960,6 @@ document.addEventListener('DOMContentLoaded', () => {
     severityStopsCache = null;
     $('heat-ramp').style.background = severityGradientCss();
     if (activeView === 'heatmap') {
-      removeHeatBasemaps();
-      heatBasemap().addTo(map);
       if (heatLayer) heatLayer.refreshColors();
       if (locateRing) locateRing.setStyle({ color: heatInk() });
     } else if (activeView === 'interventions') {
