@@ -230,7 +230,7 @@ def _get_severity_counts(request, farm=None):
 # metadata footer so a reader knows exactly which detector produced the
 # underlying classifications and which report layout generated the file.
 AI_MODEL_VERSION = "MobileNetV3-Large v2.3 (CNN Trunk Disease Classifier)"
-REPORT_VERSION = "2.0"
+REPORT_VERSION = "3.0"
 
 
 def _get_intervention_effectiveness(request, farm=None):
@@ -2013,681 +2013,73 @@ def export_excel(request):
     return response
 
 
-def _build_trend_chart(monthly, disease_stats, chart_width, chart_height):
-    # Renders the monthly detection trend as one native ReportLab bar chart
-    # PER MONTH (most recent 3), meant to be stacked one-per-row instead of
-    # 3 month-groups squeezed side by side in a single chart. The old
-    # grouped layout gave each disease only a sliver of page width, which
-    # is what was pushing the tallest bar's value label up into the shared
-    # legend row above it. Each row here gets the full page width to
-    # itself, bars are labeled directly underneath by disease name, and
-    # there's no legend at all -- nothing left for a label to collide with.
-    #
-    # Returns a list of Drawings, one per month (oldest first), each sized
-    # (chart_width, chart_height). Caller stacks them as separate flowables.
-    from reportlab.graphics.shapes import Drawing, String
-    from reportlab.graphics.charts.barcharts import VerticalBarChart
-    from reportlab.lib import colors as rl_colors
-
-    recent = monthly[-3:] if monthly else []
-    series = [(d["name"], rl_colors.HexColor(d["color"])) for d in disease_stats
-              if any(m["diseases"].get(d["name"], 0) for m in recent)]
-
-    if not recent or not series:
-        drawing = Drawing(chart_width, chart_height)
-        drawing.add(String(chart_width / 2, chart_height / 2, "No scan history in this window",
-                            fontSize=9, textAnchor="middle"))
-        return [drawing]
-
-    drawings = []
-    for m in recent:
-        values = [m["diseases"].get(name, 0) for name, _ in series]
-        peak = max(values) if values else 0
-
-        drawing = Drawing(chart_width, chart_height)
-        drawing.add(String(chart_width / 2, chart_height - 16, m["month"],
-                            fontSize=13, fontName="Helvetica-Bold", textAnchor="middle"))
-
-        bar = VerticalBarChart()
-        bar.x = 50
-        bar.y = 22
-        bar.width = chart_width - 70
-        bar.height = chart_height - 58
-        bar.data = [values]
-        bar.categoryAxis.categoryNames = [name for name, _ in series]
-        bar.categoryAxis.labels.fontSize = 9
-        bar.valueAxis.labels.fontSize = 9
-        bar.valueAxis.valueMin = 0
-        bar.valueAxis.forceZero = True
-        # Headroom above the tallest bar (25% of its own height) so the
-        # value label printed above it never runs into the chart title.
-        bar.valueAxis.valueMax = peak * 1.25 if peak else 1
-        bar.groupSpacing = 8
-        bar.barWidth = 18
-        bar.barLabels.fontSize = 10
-        bar.barLabels.fontName = "Helvetica-Bold"
-        bar.barLabelFormat = "%d"
-        bar.barLabels.dy = 6
-        for i, (_, color) in enumerate(series):
-            bar.bars[(0, i)].fillColor = color
-        drawing.add(bar)
-        drawings.append(drawing)
-
-    return drawings
-
-
-def _build_donut(drawing, cx, cy, radius, data, colors_, cutout=0.65,
-                  center_title=None, center_subtitle=None):
-    # Draws a circular donut centered at (cx, cy): a Pie forced into a
-    # perfect circle (equal width/height -- the old code used chart_width
-    # and chart_height independently, which is what produced the "oblong"
-    # egg-shaped pie) with a same-color-as-page hole punched in the middle
-    # to fake a cutout, since ReportLab's Pie has no native donut mode.
-    # cutout=0.65 matches the Chart.js `cutout: "65%"` used by the
-    # doughnuts on the web Dashboard/Reports pages (dashboard.js /
-    # reports.js) so the PDF and the web app look like the same design.
-    from reportlab.graphics.shapes import String, Circle
-    from reportlab.graphics.charts.piecharts import Pie
-    from reportlab.lib import colors as rl_colors
-
-    diameter = radius * 2
-    pie = Pie()
-    pie.x = cx - radius
-    pie.y = cy - radius
-    pie.width = diameter
-    pie.height = diameter
-    pie.data = data
-    pie.labels = ["" for _ in data]
-    pie.simpleLabels = 0
-    pie.sideLabels = 0
-    pie.slices.strokeWidth = 1.5
-    pie.slices.strokeColor = rl_colors.white
-    pie.slices.fontSize = 0
-    for i, color in enumerate(colors_):
-        pie.slices[i].fillColor = color
-    drawing.add(pie)
-
-    drawing.add(Circle(cx, cy, radius * cutout, fillColor=rl_colors.white, strokeColor=None))
-
-    if center_title:
-        drawing.add(String(cx, cy + (1 if center_subtitle else -4), center_title,
-                            fontSize=15, fontName="Helvetica-Bold", textAnchor="middle",
-                            fillColor=rl_colors.HexColor("#1a2535")))
-    if center_subtitle:
-        drawing.add(String(cx, cy - 13, center_subtitle,
-                            fontSize=7.5, fontName="Helvetica", textAnchor="middle",
-                            fillColor=rl_colors.HexColor("#6b7280")))
-
-
-def _build_pie_chart(disease_stats, chart_width, chart_height, total=None):
-    # Disease Distribution: main donut on the right (every category, full
-    # 100% -- nothing removed) with a legend row along the bottom (color
-    # chip + name, wrapped grid). On the left, a second donut -- same
-    # shape, just enlarged -- redraws only the categories under 10% of the
-    # grand total, re-normalized against each other so a 3.0% slice and a
-    # 0.7% slice (both invisible slivers next to Healthy's ~88%) become
-    # clearly different-sized wedges again. This is threshold-based (<10%
-    # of the total), not a hardcoded exclusion of "Healthy" -- whichever
-    # categories happen to be small this time are the ones that get
-    # magnified, so it still works if Healthy itself is ever the small one.
-    from reportlab.graphics.shapes import Drawing, String, Rect
-    from reportlab.lib import colors as rl_colors
-
-    nonzero = [d for d in disease_stats if d["count"] > 0]
-
-    drawing = Drawing(chart_width, chart_height)
-    drawing.add(String(chart_width / 2, chart_height - 16, "Disease Distribution",
-                        fontSize=13, fontName="Helvetica-Bold", textAnchor="middle"))
-    if not nonzero:
-        drawing.add(String(chart_width / 2, chart_height / 2, "No data",
-                            fontSize=9, textAnchor="middle"))
-        return drawing
-
-    total = total if total else sum(d["count"] for d in nonzero)
-
-    # Bottom legend: every category as a color chip + label, in a row-major
-    # wrapped grid (reads left-to-right, top-to-bottom) rather than a tall
-    # single column.
-    legend_cols = 4
-    legend_rows = -(-len(nonzero) // legend_cols)  # ceil
-    legend_row_h = 20
-    legend_h = legend_rows * legend_row_h + 12
-    col_w = chart_width / legend_cols
-    swatch = 10
-    for i, d in enumerate(nonzero):
-        col, row = i % legend_cols, i // legend_cols
-        lx = col * col_w + 10
-        ly = legend_h - 12 - row * legend_row_h
-        drawing.add(Rect(lx, ly, swatch, swatch,
-                          fillColor=rl_colors.HexColor(d["color"]), strokeColor=None))
-        drawing.add(String(lx + swatch + 5, ly + 1, f'{d["name"]} — {d["count"]} ({d["pct"]}%)',
-                            fontSize=8.5, fontName="Helvetica", fillColor=rl_colors.HexColor("#1a2535")))
-
-    top_margin = 30
-    mid_top = chart_height - top_margin
-    mid_h = mid_top - legend_h
-
-    # Only worth a separate magnified chart once there are at least two
-    # small slices to tell apart from each other -- a single lonely small
-    # slice isn't hard to identify on its own.
-    small = sorted((d for d in nonzero if d["pct"] < 10), key=lambda d: d["count"], reverse=True)
-    show_small = len(small) >= 2
-    label_h = 22  # room for the sub-title above each donut
-    donut_top = mid_top - label_h
-    donut_bottom = legend_h + 6
-    vertical_room = donut_top - donut_bottom
-
-    if show_small:
-        # Both donuts drawn at the same size and centered as a single pair
-        # within the full chart width (equal margins left/right of the
-        # pair) instead of splitting the width into fixed left/right zones
-        # -- that's what was pushing the main donut off-center with a big
-        # dead gap in the middle.
-        r = min(vertical_room / 2, 80)
-        gap = 60
-        pair_w = 4 * r + gap
-        left_margin = max(10, (chart_width - pair_w) / 2)
-        cy = donut_bottom + vertical_room / 2
-
-        small_cx = left_margin + r
-        main_cx = left_margin + 3 * r + gap
-
-        drawing.add(String(small_cx, mid_top - 10, "Categories Under 10%, Magnified",
-                            fontSize=8.5, fontName="Helvetica-Bold", textAnchor="middle",
-                            fillColor=rl_colors.HexColor("#374151")))
-        drawing.add(String(main_cx, mid_top - 10, "All Categories (100%)",
-                            fontSize=8.5, fontName="Helvetica-Bold", textAnchor="middle",
-                            fillColor=rl_colors.HexColor("#374151")))
-
-        small_total = sum(d["count"] for d in small)
-        _build_donut(
-            drawing, small_cx, cy, r,
-            data=[d["count"] for d in small],
-            colors_=[rl_colors.HexColor(d["color"]) for d in small],
-            center_title=f"{small_total:,}",
-            center_subtitle="< 10% each",
-        )
-        _build_donut(
-            drawing, main_cx, cy, r,
-            data=[d["count"] for d in nonzero],
-            colors_=[rl_colors.HexColor(d["color"]) for d in nonzero],
-            center_title=f"{total:,}",
-            center_subtitle="trees scanned",
-        )
-    else:
-        # No small-slice cluster worth magnifying -- a single donut,
-        # centered in the full chart width.
-        radius = min(vertical_room / 2, 95)
-        cx = chart_width / 2
-        cy = donut_bottom + vertical_room / 2
-        _build_donut(
-            drawing, cx, cy, radius,
-            data=[d["count"] for d in nonzero],
-            colors_=[rl_colors.HexColor(d["color"]) for d in nonzero],
-            center_title=f"{total:,}",
-            center_subtitle="trees scanned",
-        )
-
-    return drawing
-
-
-def _build_severity_pie(severity_counts, chart_width, chart_height, total=None):
-    # Severity Distribution donut: same circular-cutout style as the disease
-    # distribution chart above, using the exact tier colors from
-    # SEVERITY_COLORS in reports.js. No leader-line labels or legend here on
-    # purpose -- the Severity Distribution table already printed directly
-    # above this chart carries the exact counts, so the donut's job is just
-    # the at-a-glance shape, with the headline "% Healthy" in the center.
-    from reportlab.graphics.shapes import Drawing, String
-    from reportlab.lib import colors as rl_colors
-
-    tiers = [
-        ("Healthy", severity_counts.get("Healthy", 0), rl_colors.HexColor(_healthy_color_hex())),
-        ("Mild", severity_counts.get("Mild", 0), rl_colors.HexColor("#fbbf24")),
-        ("Moderate", severity_counts.get("Moderate", 0), rl_colors.HexColor("#f97316")),
-        ("Severe", severity_counts.get("Severe", 0), rl_colors.HexColor("#dc2626")),
-    ]
-    nonzero = [(name, v, color) for name, v, color in tiers if v > 0]
-
-    drawing = Drawing(chart_width, chart_height)
-    drawing.add(String(chart_width / 2, chart_height - 14, "Severity Distribution",
-                        fontSize=11, fontName="Helvetica-Bold", textAnchor="middle"))
-    if not nonzero:
-        drawing.add(String(chart_width / 2, chart_height / 2, "No data",
-                            fontSize=9, textAnchor="middle"))
-        return drawing
-
-    total = total if total else sum(v for _, v, _ in nonzero)
-    healthy_n = severity_counts.get("Healthy", 0)
-    healthy_pct = round(healthy_n / total * 100, 1) if total else 0
-    radius = min(chart_width * 0.32, (chart_height - 30) / 2)
-
-    _build_donut(
-        drawing, chart_width / 2, (chart_height - 16) / 2 + 4, radius,
-        data=[v for _, v, _ in nonzero],
-        colors_=[color for _, _, color in nonzero],
-        center_title=f"{healthy_pct}%",
-        center_subtitle="Healthy",
-    )
-    return drawing
-
-
-def _build_most_affected_chart(most_affected, chart_width, chart_height):
-    # Renders the "Most Affected Areas" farm ranking as a native ReportLab
-    # horizontal bar chart. This panel exists on the web Reports page (as
-    # HTML bar rows driven by _get_most_affected_farms) but was previously
-    # missing from the PDF export entirely -- export_pdf() never called
-    # _get_most_affected_farms(), so the data never reached the PDF at all.
-    from reportlab.graphics.shapes import Drawing, String
-    from reportlab.graphics.charts.barcharts import HorizontalBarChart
-    from reportlab.lib import colors as rl_colors
-
-    drawing = Drawing(chart_width, chart_height)
-    drawing.add(String(chart_width / 2, chart_height - 12, "Most Affected Areas (diseased tree count)",
-                        fontSize=10, fontName="Helvetica-Bold", textAnchor="middle"))
-    if most_affected:
-        bar = HorizontalBarChart()
-        bar.x = 145
-        bar.y = 10
-        bar.width = chart_width - 170
-        bar.height = chart_height - 34
-        bar.data = [[m["diseased"] for m in most_affected]]
-        bar.categoryAxis.categoryNames = [m["label"] for m in most_affected]
-        bar.categoryAxis.labels.fontSize = 12
-        bar.valueAxis.labels.fontSize = 10
-        bar.valueAxis.valueMin = 0
-        bar.valueAxis.forceZero = True
-        bar.bars[0].fillColor = rl_colors.HexColor("#dc2626")
-        drawing.add(bar)
-    else:
-        drawing.add(String(chart_width / 2, chart_height / 2, "No farms registered yet",
-                            fontSize=9, textAnchor="middle"))
-    return drawing
-
-
-def _build_intervention_by_disease_chart(by_disease, chart_width, chart_height):
-    # Grouped bar chart comparing each intervention action's recovery rate
-    # across diseases -- "did action A help disease X more than action B
-    # did, compared to disease Y" in one view, complementing the per-
-    # disease summary table below it. Only the top 4 intervention actions
-    # by total trees treated are shown as series (not all 9 possible
-    # actions), so bars/legend stay readable instead of cramming in every
-    # action type regardless of how rarely it's used.
-    #
-    # Bars are recovery_pct (0-100), a fixed scale, so headroom above the
-    # tallest possible bar is guaranteed -- unlike the old monthly trend
-    # chart, an unusually large disease/action pair can't push a value
-    # label into the legend the way an unbounded tree-count bar could.
-    from reportlab.graphics.shapes import Drawing, String
-    from reportlab.graphics.charts.barcharts import VerticalBarChart
-    from reportlab.graphics.charts.legends import Legend
-    from reportlab.lib import colors as rl_colors
-
-    drawing = Drawing(chart_width, chart_height)
-    drawing.add(String(chart_width / 2, chart_height - 14, "Recovery Rate by Intervention, per Disease",
-                        fontSize=11, fontName="Helvetica-Bold", textAnchor="middle"))
-
-    diseases = list(by_disease.keys())
-    if not diseases:
-        drawing.add(String(chart_width / 2, chart_height / 2, "No intervention data yet",
-                            fontSize=9, textAnchor="middle"))
-        return drawing
-
-    totals = {}
-    for rows in by_disease.values():
-        for r in rows:
-            totals[r["action"]] = totals.get(r["action"], 0) + r["treated"]
-    top_actions = [a for a, _ in sorted(totals.items(), key=lambda kv: kv[1], reverse=True)[:4]]
-
-    palette = [rl_colors.HexColor(c) for c in ["#2563eb", "#16a34a", "#f59e0b", "#dc2626"]]
-    action_colors = {a: palette[i % len(palette)] for i, a in enumerate(top_actions)}
-
-    def best_pct(d):
-        return max((r["recovery_pct"] for r in by_disease[d] if r["action"] in top_actions), default=0)
-    diseases.sort(key=best_pct, reverse=True)
-
-    series_data = []
-    for action in top_actions:
-        row_values = []
-        for disease in diseases:
-            match = next((r for r in by_disease[disease] if r["action"] == action), None)
-            row_values.append(match["recovery_pct"] if match else 0)
-        series_data.append(row_values)
-
-    legend_y = chart_height - 32
-    legend = Legend()
-    legend.x = chart_width / 2
-    legend.y = legend_y
-    legend.dx = 8
-    legend.dy = 8
-    legend.fontSize = 8.5
-    legend.alignment = "right"
-    legend.boxAnchor = "n"
-    legend.columnMaximum = 1
-    legend.deltax = 20
-    legend.colorNamePairs = [(action_colors[a], a) for a in top_actions]
-    drawing.add(legend)
-
-    bar = VerticalBarChart()
-    bar.x = 45
-    bar.y = 24
-    bar.width = chart_width - 65
-    bar.height = legend_y - 42
-    bar.data = series_data
-    bar.categoryAxis.categoryNames = diseases
-    bar.categoryAxis.labels.fontSize = 9
-    bar.valueAxis.labels.fontSize = 9
-    bar.valueAxis.valueMin = 0
-    bar.valueAxis.valueMax = 115  # fixed headroom -- recovery_pct can't exceed 100
-    bar.valueAxis.labelTextFormat = "%d%%"
-    bar.groupSpacing = 14
-    bar.barSpacing = 2
-    bar.barLabels.fontSize = 7.5
-    bar.barLabelFormat = "%d%%"
-    bar.barLabels.dy = 4
-    for i, action in enumerate(top_actions):
-        bar.bars[i].fillColor = action_colors[action]
-    drawing.add(bar)
-
-    return drawing
-
-
 @login_required
 def export_pdf(request):
-    # Exports a landscape PDF report with KPI summary, charts, and a per-tree
-    # table. Landscape avoids column/text truncation that portrait caused
-    # with this much side-by-side content.
-    from reportlab.lib.pagesizes import letter, landscape
-    from reportlab.lib import colors
-    from reportlab.lib.units import inch
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepInFrame
-    from reportlab.lib.styles import getSampleStyleSheet
+    # Gathers the numbers for the report and hands them to report_pdf, which
+    # does all the drawing (layout, charts, page furniture).
     from django.http import HttpResponse
+    from .report_pdf import build_report_pdf
 
-    # Only the filename label is needed now that the Tree-Level Detail
-    # table (which used to consume the actual tree queryset) is removed.
     _, label = _export_rows(request)
     farm = _get_farm_or_none(request)
     total, counts, pcts, diseased = _get_stats(request, farm)
     disease_stats = _get_full_disease_stats(request, farm)
-    severity_counts = _get_severity_counts(request, farm)
-    monthly = _get_monthly_trend(request, farm)
     effectiveness, _recent_ivs = _get_intervention_effectiveness(request, farm)
     intervention_by_disease = _get_intervention_effectiveness_by_disease(request, farm)
-    best_intervention_per_disease = _get_best_intervention_per_disease(intervention_by_disease)
     disease_breakdown = _get_disease_breakdown(request, farm)
     confidence_summary = _get_confidence_summary(request, farm)
-    most_affected = _get_most_affected_farms(request)
-    key_insights = _get_key_insights(total, counts, pcts, diseased, effectiveness, disease_breakdown, confidence_summary)
-    recommendations = _get_recommendations(disease_breakdown, effectiveness)
     generated_at = timezone.now()
 
-    disease_names = [d["name"] for d in disease_stats]
-    farm_summaries = []
+    # Per-farm breakdown (all-farms scope only): one grouped query for every
+    # farm instead of two queries per farm.
+    farm_rows = None
     if not farm:
-        for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
-            f_stats = {d["name"]: d["count"] for d in _get_full_disease_stats(request, f)}
-            farm_summaries.append(
-                (f.farm_id, f.name, f.trees.count())
-                + tuple(f_stats.get(name, 0) for name in disease_names)
-            )
+        per_farm = {}
+        grouped = (RubberTree.objects.filter(farm__owner=request.user)
+                   .values("farm__farm_id", "disease").annotate(n=Count("id")))
+        for row in grouped:
+            per_farm.setdefault(row["farm__farm_id"], {})[row["disease"]] = row["n"]
+        farm_rows = [
+            {"farm_id": f.farm_id, "name": f.name,
+             "total": sum(per_farm.get(f.farm_id, {}).values()),
+             "counts": per_farm.get(f.farm_id, {})}
+            for f in Farm.objects.filter(owner=request.user).order_by("farm_id")
+        ]
 
     intervention_qs = Intervention.objects.select_related("tree", "tree__farm").filter(tree__farm__owner=request.user)
     if farm:
         intervention_qs = intervention_qs.filter(tree__farm=farm)
-    intervention_qs = intervention_qs.order_by("-date_performed")[:15]
+    recent_interventions = [
+        {"tree_id": iv.tree.tree_id, "farm_id": iv.tree.farm.farm_id, "action": iv.action,
+         "date": str(iv.date_performed), "notes": iv.notes or ""}
+        for iv in intervention_qs.order_by("-date_performed")[:15]
+    ]
+
+    ctx = {
+        "scope": farm.name if farm else "All Farms",
+        "generated_label": generated_at.strftime("%Y-%m-%d %H:%M %Z").strip(),
+        "ai_model": AI_MODEL_VERSION,
+        "report_version": REPORT_VERSION,
+        "total": total,
+        "disease_stats": disease_stats,
+        "disease_colors": {d["name"]: d["color"] for d in disease_stats},
+        "severity_counts": _get_severity_counts(request, farm),
+        "healthy_color": _healthy_color_hex(),
+        "confidence": confidence_summary,
+        "key_insights": _get_key_insights(total, counts, pcts, diseased, effectiveness, disease_breakdown, confidence_summary),
+        "recommendations": _get_recommendations(disease_breakdown, effectiveness),
+        "monthly": _get_monthly_trend(request, farm),
+        "most_affected": _get_most_affected_farms(request),
+        "farm_rows": farm_rows,
+        "effectiveness": effectiveness,
+        "by_disease": intervention_by_disease,
+        "best_per_disease": _get_best_intervention_per_disease(intervention_by_disease),
+        "recent_interventions": recent_interventions,
+    }
 
     response = HttpResponse(content_type="application/pdf")
     response["Content-Disposition"] = f'attachment; filename="rubberguard_report_{label}.pdf"'
-
-    page_size = landscape(letter)
-    page_width, page_height = page_size
-    left_margin = right_margin = 0.5 * inch
-    top_margin = bottom_margin = 0.5 * inch
-    content_width = page_width - left_margin - right_margin
-
-    doc = SimpleDocTemplate(
-        response, pagesize=page_size,
-        leftMargin=left_margin, rightMargin=right_margin,
-        topMargin=top_margin, bottomMargin=bottom_margin,
-    )
-    styles = getSampleStyleSheet()
-    elements = []
-
-    title = farm.name if farm else "All Farms"
-    elements.append(Paragraph("RubberGuard Disease Detection Report", styles["Title"]))
-    elements.append(Paragraph(f"Scope: {title} &nbsp;&nbsp;|&nbsp;&nbsp; Generated: {timezone.localdate()}", styles["Normal"]))
-
-    # Report metadata — which AI model produced the underlying classifications,
-    # which report template version generated this file, and the exact
-    # generation timestamp (not just the date), so any copy of this PDF can
-    # be traced back to the data and detector version behind it.
-    meta_style = styles["Normal"].clone("meta_style")
-    meta_style.fontSize = 8
-    meta_style.textColor = colors.HexColor("#6b7280")
-    elements.append(Paragraph(
-        f"AI Model: {AI_MODEL_VERSION} &nbsp;&nbsp;|&nbsp;&nbsp; "
-        f"Report Version: {REPORT_VERSION} &nbsp;&nbsp;|&nbsp;&nbsp; "
-        f"Generated at: {generated_at.strftime('%Y-%m-%d %H:%M %Z') or generated_at.strftime('%Y-%m-%d %H:%M')}",
-        meta_style,
-    ))
-    elements.append(Spacer(1, 10))
-
-    # Key Insights — plain-language, data-driven takeaways up front so a
-    # non-technical reader gets the "so what" before the raw tables.
-    elements.append(Paragraph("Key Insights", styles["Heading4"]))
-    insight_style = styles["Normal"].clone("insight_style")
-    insight_style.fontSize = 9
-    insight_style.leftIndent = 10
-    insight_style.spaceAfter = 3
-    for point in key_insights:
-        elements.append(Paragraph(f"•  {point}", insight_style))
-    elements.append(Spacer(1, 12))
-
-    # KPI summary row
-    col_count = 1 + len(disease_stats)
-    summary_data = [
-        ["Total Trees"] + [d["name"] for d in disease_stats],
-        [str(total)] + [str(d["count"]) for d in disease_stats],
-    ]
-    summary_table = Table(summary_data, colWidths=[content_width / col_count] * col_count)
-    summary_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a2535")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-    ]))
-    elements.append(summary_table)
-    elements.append(Spacer(1, 8))
-
-    # Severity summary row
-    severity_data = [
-        ["Healthy", "Mild", "Moderate", "Severe"],
-        [str(severity_counts["Healthy"]), str(severity_counts["Mild"]), str(severity_counts["Moderate"]), str(severity_counts["Severe"])],
-    ]
-    severity_table = Table(severity_data, colWidths=[content_width / 4] * 4)
-    severity_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#dcfce7")),
-        ("BACKGROUND", (1, 0), (1, -1), colors.HexColor("#fef3c7")),
-        ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#fed7aa")),
-        ("BACKGROUND", (3, 0), (3, -1), colors.HexColor("#fecaca")),
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-    ]))
-    elements.append(Paragraph("Severity Distribution", styles["Heading4"]))
-    elements.append(severity_table)
-    elements.append(Spacer(1, 8))
-
-    # Severity donut — visual counterpart to the table above, matching the
-    # "Disease Severity Distribution" chart on the web Reports page (same
-    # tier colors) so this section isn't numbers-only in the PDF.
-    sev_pie_h = 2.3 * inch
-    sev_pie_w = 3.4 * inch
-    sev_pie_drawing = _build_severity_pie(severity_counts, sev_pie_w, sev_pie_h, total=total)
-    sev_pie_frame = KeepInFrame(sev_pie_w, sev_pie_h, [sev_pie_drawing])
-    sev_pie_row = Table([[sev_pie_frame]], colWidths=[content_width])
-    sev_pie_row.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-    ]))
-    elements.append(sev_pie_row)
-    elements.append(Spacer(1, 12))
-
-    # Disease distribution: main donut + magnified disease-only breakdown
-    # bars + bottom legend now needs more vertical room than a plain
-    # donut+side-legend did.
-    pie_h = 3.7 * inch
-    pie_w = content_width - 0.4 * inch
-    pie_drawing = _build_pie_chart(disease_stats, pie_w, pie_h, total=total)
-    pie_frame = KeepInFrame(pie_w, pie_h, [pie_drawing])
-    pie_row = Table([[pie_frame]], colWidths=[content_width])
-    pie_row.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-    ]))
-    elements.append(pie_row)
-    elements.append(Spacer(1, 10))
-
-    # Monthly detection trend — one row per month (last 3), each given the
-    # full report width so every disease bar is legible on its own, instead
-    # of 3 month-groups sharing one chart. Appended as plain Drawings (not
-    # KeepInFrame) so the doc template page-breaks normally between rows
-    # instead of cramming a row into whatever space is left on the page.
-    elements.append(Paragraph("Monthly Detection Trend (last 3 months)", styles["Heading4"]))
-    trend_row_h = 1.9 * inch
-    for trend_drawing in _build_trend_chart(monthly, disease_stats, content_width, trend_row_h):
-        elements.append(trend_drawing)
-        elements.append(Spacer(1, 6))
-    elements.append(Spacer(1, 8))
-
-    # Most Affected Areas — this panel exists on the web Reports page but
-    # was previously dropped from the PDF export entirely: export_pdf()
-    # never called _get_most_affected_farms(). Added here for parity.
-    if most_affected:
-        elements.append(Paragraph("Most Affected Areas", styles["Heading4"]))
-        affected_h = 2.2 * inch
-        affected_drawing = _build_most_affected_chart(most_affected, content_width, affected_h)
-        affected_frame = KeepInFrame(content_width, affected_h, [affected_drawing])
-        elements.append(affected_frame)
-        elements.append(Spacer(1, 14))
-
-    # Per-farm breakdown (only when viewing all farms)
-    if farm_summaries:
-        farm_rows = [["Farm ID", "Farm Name", "Total"] + disease_names] + \
-            [[str(v) for v in row] for row in farm_summaries]
-        fixed_frac = 0.12 + 0.28 + 0.12  # Farm ID, Farm Name, Total
-        disease_frac = (1 - fixed_frac) / max(len(disease_names), 1)
-        col_fracs = [0.12, 0.28, 0.12] + [disease_frac] * len(disease_names)
-        farm_table = Table(farm_rows, colWidths=[content_width * f for f in col_fracs])
-        farm_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ]))
-        elements.append(Paragraph("Per-Farm Breakdown", styles["Heading4"]))
-        elements.append(farm_table)
-        elements.append(Spacer(1, 14))
-
-    # Recommendations — short, actionable next steps derived from the
-    # disease breakdown and intervention track record above.
-    elements.append(Paragraph("Recommendations", styles["Heading4"]))
-    rec_style = styles["Normal"].clone("rec_style")
-    rec_style.fontSize = 9
-    rec_style.leftIndent = 10
-    rec_style.spaceAfter = 3
-    for rec in recommendations:
-        elements.append(Paragraph(f"•  {rec}", rec_style))
-    elements.append(Spacer(1, 14))
-
-    # Intervention Effectiveness — what % of trees treated with each action
-    # are currently Healthy, i.e. how well that intervention has worked.
-    if effectiveness:
-        eff_rows = [["Intervention", "Trees Treated", "Now Healthy", "Recovery Rate"]] + [
-            [e["action"], str(e["treated"]), str(e["recovered"]), f"{e['recovery_pct']}%"]
-            for e in effectiveness
-        ]
-        eff_table = Table(eff_rows, colWidths=[content_width * f for f in [0.4, 0.2, 0.2, 0.2]])
-        eff_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a2535")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-            ("ALIGN", (0, 0), (0, -1), "LEFT"),
-            ("ALIGN", (1, 0), (-1, -1), "CENTER"),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        elements.append(Paragraph("Intervention Effectiveness", styles["Heading4"]))
-        elements.append(eff_table)
-        elements.append(Spacer(1, 14))
-
-    # Most Effective Intervention per Disease — the overall table above
-    # answers "which action gets used most", but not "which action
-    # actually works for THIS disease". This breaks that out: one summary
-    # row per disease (its single best-performing action), then a grouped
-    # chart comparing the top actions side by side across every disease.
-    if best_intervention_per_disease:
-        best_rows = [["Disease", "Most Effective Intervention", "Recovery Rate", "Trees Treated"]] + [
-            [b["disease"], b["best_action"] + (" *" if b["low_sample"] else ""),
-             f"{b['recovery_pct']}%", str(b["treated"])]
-            for b in best_intervention_per_disease
-        ]
-        best_table = Table(best_rows, colWidths=[content_width * f for f in [0.28, 0.34, 0.19, 0.19]])
-        best_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a2535")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTSIZE", (0, 0), (-1, -1), 9),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-            ("ALIGN", (0, 0), (0, -1), "LEFT"),
-            ("ALIGN", (1, 0), (-1, -1), "CENTER"),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        elements.append(Paragraph("Most Effective Intervention per Disease", styles["Heading4"]))
-        elements.append(best_table)
-        if any(b["low_sample"] for b in best_intervention_per_disease):
-            elements.append(Spacer(1, 4))
-            elements.append(Paragraph(
-                "* Based on fewer than 3 treated trees — preliminary, not yet a reliable sample.",
-                styles["Normal"],
-            ))
-        elements.append(Spacer(1, 14))
-
-        compare_h = 2.6 * inch
-        compare_drawing = _build_intervention_by_disease_chart(intervention_by_disease, content_width, compare_h)
-        elements.append(compare_drawing)
-        elements.append(Spacer(1, 14))
-
-    # Recent interventions
-    if intervention_qs:
-        elements.append(Paragraph("Recent Interventions", styles["Heading4"]))
-        iv_rows = [["Tree ID", "Farm", "Action", "Date", "Notes"]]
-        for iv in intervention_qs:
-            iv_rows.append([iv.tree.tree_id, iv.tree.farm.farm_id, iv.action, str(iv.date_performed), (iv.notes or "—")[:40]])
-        iv_table = Table(iv_rows, colWidths=[content_width * f for f in [0.12, 0.12, 0.22, 0.12, 0.42]])
-        iv_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0fdf4")),
-            ("FONTSIZE", (0, 0), (-1, -1), 8),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-            ("ALIGN", (0, 0), (0, -1), "CENTER"),
-            ("ALIGN", (1, 0), (3, -1), "CENTER"),
-            ("ALIGN", (4, 0), (4, -1), "LEFT"),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ]))
-        elements.append(iv_table)
-
-    doc.build(elements)
+    build_report_pdf(response, ctx)
     return response
 
 
