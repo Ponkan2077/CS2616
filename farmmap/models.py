@@ -379,6 +379,10 @@ class RubberTree(models.Model):
     tree_id = models.CharField(max_length=40, unique=True)
     lat = models.FloatField()
     lng = models.FloatField()
+    # Horizontal accuracy of the GPS fix that placed this tree, in metres
+    # (smaller is better). Null when unknown: older rows, photos whose EXIF
+    # didn't say, and locations picked by hand on the map.
+    gps_accuracy = models.FloatField(null=True, blank=True)
     disease = models.CharField(max_length=50, choices=get_disease_choices, default="Healthy")
     confidence = models.FloatField(default=0.0)
     # Root condition is captured and assessed separately from the trunk
@@ -400,6 +404,15 @@ class RubberTree(models.Model):
     captured_at = models.DateTimeField(null=True, blank=True)
     recommended_action = models.TextField(blank=True)
     notes = models.TextField(blank=True)
+
+    class Meta:
+        # The notification bell (built on every page), the dashboard counts and
+        # the inventory filters all select a farm's trees by date or disease.
+        # Without these, each of those scans every tree row in the table.
+        indexes = [
+            models.Index(fields=["farm", "date_scanned"], name="tree_farm_scanned_idx"),
+            models.Index(fields=["farm", "disease"], name="tree_farm_disease_idx"),
+        ]
 
     def save(self, *args, **kwargs):
         # Auto-derives severity_score from disease + confidence on every save,
@@ -602,6 +615,12 @@ class ScanHistory(models.Model):
         # get_progression_trend()'s "most recent 2 scans" and the tree-detail
         # chart/table both reflect true chronological order.
         ordering = ["-date", "-created_at"]
+        # Dashboard/report windows filter every scan by date; the tree page
+        # and progression trend read one tree's scans newest-first.
+        indexes = [
+            models.Index(fields=["date"], name="scan_date_idx"),
+            models.Index(fields=["tree", "-date"], name="scan_tree_date_idx"),
+        ]
 
     def __str__(self):
         # Returns a readable string showing the tree, scan date, and detected disease.

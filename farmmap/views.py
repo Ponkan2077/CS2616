@@ -1,8 +1,11 @@
+import hashlib
 import json
 import logging
 import math
 import re
 import datetime
+from django.conf import settings
+from django.core import signing
 from django.shortcuts import render, get_object_or_404, redirect
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
@@ -70,6 +73,86 @@ def _parse_confidence(value):
     if not math.isfinite(number):
         return None
     return max(0.0, min(100.0, number))
+
+
+def _parse_gps_accuracy(value):
+    # Optional horizontal accuracy (metres) that came with a scan's GPS fix.
+    # Anything that isn't a sane, non-negative number counts as "unknown"
+    # (None) instead of failing the save.
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number) or number < 0:
+        return None
+    return number
+
+
+def _distance_km(lat1, lng1, lat2, lng2):
+    # Great-circle (haversine) distance in kilometres.
+    to_rad = math.radians
+    d_lat = to_rad(lat2 - lat1)
+    d_lng = to_rad(lng2 - lng1)
+    a = math.sin(d_lat / 2) ** 2 + math.cos(to_rad(lat1)) * math.cos(to_rad(lat2)) * math.sin(d_lng / 2) ** 2
+    return 2 * 6371.0 * math.asin(math.sqrt(a))
+
+
+def _distance_from_farm_km(farm, lat, lng):
+    # Distance from (lat, lng) to the average position of the farm's trees,
+    # or None when the farm doesn't have enough trees yet to judge (its first
+    # few trees are what define where the farm is). One cheap aggregate query.
+    stats = farm.trees.aggregate(n=Count("id"), mean_lat=Avg("lat"), mean_lng=Avg("lng"))
+    if (stats["n"] or 0) < settings.FARM_DISTANCE_CHECK_MIN_TREES:
+        return None
+    return _distance_km(lat, lng, stats["mean_lat"], stats["mean_lng"])
+
+
+# --- signed analysis result -------------------------------------------------
+# /detection/analyze/ already ran the model on these two photos. Instead of
+# running it a second time at save, it hands back a signed token that holds
+# the result plus a fingerprint of the exact photos and the user it was made
+# for. save_detection() trusts the result only if the signature is valid, it's
+# recent, and the photos being saved are byte-for-byte the ones analysed --
+# so it still can't be forged or reused for different photos.
+ANALYSIS_TOKEN_SALT = "rubberguard.analysis-result"
+
+
+def _analysis_fingerprint(root_bytes, trunk_bytes):
+    digest = hashlib.sha256()
+    digest.update(len(root_bytes).to_bytes(8, "big"))  # so root/trunk can't be shifted into each other
+    digest.update(root_bytes)
+    digest.update(trunk_bytes)
+    return digest.hexdigest()
+
+
+def _make_analysis_token(user, root_bytes, trunk_bytes, result):
+    return signing.dumps(
+        {
+            "u": user.pk,
+            "h": _analysis_fingerprint(root_bytes, trunk_bytes),
+            "d": result["disease"],
+            "c": result["confidence"],
+            "r": result.get("root_condition") or "",
+        },
+        salt=ANALYSIS_TOKEN_SALT,
+    )
+
+
+def _read_analysis_token(token, user, root_bytes, trunk_bytes):
+    # Returns {"disease", "confidence", "root_condition"} when the token is
+    # genuine, fresh, for this user and for exactly these photos; else None
+    # (the caller then simply runs the model again).
+    try:
+        data = signing.loads(token, salt=ANALYSIS_TOKEN_SALT, max_age=settings.ANALYSIS_TOKEN_MAX_AGE_S)
+    except signing.BadSignature:  # includes SignatureExpired
+        return None
+    if not isinstance(data, dict) or data.get("u") != user.pk:
+        return None
+    if data.get("h") != _analysis_fingerprint(root_bytes, trunk_bytes):
+        return None
+    if not data.get("d"):
+        return None
+    return {"disease": data["d"], "confidence": data.get("c", 0), "root_condition": data.get("r", "")}
 
 
 def _next_auto_tree_id(farm):
@@ -1161,8 +1244,10 @@ def analyze_detection(request):
     if not root_file or not trunk_file:
         return JsonResponse({"error": "Add both a root photo and a trunk photo, then try again."}, status=400)
 
+    root_bytes = root_file.read()
+    trunk_bytes = trunk_file.read()
     try:
-        result = ai_inference.classify_images(root_file.read(), trunk_file.read())
+        result = ai_inference.classify_images(root_bytes, trunk_bytes)
     except ai_inference.InferenceError as exc:
         # The exception text can contain the model endpoint's URL/host, so
         # it's logged, not returned.
@@ -1175,6 +1260,9 @@ def analyze_detection(request):
     disease_class = get_disease_lookup().get(result["disease"])
     severity_label = _severity_label_for(result["disease"], result["confidence"])
     result["action"] = disease_class.recommendation_for(severity_label) if disease_class else ""
+    # Signed copy of this result, sent back with the save so the model
+    # doesn't have to be run a second time (see _read_analysis_token).
+    result["token"] = _make_analysis_token(request.user, root_bytes, trunk_bytes, result)
     return JsonResponse(result)
 
 
@@ -1299,6 +1387,17 @@ def save_detection(request):
     ):
         return fail("This scan's GPS location isn't valid (it looks like a failed GPS fix) and can't be saved. Retake the photo somewhere the camera/GPS can get a location.")
 
+    # Optional: how accurate that fix was, in metres. The phone already
+    # refuses fixes worse than this limit, but the value comes from the
+    # browser (and from scans queued before this check existed), so it is
+    # enforced here too. A missing/garbage value just means "unknown".
+    gps_accuracy = _parse_gps_accuracy(request.POST.get("gps_accuracy", "").strip())
+    if gps_accuracy is not None and gps_accuracy > settings.GPS_MAX_ACCURACY_M:
+        return fail(
+            f"This scan's GPS fix is too imprecise (about {round(gps_accuracy)} m) to place the tree. "
+            "Retake the photo in the open, away from thick canopy, and give the GPS a few seconds."
+        )
+
     captured_at = None
     captured_at_raw = request.POST.get("captured_at", "").strip()
     if captured_at_raw:
@@ -1311,6 +1410,18 @@ def save_detection(request):
         farm = Farm.objects.get(pk=farm_pk, owner=request.user)
     except (Farm.DoesNotExist, ValueError, TypeError):
         return fail("This scan has no valid farm attached and can't be saved.")
+
+    # A fix far from every other tree on the farm is almost always a bad
+    # reading (a cell-tower position, a stale fix from another place) or the
+    # wrong farm picked, and one such tree stretches the farm's boundary and
+    # map bounds for everybody. Only checked once the farm has enough trees to
+    # know where it is (FARM_DISTANCE_CHECK_MIN_TREES).
+    far_km = _distance_from_farm_km(farm, tree_lat, tree_lng)
+    if far_km is not None and far_km > settings.FARM_MAX_DISTANCE_KM:
+        return fail(
+            f"This location is about {round(far_km)} km from the rest of this farm's trees, which usually "
+            "means a bad GPS fix or the wrong farm. Check the farm, or retake the photo outdoors."
+        )
 
     # A typed tree ID becomes part of a URL (/inventory/<tree_id>/), so a
     # "/" or "?" in it would break every page that links to the tree.
@@ -1388,14 +1499,26 @@ def save_detection(request):
         f.seek(0)
         trunk_image_resized = resize_for_storage(f, f.name)
 
-    # Re-runs inference server-side rather than trusting the hidden
-    # save-form fields outright -- they already hold the real result from
-    # analyze_detection() above, but could still be edited in devtools
-    # before submit. Falls back to those submitted values only if this
-    # second call fails transiently, so a flaky or cold-starting model
-    # host never blocks saving a scan outright.
+    # The disease/confidence fields in the save form could be edited in
+    # devtools before submit, so they aren't trusted outright. Normally the
+    # result is taken from the signed token analyze_detection() issued for
+    # these exact photos (see _read_analysis_token), which needs no second
+    # model call. Only when there is no valid token (older queued scans, photos
+    # changed after analysis, an expired token) is inference re-run here, and
+    # only if that second call fails transiently do the submitted values get
+    # used, so a flaky or cold-starting model host never blocks saving a scan.
     used_ai = False
-    if ai_inference.AI_MODEL_ENABLED and root_file_bytes and trunk_file_bytes:
+    analysis = None
+    analysis_token = request.POST.get("analysis_token", "").strip()
+    if analysis_token and root_file_bytes and trunk_file_bytes:
+        analysis = _read_analysis_token(analysis_token, request.user, root_file_bytes, trunk_file_bytes)
+    if analysis:
+        disease = analysis["disease"]
+        confidence = analysis["confidence"]
+        if analysis["root_condition"]:
+            root_condition = analysis["root_condition"]
+        used_ai = True
+    elif ai_inference.AI_MODEL_ENABLED and root_file_bytes and trunk_file_bytes:
         try:
             result = ai_inference.classify_images(root_file_bytes, trunk_file_bytes)
             disease = result["disease"]
@@ -1453,6 +1576,7 @@ def save_detection(request):
             tree.captured_at = captured_at
             tree.lat = tree_lat
             tree.lng = tree_lng
+            tree.gps_accuracy = gps_accuracy
             if root_image_resized:
                 tree.root_image = root_image_resized
             if trunk_image_resized:
@@ -1461,7 +1585,7 @@ def save_detection(request):
         else:
             tree = RubberTree.objects.create(
                 farm=farm, tree_id=tree_id,
-                lat=tree_lat, lng=tree_lng,
+                lat=tree_lat, lng=tree_lng, gps_accuracy=gps_accuracy,
                 disease=disease, confidence=float(confidence),
                 root_condition=root_condition,
                 date_scanned=datetime.date.today(), captured_at=captured_at,

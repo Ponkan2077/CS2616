@@ -15,7 +15,19 @@
    hemisphere sign handling, GPS IFD pointer lookup) was verified
    against real EXIF-tagged JPEGs before this went into the app --
    not just written and assumed correct.
+
+   Also reads the photo's own accuracy figure (EXIF GPSHPositioningError,
+   in metres) when the camera wrote one, so callers can tell a 4 m fix
+   from a 60 m one. Plenty of cameras don't write it; accuracy is then null.
    ============================================================ */
+
+// How accurate a location has to be, in metres, before a photo or device
+// fix is accepted as the tree's position. Keep in step with
+// GPS_MAX_ACCURACY_M in project/settings.py (the server checks it too).
+// A fix this good or better is taken immediately; a worse one keeps
+// improving for a few seconds before it's judged (see getDeviceGPS()).
+const GPS_MAX_ACCURACY_M = 50;
+const GPS_TARGET_ACCURACY_M = 15;
 
 function readFileHeader(file, maxBytes) {
   return new Promise((resolve, reject) => {
@@ -75,6 +87,9 @@ function readGpsIfd(view, ifdOffset, tiffStart, littleEndian) {
       gps.lat = dmsToDecimal(view, valueOffset, littleEndian);
     } else if (tag === 0x0004 && type === 5 && count === 3) {
       gps.lng = dmsToDecimal(view, valueOffset, littleEndian);
+    } else if (tag === 0x001f && type === 5 && count === 1) {
+      // GPSHPositioningError: horizontal positioning error, in metres.
+      gps.accuracy = rationalToDeg(view, valueOffset, littleEndian);
     }
   }
   return gps;
@@ -158,8 +173,10 @@ async function extractGPSFromFile(file) {
             }
           }
 
-          console.log("[GPS DEBUG] extractGPSFromFile() found EXIF GPS:", { lat, lng, capturedAt });
-          return { lat, lng, source: "exif", capturedAt };
+          const accuracy = Number.isFinite(gps.accuracy) && gps.accuracy >= 0 ? gps.accuracy : null;
+
+          console.log("[GPS DEBUG] extractGPSFromFile() found EXIF GPS:", { lat, lng, capturedAt, accuracy });
+          return { lat, lng, source: "exif", capturedAt, accuracy };
         }
       }
       offset += 2 + segmentLength;
