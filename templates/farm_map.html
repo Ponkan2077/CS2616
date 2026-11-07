@@ -20,69 +20,44 @@
 
 <p class="attention-note d-sm-none mb-2">{% if diseased %}<b>{{ diseased }}</b>{% else %}0{% endif %} of {{ total }} tree{{ total|pluralize }} {% if total == 1 %}needs{% else %}need{% endif %} attention</p>
 
-<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+<div class="map-head">
   <!-- Page-scoped farm selector: independent of the sidebar's "Active
        Farm" dropdown, so viewing the map never changes the sidebar's
-       own selection (which may genuinely be "All Farms"). -->
-  <form method="GET" class="d-flex align-items-center gap-2">
+       own selection (which may genuinely be "All Farms"). Picking a farm
+       loads it straight away; the button only shows when JavaScript is off. -->
+  <form method="GET" class="map-farm-form" id="map-farm-form">
     <label for="map-farm-select" class="visually-hidden">Viewing farm</label>
+    <i class="bi bi-geo-alt-fill map-farm-icon" aria-hidden="true"></i>
     <select id="map-farm-select" name="farm" class="select-filter-rg">
       {% for f in all_user_farms %}
       <option value="{{ f.farm_id }}" {% if f.farm_id == map_farm.farm_id %}selected{% endif %}>{{ f.farm_id }} — {{ f.name }}</option>
       {% endfor %}
     </select>
-    <button type="submit" class="btn btn-sm btn-outline-secondary">Show farm</button>
+    <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Show farm</button></noscript>
   </form>
-  {% if not map_locked %}
-  <div class="text-muted text-sm-rg">
-    <i class="bi bi-info-circle"></i> Zoom in freely — zooming out is limited to this farm's bounds.
-  </div>
-  {% endif %}
 </div>
 
-<!-- Stats: only the Diseased card takes colour; Top Disease carries a small dot in its admin colour -->
-<div class="row g-2 g-md-3 mb-3">
-  <div class="col-6 col-md-3">
-    <div class="stat-card">
-      <div>
-        <div class="stat-label">Total Trees</div>
-        <div class="stat-value">{{ total }}</div>
-        <div class="stat-caption">{{ map_farm.name }}</div>
-      </div>
-      <div class="stat-icon" aria-hidden="true"><i class="bi bi-tree-fill"></i></div>
-    </div>
+<!-- Summary strip: one slim card. Only Diseased takes colour; Top Disease carries a dot in its admin colour -->
+<div class="summary-strip" role="group" aria-label="Farm summary">
+  <div class="summary-item">
+    <span class="summary-label">Total trees</span>
+    <span class="summary-value">{{ total }}</span>
+    <span class="summary-sub">{{ map_farm.name }}</span>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-card">
-      <div>
-        <div class="stat-label">Healthy</div>
-        <div class="stat-value">{{ counts.Healthy }}</div>
-        <div class="stat-caption">{{ healthy_pct }}% of trees</div>
-      </div>
-      <div class="stat-icon" aria-hidden="true"><i class="bi bi-check-circle"></i></div>
-    </div>
+  <div class="summary-item">
+    <span class="summary-label">Healthy</span>
+    <span class="summary-value">{{ counts.Healthy }}</span>
+    <span class="summary-sub">{{ healthy_pct }}% of trees</span>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-card is-danger">
-      <div>
-        <div class="stat-label">Diseased</div>
-        <div class="stat-value">{{ diseased }}</div>
-        <div class="stat-caption">{{ diseased_pct }}% of trees</div>
-      </div>
-      <div class="stat-icon" aria-hidden="true"><i class="bi bi-exclamation-triangle-fill"></i></div>
-    </div>
+  <div class="summary-item is-danger">
+    <span class="summary-label">Diseased</span>
+    <span class="summary-value">{{ diseased }}</span>
+    <span class="summary-sub">{{ diseased_pct }}% of trees</span>
   </div>
-  <div class="col-6 col-md-3">
-    <div class="stat-card">
-      <div>
-        <div class="stat-label">Top Disease</div>
-        <div class="stat-value">{% if top_disease and top_disease.count > 0 %}{{ top_disease.count }}{% else %}—{% endif %}</div>
-        <div class="stat-caption">
-          {% if top_disease and top_disease.count > 0 %}<span class="stat-dot" style="--c:{{ top_disease.color }};" aria-hidden="true"></span>{{ top_disease.name }}{% else %}No disease detected{% endif %}
-        </div>
-      </div>
-      <div class="stat-icon" aria-hidden="true"><i class="bi bi-virus"></i></div>
-    </div>
+  <div class="summary-item">
+    <span class="summary-label">Top disease</span>
+    <span class="summary-value">{% if top_disease and top_disease.count > 0 %}{{ top_disease.count }}{% else %}—{% endif %}</span>
+    <span class="summary-sub">{% if top_disease and top_disease.count > 0 %}<span class="stat-dot" style="--c:{{ top_disease.color }};" aria-hidden="true"></span>{{ top_disease.name }}{% else %}No disease detected{% endif %}</span>
   </div>
 </div>
 
@@ -137,8 +112,6 @@
 
 {% else %}
 
-<p class="map-touch-hint">On a touch screen, drag with two fingers to move the map. One finger scrolls the page.</p>
-
 <div class="card-rg map-card">
   <!-- Toolbar -->
   <div class="map-toolbar">
@@ -153,19 +126,21 @@
         <i class="bi bi-clipboard2-pulse-fill"></i> Interventions
       </button>
     </div>
-    <div class="search-wrap">
-      <i class="bi bi-search"></i>
-      <input type="text" id="map-search" class="form-control-rg" placeholder="Search tree ID" aria-label="Search tree ID">
+    <div class="map-toolbar-filters">
+      <div class="search-wrap">
+        <i class="bi bi-search"></i>
+        <input type="text" id="map-search" class="form-control-rg" placeholder="Search tree ID" aria-label="Search tree ID">
+      </div>
+      <select id="map-filter" class="select-filter-rg" aria-label="Filter by disease">
+        <option value="">All Diseases</option>
+        {% for d in disease_stats %}
+        <option value="{{ d.name }}"{% if d.is_healthy %} data-healthy="1"{% endif %}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" id="map-reset" class="btn btn-outline-secondary btn-icon" aria-label="Reset filters and fit the farm" title="Reset filters and fit the farm">
+        <i class="bi bi-arrow-counterclockwise"></i>
+      </button>
     </div>
-    <select id="map-filter" class="select-filter-rg" aria-label="Filter by disease">
-      <option value="">All Diseases</option>
-      {% for d in disease_stats %}
-      <option value="{{ d.name }}"{% if d.is_healthy %} data-healthy="1"{% endif %}>{{ d.name }}</option>
-      {% endfor %}
-    </select>
-    <button id="map-reset" class="btn btn-sm btn-outline-secondary">
-      <i class="bi bi-arrow-counterclockwise"></i> Reset
-    </button>
   </div>
 
   <!-- Map + floating panels (panels sit below the map on small screens) -->
@@ -180,22 +155,25 @@
     <!-- Panel: marker view — legend rows double as disease filters -->
     <aside id="panel-markers" class="map-panel" aria-label="Map legend">
       <button type="button" class="map-panel-head" aria-expanded="true">
-        <span>Diseases on this farm</span><i class="bi bi-chevron-up" aria-hidden="true"></i>
+        <span>Diseases on this farm</span>
+        <span class="legend-preview" aria-hidden="true">{% for d in disease_stats %}{% if d.count %}<b style="--c:{{ d.color }};"></b>{% endif %}{% endfor %}</span>
+        <i class="bi bi-chevron-up" aria-hidden="true"></i>
       </button>
       <div class="map-panel-body">
         <ul class="legend-list">
           {% for d in disease_stats %}
-          <li>
+          <li{% if not d.count %} class="is-empty"{% endif %}>
             <button type="button" class="legend-row" data-disease="{{ d.name }}" aria-pressed="false">
               <span class="legend-dot" style="--c:{{ d.color }};"></span>
               <span class="legend-name">{{ d.name }}</span>
               <span class="legend-count">{{ d.count }}</span>
+              <span class="legend-share" aria-hidden="true" style="--c:{{ d.color }};"><i style="width:{% widthratio d.count total 100 %}%;"></i></span>
             </button>
           </li>
           {% endfor %}
         </ul>
         <div class="legend-boundary"><span class="legend-dot-farm"></span>Farm boundary</div>
-        <p class="map-panel-hint">Tap a disease to show only those trees. Numbered bubbles group nearby trees; zoom in to split them.</p>
+        <p class="map-panel-hint">Tap a disease to show only those trees. Healthy trees are drawn small so sick ones stand out. A numbered ring groups nearby trees: each coloured part is one disease, so zoom in to split it.</p>
       </div>
     </aside>
 
@@ -268,12 +246,24 @@
       </div>
     </aside>
   </div>
+  <p class="map-footnote">
+    <i class="bi bi-info-circle" aria-hidden="true"></i>
+    <span>Zooming out is limited to this farm.<span class="map-touch-hint"> Use two fingers to move the map, or open it full screen with the expand button to move it with one.</span></span>
+  </p>
 </div>
 {% endif %}
 {% endif %}
 {% endblock %}
 
 {% block extra_scripts %}
+{% if not no_farms %}
+<script>
+  (function () {
+    var sel = document.getElementById('map-farm-select');
+    if (sel) sel.addEventListener('change', function () { sel.form.submit(); });
+  })();
+</script>
+{% endif %}
 {% if not no_farms and not map_locked %}
 <script>
   const FARM_MAP_DATA = {

@@ -614,12 +614,13 @@ body {
 .map-stage { --map-h: clamp(360px, 64vh, 680px); position: relative; isolation: isolate; }
 .map-stage .map-container-rg {
   height: var(--map-h); min-height: 0; max-height: none; background: var(--card-bg-alt);
+  border-radius: 0;
 }
 
 /* Floating panel (legend / heatmap controls / interventions summary) */
 .map-panel {
   position: absolute; top: 12px; right: 12px; z-index: 1100;
-  width: 280px; max-height: calc(var(--map-h) - 24px); overflow-y: auto;
+  width: 280px; max-height: calc(var(--map-h) - 48px); overflow-y: auto;   /* stops short of the OpenStreetMap credit */
   background: color-mix(in srgb, var(--card-bg) 92%, transparent);
   -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   border: 1px solid var(--border); border-radius: 12px;
@@ -1369,3 +1370,104 @@ code { color: var(--text-main); background: var(--card-bg-alt); border: 1px soli
 .rg-heat-tiles { filter: grayscale(.8) contrast(.9) brightness(1.04); }
 :root:not([data-theme="light"]) .rg-heat-tiles { filter: invert(1) hue-rotate(180deg) grayscale(.7) brightness(1.2) contrast(1.1); }
 .leaflet-container .leaflet-control-attribution a { text-decoration: underline; }   /* links must not rely on colour alone */
+
+
+/* ============================================================
+   FARM MAP REFRESH — farm picker row, slim summary strip, one-row toolbar,
+   legend share bars, footnote, map tools (fit / expand).
+   Colour stays reserved for disease status: nothing here adds a new hue.
+   ============================================================ */
+
+/* Farm picker: loads the farm as soon as it is chosen */
+.map-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.map-farm-form { position: relative; display: flex; align-items: center; gap: 8px; flex: 1 1 auto; max-width: 420px; }
+.map-farm-form .select-filter-rg { width: 100%; padding-left: 36px; }
+.map-farm-icon {
+  position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
+  color: var(--text-faint); font-size: 14px; pointer-events: none;
+}
+
+/* Summary strip: one slim card instead of four tall ones. Only Diseased takes colour. */
+.summary-strip {
+  display: grid; grid-template-columns: repeat(4, 1fr); margin-bottom: 12px; overflow: hidden;
+  background: var(--card-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.summary-item { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; min-width: 0; }
+.summary-item + .summary-item { border-left: 1px solid var(--border); }
+.summary-label { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.summary-value { font-size: 24px; font-weight: 700; line-height: 1.15; color: var(--text-main); font-variant-numeric: tabular-nums; }
+.summary-sub { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.summary-item.is-danger { box-shadow: inset 3px 0 0 var(--danger-bar); }
+.summary-item.is-danger .summary-value { color: var(--danger-text); }
+@media (max-width: 575.98px) {
+  .summary-strip { grid-template-columns: 1fr 1fr; }
+  .summary-item { padding: 10px 14px; }
+  .summary-item:nth-child(odd) { border-left: 0; }
+  .summary-item:nth-child(n+3) { border-top: 1px solid var(--border); }
+}
+
+/* Toolbar: view switch on the left; search, disease filter and an icon reset on the right */
+.map-toolbar { justify-content: space-between; }
+.map-toolbar-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 380px; justify-content: flex-end; min-width: 0; }
+.map-toolbar-filters .search-wrap { flex: 1 1 180px; min-width: 140px; max-width: 280px; }
+@media (max-width: 575.98px) {
+  .map-toolbar-filters { flex-basis: 100%; }
+  .map-toolbar-filters .search-wrap { flex: 1 1 100%; max-width: none; }
+  .map-toolbar-filters .select-filter-rg { flex: 1 1 0; min-width: 0; }
+}
+
+/* Legend rows: a thin bar under each name shows its share of the farm's trees;
+   diseases with no trees sink to the bottom, dimmed. */
+.legend-row { position: relative; padding-bottom: 12px; }
+.legend-share { position: absolute; left: 26px; right: 8px; bottom: 6px; height: 3px; border-radius: 2px; background: var(--bar-track); overflow: hidden; }
+.legend-share i { display: block; height: 100%; border-radius: 2px; background: var(--c, var(--text-faint)); }
+.legend-list li.is-empty { order: 1; }
+.legend-list li.is-empty .legend-row { opacity: .55; }
+/* When the panel is collapsed its header previews which diseases are on the farm */
+.legend-preview { display: none; align-items: center; gap: 4px; margin: 0 10px 0 auto; }
+.legend-preview b { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--text-faint)); }
+.map-panel.is-collapsed .legend-preview { display: inline-flex; }
+
+/* One footnote under the map (replaces the two helper lines that sat above it) */
+.map-footnote {
+  display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 10px 14px;
+  border-top: 1px solid var(--border); font-size: 12px; line-height: 1.45; color: var(--text-muted);
+}
+.map-footnote i { margin-top: 1px; }
+.map-footnote .map-touch-hint { display: none; margin: 0; }
+@media (hover: none) and (pointer: coarse) { .map-footnote .map-touch-hint { display: inline; } }
+
+/* Map buttons (zoom, fit, expand): 44px, in the app's surface colours instead of Leaflet's white */
+.map-stage .leaflet-bar { border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow-pop); overflow: hidden; }
+.map-stage .leaflet-bar a, .map-stage .leaflet-bar .rg-map-btn {
+  display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; line-height: 1;
+  background: var(--card-bg); color: var(--text-main); border: 0; border-bottom: 1px solid var(--border);
+  border-radius: 0; font-size: 20px; cursor: pointer;
+}
+.map-stage .leaflet-bar a:last-child, .map-stage .leaflet-bar .rg-map-btn:last-child { border-bottom: 0; }
+.map-stage .leaflet-bar a:hover, .map-stage .leaflet-bar .rg-map-btn:hover { background: var(--card-bg-alt); color: var(--text-main); }
+.map-stage .leaflet-bar .rg-map-btn { font-size: 16px; }
+.map-stage .leaflet-bar a:focus-visible, .map-stage .leaflet-bar .rg-map-btn:focus-visible { outline: 2px solid var(--primary-text); outline-offset: -2px; }
+.map-stage .leaflet-bar a.leaflet-disabled { color: var(--text-faint); background: var(--card-bg); }
+.map-stage .leaflet-control-zoom { margin-bottom: 8px; }
+
+/* Expanded map: fills the screen, one finger moves it */
+body.map-expanded { overflow: hidden; }
+.map-stage.is-expanded { --map-h: 100vh; position: fixed; inset: 0; z-index: 2000; background: var(--surface); }
+@supports (height: 100dvh) { .map-stage.is-expanded { --map-h: 100dvh; } }
+.map-stage.is-expanded .map-container-rg { height: var(--map-h); }
+@media (max-width: 767.98px) {
+  /* The legend sits under the map normally; expanded, it floats over the bottom edge */
+  .map-stage.is-expanded .map-panel {
+    position: absolute; top: auto; right: 10px; bottom: 30px; left: 10px; width: auto; margin: 0; max-height: 50vh; overflow-y: auto;
+    background: color-mix(in srgb, var(--card-bg) 94%, transparent); box-shadow: var(--shadow-pop);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  }
+}
+
+/* Marker-view donut clusters: thicker ring than the Interventions ring */
+.cluster-bubble.cluster-donut { padding: 7px; font-size: 13px; }
+.cluster-donut.cluster-md { padding: 8px; font-size: 14px; }
+.cluster-donut.cluster-lg { padding: 10px; font-size: 16px; }
+.cluster-donut > span { font-variant-numeric: tabular-nums; }

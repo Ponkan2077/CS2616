@@ -6,7 +6,9 @@
 
 // Shared canvas renderer for every circle marker on this map — draws all
 // visible markers into one <canvas> instead of one DOM element per tree.
-const FARM_MAP_CANVAS = L.canvas({ padding: 0.5 });
+// `tolerance` widens the tap/click area around each dot (they are only a few
+// pixels wide), more on touch screens where a fingertip is far bigger than a cursor.
+const FARM_MAP_CANVAS = L.canvas({ padding: 0.5, tolerance: L.Browser.mobile ? 12 : 4 });
 
 // Escapes text before it goes into popup HTML (owner/inspector names come
 // from the database and shouldn't be trusted as markup).
@@ -274,15 +276,18 @@ function attachTreePopup(marker, tree, detailCache) {
 }
 
 // Builds one canvas-rendered circle marker for a tree.
+// Healthy trees are drawn small and soft, diseased ones larger and solid, so on
+// a farm that is mostly healthy the sick trees are what the eye lands on.
 function buildTreeCircleMarker(tree, detailCache) {
+  const healthy = !!tree.is_healthy;
   const marker = L.circleMarker([tree.lat, tree.lng], {
     renderer: FARM_MAP_CANVAS,
-    radius: 6,
-    weight: 2,
+    radius: healthy ? 4.5 : 7,
+    weight: healthy ? 1.25 : 2,
     color: RG.tokens().mapRing,   // dark border so markers stay visible against both basemaps
-    opacity: 1,
+    opacity: healthy ? 0.7 : 1,
     fillColor: tree.color || RG.tokens().secondary,
-    fillOpacity: 0.92,
+    fillOpacity: healthy ? 0.6 : 0.95,
   });
   marker.treeId = tree.tree_id;
   marker.diseaseKey = tree.disease;
@@ -349,46 +354,60 @@ function buildPopupHtml(tree) {
   `;
 }
 
-function clusterSizing(count) {
-  if (count >= 250) return { sizeClass: 'cluster-lg', px: 58 };
-  if (count >= 40) return { sizeClass: 'cluster-md', px: 46 };
-  return { sizeClass: 'cluster-sm', px: 36 };
+function clusterSizing(count, donut) {
+  // The marker-view donut needs a thicker ring and a bigger centre than the
+  // Interventions ring, so its slices and its number both stay readable.
+  const s = donut ? [62, 50, 40] : [58, 46, 36];
+  if (count >= 250) return { sizeClass: 'cluster-lg', px: s[0] };
+  if (count >= 40) return { sizeClass: 'cluster-md', px: s[1] };
+  return { sizeClass: 'cluster-sm', px: s[2] };
 }
 
-// Cluster bubble icon — colored by whichever disease dominates that
-// cluster's child markers, sized in three tiers so a 900-tree cluster
-// visibly reads as "bigger" than a 12-tree one.
+// Cluster bubble icon for the marker view: a ring with one slice per disease
+// inside (diseased first, largest first; healthy last and muted), around a
+// plain centre showing the tree count. It shows the mix of trees in the bubble
+// rather than one dominant colour. Every disease present gets at least
+// CLUSTER_MIN_SLICE of the ring, so a few sick trees in a mostly healthy
+// cluster are still visible. Same ring shape as the Interventions clusters.
+// "Healthy" means any class flagged is_healthy (trunk "Healthy", "Healthy
+// Roots", ...), not one literal name.
+const CLUSTER_MIN_SLICE = 0.12;
+
 function makeClusterIcon(cluster) {
   const children = cluster.getAllChildMarkers();
   const count = children.length;
 
-  const tally = {};
-  children.forEach(m => { tally[m.diseaseKey] = (tally[m.diseaseKey] || 0) + 1; });
+  const groups = new Map();
+  children.forEach(m => {
+    let g = groups.get(m.diseaseKey);
+    if (!g) {
+      // Only a plain hex colour is allowed into the inline style below.
+      const raw = m.diseaseColor || '';
+      g = { n: 0, healthy: !!m.isHealthy, color: /^#[0-9a-fA-F]{3,8}$/.test(raw) ? raw : RG.tokens().textMuted };
+      groups.set(m.diseaseKey, g);
+    }
+    g.n += 1;
+  });
 
-  // A cluster that's mostly healthy but has even a handful of diseased
-  // trees should still read as "needs attention", not blend into the
-  // healthy-green background just because Healthy happens to be the
-  // single largest category. So any disease category present outranks
-  // healthy when picking the bubble color -- a healthy class only wins
-  // when every category in the cluster is healthy. Among multiple
-  // disease categories, the largest one still decides the color.
-  // "Healthy" means any class flagged is_healthy (trunk "Healthy",
-  // "Healthy Roots", ...), not one literal name.
-  const healthyKeys = new Set();
-  children.forEach(m => { if (m.isHealthy) healthyKeys.add(m.diseaseKey); });
-  const diseaseKeys = Object.keys(tally).filter(k => !healthyKeys.has(k));
-  let dominant = null, max = -1;
-  const contenders = diseaseKeys.length > 0 ? diseaseKeys : Object.keys(tally);
-  contenders.forEach(k => { if (tally[k] > max) { max = tally[k]; dominant = k; } });
-  const dominantMarker = children.find(m => m.diseaseKey === dominant);
-  // Only a plain hex colour is allowed into the inline style below.
-  const rawColor = dominantMarker && dominantMarker.diseaseColor;
-  const color = /^#[0-9a-fA-F]{3,8}$/.test(rawColor || '') ? rawColor : RG.tokens().textMuted;
-  const mixed = Object.keys(tally).length > 1;
+  const slices = Array.from(groups.values())
+    .sort((a, b) => (a.healthy - b.healthy) || (b.n - a.n))
+    .map(g => ({ ...g, w: g.healthy ? g.n / count : Math.max(g.n / count, CLUSTER_MIN_SLICE) }));
+  const total = slices.reduce((sum, g) => sum + g.w, 0);
+  const gap = slices.length > 1 ? 0.8 : 0;   // thin separator between slices, in % of the ring
+  let at = 0;
+  const stops = slices.map(g => {
+    const from = at / total * 100;
+    at += g.w;
+    const to = at / total * 100;
+    const end = Math.max(from, to - gap);
+    const fill = g.healthy ? `color-mix(in srgb, ${g.color} 30%, var(--card-bg))` : g.color;
+    return `${fill} ${from}% ${end}%, var(--card-bg) ${end}% ${to}%`;
+  });
 
-  const { sizeClass, px } = clusterSizing(count);
+  const diseased = children.filter(m => !m.isHealthy).length;
+  const { sizeClass, px } = clusterSizing(count, true);
   return L.divIcon({
-    html: `<div class="cluster-bubble ${sizeClass}" style="background:${color};${mixed ? 'border-style:dashed;' : ''}">${count}</div>`,
+    html: `<div class="cluster-bubble cluster-ring cluster-donut ${sizeClass}" style="background:conic-gradient(${stops.join(', ')});" title="${diseased} of ${count} diseased"><span>${count}</span></div>`,
     className: 'marker-cluster-custom',
     iconSize: L.point(px, px),
   });
@@ -455,8 +474,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // farm as ~1,500 overlapping dots instead of the summarized bubbles.
   const MAX_FIT_ZOOM = 18.25;
 
+  // On a phone the map buttons sit down the right edge, so keep the farm clear of them.
+  const fitInset = () => panelInset() || 56;
+
   function fitFarm() {
-    const inset = panelInset();
+    const inset = fitInset();
     map.fitBounds(leafletBounds, { paddingBottomRight: [inset, 0], maxZoom: MAX_FIT_ZOOM, animate: false });
     // The view now reaches `inset` px past the farm's east edge. Widen the
     // pan limit by the same amount; otherwise maxBounds would pull the farm
@@ -579,6 +601,8 @@ document.addEventListener('DOMContentLoaded', () => {
     activeClusterGroup = buildClusterGroup(iconFn);
     const build = markerFn || buildTreeCircleMarker;
     const layers = subsetTrees.map(tree => build(tree, detailCache));
+    // Healthy dots go in first so diseased ones are drawn on top of them.
+    layers.sort((a, b) => (b.isHealthy === true) - (a.isHealthy === true));
     activeClusterGroup.addLayers(layers);
     return activeClusterGroup;
   }
@@ -614,6 +638,53 @@ document.addEventListener('DOMContentLoaded', () => {
     : [];
 
   // ------------------------------------------------------------
+  // Map tools under the zoom buttons: fit the whole farm, and expand the map
+  // to fill the screen. Expanded, one finger moves the map (on a phone the
+  // normal map only moves with two, so the page can still scroll).
+  // ------------------------------------------------------------
+  const stage = document.querySelector('.map-stage');
+  const MapTools = L.Control.extend({
+    options: { position: 'topleft' },
+    onAdd() {
+      const bar = L.DomUtil.create('div', 'leaflet-bar rg-map-tools');
+      const button = (icon, label, onClick) => {
+        const b = L.DomUtil.create('button', 'rg-map-btn', bar);
+        b.type = 'button';
+        b.title = label;
+        b.setAttribute('aria-label', label);
+        b.innerHTML = `<i class="bi ${icon}" aria-hidden="true"></i>`;
+        L.DomEvent.disableClickPropagation(b);
+        L.DomEvent.on(b, 'click', onClick);
+        return b;
+      };
+      button('bi-bullseye', 'Fit the whole farm', () => fitFarm());
+      this._expand = button('bi-arrows-fullscreen', 'Expand the map', () => setExpanded(!stage.classList.contains('is-expanded')));
+      return bar;
+    },
+  });
+  // Wide screens: the buttons sit top-left because the legend floats top-right.
+  // On a phone the legend is below the map, so they move to the top-right and
+  // leave the farm's western edge uncovered.
+  const toolsOnRight = panelInset() === 0;
+  if (toolsOnRight) { map.zoomControl.setPosition('topright'); }
+  const mapTools = new MapTools({ position: toolsOnRight ? 'topright' : 'topleft' }).addTo(map);
+
+  function setExpanded(on) {
+    stage.classList.toggle('is-expanded', on);
+    document.body.classList.toggle('map-expanded', on);
+    const btn = mapTools._expand;
+    btn.querySelector('i').className = 'bi ' + (on ? 'bi-fullscreen-exit' : 'bi-arrows-fullscreen');
+    const label = on ? 'Close the expanded map' : 'Expand the map';
+    btn.title = label; btn.setAttribute('aria-label', label);
+    if (L.Browser.mobile) { on ? map.dragging.enable() : map.dragging.disable(); }
+    map.invalidateSize();
+    if (on) btn.focus({ preventScroll: true });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && stage.classList.contains('is-expanded')) setExpanded(false);
+  });
+
+  // ------------------------------------------------------------
   // Panels and the "nothing matches" message
   // ------------------------------------------------------------
   function showPanel(name) {
@@ -633,6 +704,15 @@ document.addEventListener('DOMContentLoaded', () => {
       head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
     });
   });
+
+  // On a phone the legend sits under the map and is long, so it starts
+  // collapsed (its header shows the disease colours); the heatmap and
+  // interventions panels hold controls and stay open.
+  if (panels.markers && window.matchMedia('(max-width: 767.98px)').matches) {
+    panels.markers.classList.add('is-collapsed');
+    const head = panels.markers.querySelector('.map-panel-head');
+    if (head) head.setAttribute('aria-expanded', 'false');
+  }
 
   const emptyBox = $('map-empty');
   function showEmpty(title, body) {

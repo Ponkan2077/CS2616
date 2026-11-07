@@ -310,12 +310,12 @@ class FarmMapPageGateTests(MapGateTestCase):
         self.assertContains(response, 'id="map-container"')
         self.assertNotContains(response, "to show the live map")
 
-    def test_locked_page_keeps_the_stat_cards(self):
+    def test_locked_page_keeps_the_summary_strip(self):
         self.add_trees(_spread_points(2))
         response = self.get_map()
         self.assertEqual(response.context["total"], 2)
-        # The Farm Map page uses the same stat cards as Tree Inventory.
-        self.assertContains(response, "stat-card")
+        # The Farm Map page shows its farm summary strip even while the map is locked.
+        self.assertContains(response, "summary-item")
 
 
 class AddFarmFormTests(MapGateTestCase):
