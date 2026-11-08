@@ -113,6 +113,7 @@
   </div>
 </div>
 
+{% if can_add_disease %}
 <div class="card-rg">
   <div class="card-header-rg"><i class="bi bi-plus-circle-fill"></i> Add Disease Class</div>
   <div class="card-body-rg">
@@ -161,4 +162,10 @@
     </form>
   </div>
 </div>
+{% else %}
+<div class="card-rg">
+  <div class="card-header-rg"><i class="bi bi-plus-circle-fill"></i> Add Disease Class</div>
+  <div class="card-body-rg text-muted">Your account can view this page but doesn't have permission to add disease classes. Ask an administrator to grant the "Can add disease class" permission.</div>
+</div>
+{% endif %}
 {% endblock %}

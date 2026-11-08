@@ -17,12 +17,13 @@ from django.test import TestCase, override_settings
 
 from farmmap import ai_inference, views
 from farmmap.models import DiseaseClass, Farm, RubberTree
+from farmmap.photo_fixtures import ROOT_PHOTO, TRUNK_PHOTO, OTHER_TRUNK_PHOTO
 
 AJAX = {"HTTP_X_REQUESTED_WITH": "XMLHttpRequest"}
 ROOT_KEY = "scans/roots/2026/11/" + "a" * 32 + ".webp"
 TRUNK_KEY = "scans/trunks/2026/11/" + "b" * 32 + ".webp"
-ROOT_BYTES = b"root-photo-bytes"
-TRUNK_BYTES = b"trunk-photo-bytes"
+ROOT_BYTES = ROOT_PHOTO      # real (tiny) images: the server checks photos really are images
+TRUNK_BYTES = TRUNK_PHOTO
 MODEL_RESULT = {"disease": "Pink Disease", "confidence": 72.0, "root_condition": "Healthy Roots"}
 
 
@@ -172,7 +173,7 @@ class AnalysisTokenTests(GpsBase):
 
     def test_token_for_different_photos_is_ignored(self):
         token = self.analyze().json()["token"]
-        self.photos[TRUNK_KEY] = b"a-different-trunk-photo"
+        self.photos[TRUNK_KEY] = OTHER_TRUNK_PHOTO
         self.save_scan(token, "T4")
         self.assertEqual(self.infer_mock.call_count, 2)
 

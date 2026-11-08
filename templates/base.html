@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {# Who is signed in. offline_queue.js tags every queued tree with this id and only shows/syncs the signed-in user's own, so a phone shared by two logins never mixes their queues. #}
+  <meta name="rg-user-id" content="{% if user.is_authenticated %}{{ user.pk }}{% endif %}">
   <script>
     // Applies the saved theme (else the OS preference, else dark) before first
     // paint so the page never flashes the wrong one. theme.js wires the toggle.

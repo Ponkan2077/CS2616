@@ -3,16 +3,25 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-rubberguard-thesis-prototype-2025-change-in-production'
+# Set DJANGO_SECRET_KEY in the environment (PythonAnywhere: Web tab ->
+# Environment variables, or the WSGI file) before real farmers use the site.
+# The fallback below is the old development key, so nothing changes until the
+# variable is set. That key is public on GitHub, so once the variable is set
+# the old key should never be used again.
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-rubberguard-thesis-prototype-2025-change-in-production',
+)
 
 DEBUG = True
 
 ALLOWED_HOSTS = ['*']  # PythonAnywhere: add your .pythonanywhere.com domain here
 
-# Required so Django trusts POST requests coming from the PythonAnywhere
-# domain (Django 4+ requires the scheme to be included explicitly).
+# Required so Django trusts POST requests coming from this site's own
+# domain (Django 4+ requires the scheme to be included explicitly). Only this
+# site's host is listed: a "*.pythonanywhere.com" wildcard would also trust
+# every other PythonAnywhere customer's site.
 CSRF_TRUSTED_ORIGINS = [
-    'https://*.pythonanywhere.com',
     'https://reyursus.pythonanywhere.com',
 ]
 

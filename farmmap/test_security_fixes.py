@@ -7,13 +7,14 @@ import datetime
 from unittest import mock
 
 from botocore.exceptions import ClientError
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Permission, User
 from django.core.cache import cache
 from django.test import TestCase, SimpleTestCase
 from django.urls import reverse
 
 from farmmap import direct_upload, views
 from farmmap.models import DiseaseClass, Farm, Intervention, RubberTree
+from farmmap.photo_fixtures import ROOT_PHOTO
 
 GOOD_KEY = "scans/roots/2026/11/" + "a" * 32 + ".webp"
 GOOD_TRUNK_KEY = "scans/trunks/2026/11/" + "b" * 32 + ".webp"
@@ -121,7 +122,7 @@ class ResultValidationTests(Base):
 class UploadKeyTests(Base):
     def test_unissued_or_malformed_keys_rejected(self):
         with mock.patch.object(direct_upload, "CLOUD_STORAGE_ENABLED", True), \
-             mock.patch("farmmap.direct_upload.fetch_uploaded_bytes", return_value=b"x") as fetch:
+             mock.patch("farmmap.direct_upload.fetch_uploaded_bytes", return_value=ROOT_PHOTO) as fetch:
             for key in ("private/other-user-object.webp", "../../etc/passwd", GOOD_KEY):
                 r = self.save(root_image_key=key)
                 self.assertEqual(r.status_code, 400, key)
@@ -134,7 +135,7 @@ class UploadKeyTests(Base):
 
     def test_issued_key_accepted(self):
         s = self.client.session; s["issued_upload_keys"] = [GOOD_KEY, GOOD_TRUNK_KEY]; s.save()
-        with mock.patch("farmmap.direct_upload.fetch_uploaded_bytes", return_value=b"x"):
+        with mock.patch("farmmap.direct_upload.fetch_uploaded_bytes", return_value=ROOT_PHOTO):
             r = self.save(tree_id="K1", root_image_key=GOOD_KEY, trunk_image_key=GOOD_TRUNK_KEY)
         self.assertEqual(r.status_code, 200, r.content)
         self.assertEqual(RubberTree.objects.get(tree_id="F1-K1").root_image.name, GOOD_KEY)
@@ -263,6 +264,8 @@ class SmallViewFixes(Base):
 
     def test_admin_disease_form_validates(self):
         staff = User.objects.create_user("boss", password="pw-Strong-123", is_staff=True)
+        # Staff alone only opens the page; adding a class needs the permission too.
+        staff.user_permissions.add(Permission.objects.get(codename="add_diseaseclass"))
         self.client.login(username="boss", password="pw-Strong-123")
         base = dict(name="Leaf Blight", color_hex="#112233", danger_rank="2")
         for bad in (dict(color_hex="red\"><script>"), dict(danger_rank="x")):

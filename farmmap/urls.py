@@ -39,7 +39,7 @@ urlpatterns = [
     path('admin-dashboard/', views.admin_dashboard, name='admin_dashboard'),
 
     # Authentication
-    path('login/', never_cache(auth_views.LoginView.as_view(template_name='login.html')), name='login'),
+    path('login/', never_cache(views.ThrottledLoginView.as_view(template_name='login.html')), name='login'),
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('register/', views.register, name='register'),
 ]

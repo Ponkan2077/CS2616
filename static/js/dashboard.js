@@ -9,6 +9,13 @@
    rest is read from the CSS variables, and the doughnut is rebuilt on
    "themechange". */
 
+// Escapes text before it goes into popup HTML.
+function dashEscape(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
+  ));
+}
+
 function renderDashboardPie(diseaseStats) {
   const canvas = document.getElementById("dashboardPie");
   if (!canvas || typeof Chart === "undefined") return;
@@ -62,7 +69,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const circle = L.circleMarker([tree.lat, tree.lng], {
       radius: 7, color: RG.tokens().mapRingInv, weight: 1.5, fillColor: tree.color, fillOpacity: 0.9,
     });
-    circle.bindPopup(`<b>${tree.tree_id}</b><br>${tree.disease} · ${tree.confidence}%`);
+    circle.bindPopup(`<b>${dashEscape(tree.tree_id)}</b><br>${dashEscape(tree.disease)} · ${dashEscape(tree.confidence)}%`);
 
     circle.on("popupopen", async () => {
       if (detailCache[tree.tree_id]) {
@@ -70,13 +77,13 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       try {
-        const res = await fetch(`/map/marker/${tree.tree_id}/`);
+        const res = await fetch(`/map/marker/${encodeURIComponent(tree.tree_id)}/`);
         if (!res.ok) throw new Error("fetch failed");
         const detail = await res.json();
         const html = `
-          <b>${detail.tree_id}</b><br>
-          ${detail.disease} · ${detail.confidence}%<br>
-          <a href="/inventory/${detail.tree_id}/" class="small">View Details →</a>
+          <b>${dashEscape(detail.tree_id)}</b><br>
+          ${dashEscape(detail.disease)} · ${dashEscape(detail.confidence)}%<br>
+          <a href="/inventory/${encodeURIComponent(detail.tree_id)}/" class="small">View Details →</a>
         `;
         detailCache[tree.tree_id] = html;
         circle.setPopupContent(html);

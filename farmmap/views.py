@@ -11,8 +11,10 @@ from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
+from django.contrib.auth import views as auth_views
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.urls import reverse, NoReverseMatch
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -23,7 +25,7 @@ from .models import (
     Farm, RubberTree, ScanHistory, Intervention, DiseaseClass, UserSettings,
     NotificationDismissal, get_disease_lookup, get_healthy_names, get_min_gps_points,
 )
-from .imaging import resize_for_storage
+from .imaging import resize_for_storage, is_valid_image
 from . import ai_inference
 from . import storage_stats
 from . import direct_upload
@@ -42,8 +44,30 @@ FARM_ID_MAX_LENGTH = 20   # leaves room for "-RT-0001" style suffixes
 
 # Max presigned-upload URLs one user can request per day (2 per scan).
 UPLOAD_URLS_PER_DAY = 1000
+# Max AI model calls one user can trigger per day (analyze, plus the fallback
+# run at save). Each call costs a request to the hosted model, and sign-up is
+# open, so one account must not be able to run it up. Above UPLOAD_URLS_PER_DAY
+# / 2 scans so a long bulk-upload day is never blocked.
+ANALYZE_CALLS_PER_DAY = 800
 # Max issued upload keys remembered per session (see request_upload_url).
 ISSUED_KEYS_KEPT = 500
+
+# Largest single photo accepted through the normal (multipart) upload. The
+# phone shrinks photos to ~100 KB WebP before sending, so this is only a
+# ceiling for older browsers that send the original.
+MAX_PHOTO_UPLOAD_BYTES = 12 * 1024 * 1024
+
+# Login throttling: after this many wrong passwords for one username, further
+# attempts for it are refused until the window passes. Counted per username
+# (not per IP) because behind PythonAnywhere's proxy the IP can't be trusted.
+LOGIN_MAX_FAILURES = 10
+LOGIN_FAILURE_WINDOW_S = 15 * 60
+
+# Longest a disease class name may be (DiseaseClass.name max_length) and the
+# characters it may use. It is shown all over the app and must match the
+# model's class label, so plain words only.
+DISEASE_NAME_MAX_LENGTH = 50
+_DISEASE_NAME_RE = re.compile(r"\w[\w .\-()]*")
 
 _JS_ESCAPES = {
     ord("<"): "\\u003c", ord(">"): "\\u003e", ord("&"): "\\u0026",
@@ -60,6 +84,80 @@ def _json_for_script(obj, **kwargs):
 
 def _is_valid_id(value, max_length):
     return bool(value) and len(value) <= max_length and _ID_RE.fullmatch(value) is not None
+
+
+def _take_daily_slot(name, user, limit):
+    # Counts one use of a per-user daily allowance (cache key per user and
+    # day). Returns False once `limit` uses have been taken today.
+    key = f"{name}:{user.pk}:{timezone.localdate().isoformat()}"
+    cache.add(key, 0, timeout=86400)
+    try:
+        used_today = cache.incr(key)
+    except ValueError:  # key expired between add() and incr()
+        cache.set(key, 1, timeout=86400)
+        used_today = 1
+    return used_today <= limit
+
+
+class PhotoError(ValueError):
+    """An uploaded photo is too big or isn't a JPEG/PNG/WebP image."""
+
+
+def _read_photo(upload):
+    # Reads one uploaded photo into bytes, after checking its size and that it
+    # really is an image. Used before the bytes go to the AI model or storage,
+    # so a file that only claims to be a photo is stopped here.
+    if upload.size > MAX_PHOTO_UPLOAD_BYTES:
+        raise PhotoError("One of the photos is too large. Please use a smaller photo.")
+    data = upload.read()
+    upload.seek(0)
+    if not is_valid_image(data):
+        raise PhotoError("One of the files isn't a valid photo (use JPEG, PNG or WebP).")
+    return data
+
+
+def _safe_cell(value):
+    # Spreadsheet programs run a cell that starts with = + - @ (or tab / CR) as
+    # a formula. Farm names and disease names are typed by users or admins, so
+    # an export prefixes such text with an apostrophe to keep it plain text.
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+class ThrottledLoginView(auth_views.LoginView):
+    """Django's login with a limit on wrong passwords per username. Stops
+    password guessing: after LOGIN_MAX_FAILURES misses the account's login is
+    paused for LOGIN_FAILURE_WINDOW_S seconds, and a correct sign-in resets
+    the count."""
+
+    @staticmethod
+    def _failure_key(username):
+        digest = hashlib.sha256(username.strip().lower().encode("utf-8")).hexdigest()
+        return f"login-failures:{digest}"
+
+    def post(self, request, *args, **kwargs):
+        username = request.POST.get("username", "")
+        if cache.get(self._failure_key(username), 0) >= LOGIN_MAX_FAILURES:
+            messages.error(
+                request,
+                "Too many failed sign-in attempts. Please wait 15 minutes, then try again.",
+            )
+            return redirect("login")
+        return super().post(request, *args, **kwargs)
+
+    def form_invalid(self, form):
+        key = self._failure_key(self.request.POST.get("username", ""))
+        cache.add(key, 0, timeout=LOGIN_FAILURE_WINDOW_S)
+        try:
+            cache.incr(key)
+        except ValueError:  # expired between add() and incr()
+            cache.set(key, 1, timeout=LOGIN_FAILURE_WINDOW_S)
+        return super().form_invalid(form)
+
+    def form_valid(self, form):
+        cache.delete(self._failure_key(self.request.POST.get("username", "")))
+        return super().form_valid(form)
 
 
 def _parse_confidence(value):
@@ -1244,8 +1342,19 @@ def analyze_detection(request):
     if not root_file or not trunk_file:
         return JsonResponse({"error": "Add both a root photo and a trunk photo, then try again."}, status=400)
 
-    root_bytes = root_file.read()
-    trunk_bytes = trunk_file.read()
+    # Only real photos are forwarded to the paid model endpoint.
+    try:
+        root_bytes = _read_photo(root_file)
+        trunk_bytes = _read_photo(trunk_file)
+    except PhotoError as exc:
+        return JsonResponse({"error": str(exc)}, status=400)
+
+    if not _take_daily_slot("analyze-calls", request.user, ANALYZE_CALLS_PER_DAY):
+        return JsonResponse(
+            {"error": "You've reached today's limit for photo analysis. Please try again tomorrow."},
+            status=429,
+        )
+
     try:
         result = ai_inference.classify_images(root_bytes, trunk_bytes)
     except ai_inference.InferenceError as exc:
@@ -1296,14 +1405,7 @@ def request_upload_url(request):
         except ValueError:
             return JsonResponse({"error": "size must be a whole number of bytes"}, status=400)
 
-    counter_key = f"upload-urls:{request.user.pk}:{timezone.localdate().isoformat()}"
-    cache.add(counter_key, 0, timeout=86400)
-    try:
-        used_today = cache.incr(counter_key)
-    except ValueError:  # key expired between add() and incr()
-        cache.set(counter_key, 1, timeout=86400)
-        used_today = 1
-    if used_today > UPLOAD_URLS_PER_DAY:
+    if not _take_daily_slot("upload-urls", request.user, UPLOAD_URLS_PER_DAY):
         return JsonResponse(
             {"error": "You've reached today's photo upload limit. Please try again tomorrow."},
             status=429,
@@ -1483,30 +1585,42 @@ def save_detection(request):
         logger.exception("Could not read an uploaded scan photo back from storage")
         return fail("We couldn't read an uploaded photo. Please add it again and retry.", status=502)
 
+    # A presigned upload accepts any bytes, so what was read back from storage
+    # is checked to be a real photo before it is stored or sent to the model.
+    for uploaded in (root_file_bytes if root_image_key else None, trunk_file_bytes if trunk_image_key else None):
+        if uploaded is not None and not is_valid_image(uploaded):
+            return fail("One of the uploaded files isn't a valid photo (use JPEG, PNG or WebP). Please add it again.")
+
     # Fallback path: a raw file came through the multipart form instead
     # (older browsers without canvas/WebP support, direct uploads
     # unavailable because cloud storage isn't configured, or this is an
     # offline-queued scan being synced -- those always use this path,
     # since they were never uploaded to R2 while offline).
-    if not root_image_key and request.FILES.get("root_image"):
-        f = request.FILES["root_image"]
-        root_file_bytes = f.read()
-        f.seek(0)
-        root_image_resized = resize_for_storage(f, f.name)
-    if not trunk_image_key and request.FILES.get("trunk_image"):
-        f = request.FILES["trunk_image"]
-        trunk_file_bytes = f.read()
-        f.seek(0)
-        trunk_image_resized = resize_for_storage(f, f.name)
+    try:
+        if not root_image_key and request.FILES.get("root_image"):
+            f = request.FILES["root_image"]
+            root_file_bytes = _read_photo(f)
+            root_image_resized = resize_for_storage(f, f.name)
+        if not trunk_image_key and request.FILES.get("trunk_image"):
+            f = request.FILES["trunk_image"]
+            trunk_file_bytes = _read_photo(f)
+            trunk_image_resized = resize_for_storage(f, f.name)
+    except PhotoError as exc:
+        return fail(str(exc))
+    except OSError:
+        # Pillow could not decode the file after all (cut off or corrupt).
+        return fail("One of the photos couldn't be read. Please retake it and try again.")
 
     # The disease/confidence fields in the save form could be edited in
     # devtools before submit, so they aren't trusted outright. Normally the
     # result is taken from the signed token analyze_detection() issued for
     # these exact photos (see _read_analysis_token), which needs no second
     # model call. Only when there is no valid token (older queued scans, photos
-    # changed after analysis, an expired token) is inference re-run here, and
-    # only if that second call fails transiently do the submitted values get
-    # used, so a flaky or cold-starting model host never blocks saving a scan.
+    # changed after analysis, an expired token) is inference re-run here. If the
+    # model is switched on but gives no answer, the scan is NOT saved with the
+    # submitted values: they can be edited in devtools, so storing them would
+    # let anyone write any diagnosis into the statistics. The phone's offline
+    # queue treats the 503 as "try again later", so nothing is lost.
     used_ai = False
     analysis = None
     analysis_token = request.POST.get("analysis_token", "").strip()
@@ -1519,6 +1633,8 @@ def save_detection(request):
             root_condition = analysis["root_condition"]
         used_ai = True
     elif ai_inference.AI_MODEL_ENABLED and root_file_bytes and trunk_file_bytes:
+        if not _take_daily_slot("analyze-calls", request.user, ANALYZE_CALLS_PER_DAY):
+            return fail("You've reached today's limit for photo analysis. Please try again tomorrow.", status=429)
         try:
             result = ai_inference.classify_images(root_file_bytes, trunk_file_bytes)
             disease = result["disease"]
@@ -1527,7 +1643,14 @@ def save_detection(request):
                 root_condition = result["root_condition"]
             used_ai = True
         except ai_inference.InferenceError as exc:
-            logger.warning("AI inference failed during save, using submitted result: %s", exc)
+            logger.warning("AI inference failed during save: %s", exc)
+            return fail(
+                "The detection service didn't respond, so this scan wasn't saved. Please try again in a moment.",
+                status=503,
+            )
+    elif ai_inference.AI_MODEL_ENABLED:
+        # Model is on but there is nothing to run it on (a photo is missing).
+        return fail("Add both a root photo and a trunk photo, then run the analysis before saving.")
 
     # Whatever came from the form (not from the model just above) is
     # validated: confidence must be a real number (0-100), and the disease
@@ -1929,22 +2052,22 @@ def export_csv(request):
 
     writer = csv.writer(response)
     writer.writerow(["RubberGuard Disease Detection Summary"])
-    writer.writerow(["Scope", farm.name if farm else "All Farms"])
+    writer.writerow(["Scope", _safe_cell(farm.name) if farm else "All Farms"])
     writer.writerow([])
     writer.writerow(["Disease Class", "Count", "Percentage"])
     for d in disease_stats:
-        writer.writerow([d["name"], d["count"], f'{d["pct"]}%'])
+        writer.writerow([_safe_cell(d["name"]), d["count"], f'{d["pct"]}%'])
     writer.writerow(["Total", total, "100%"])
 
     if not farm:
         disease_names = [d["name"] for d in disease_stats]
         writer.writerow([])
         writer.writerow(["Per-Farm Breakdown"])
-        writer.writerow(["Farm ID", "Farm Name", "Owner", "Total Trees"] + disease_names)
+        writer.writerow(["Farm ID", "Farm Name", "Owner", "Total Trees"] + [_safe_cell(n) for n in disease_names])
         for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
             f_stats = {d["name"]: d["count"] for d in _get_full_disease_stats(request, f)}
             writer.writerow(
-                [f.farm_id, f.name, f.owner_name, f.trees.count()]
+                [_safe_cell(f.farm_id), _safe_cell(f.name), _safe_cell(f.owner_name), f.trees.count()]
                 + [f_stats.get(name, 0) for name in disease_names]
             )
 
@@ -1973,7 +2096,7 @@ def export_excel(request):
 
     ws.append(["RubberGuard Disease Detection Summary"])
     ws["A1"].font = title_font
-    ws.append(["Scope", farm.name if farm else "All Farms"])
+    ws.append(["Scope", _safe_cell(farm.name) if farm else "All Farms"])
     ws.append([])
 
     ws.append(["Disease Class", "Count", "Percentage"])
@@ -1982,7 +2105,7 @@ def export_excel(request):
         cell.fill = header_fill
 
     for d in disease_stats:
-        ws.append([d["name"], d["count"], f'{d["pct"]}%'])
+        ws.append([_safe_cell(d["name"]), d["count"], f'{d["pct"]}%'])
     ws.append(["Total", total, "100%"])
     for cell in ws[ws.max_row]:
         cell.font = Font(bold=True)
@@ -1992,14 +2115,14 @@ def export_excel(request):
         ws.append([])
         ws.append(["Per-Farm Breakdown"])
         ws[f"A{ws.max_row}"].font = Font(bold=True, size=11)
-        ws.append(["Farm ID", "Farm Name", "Owner", "Total Trees"] + disease_names)
+        ws.append(["Farm ID", "Farm Name", "Owner", "Total Trees"] + [_safe_cell(n) for n in disease_names])
         for cell in ws[ws.max_row]:
             cell.font = header_font
             cell.fill = header_fill
         for f in Farm.objects.filter(owner=request.user).order_by("farm_id"):
             f_stats = {d["name"]: d["count"] for d in _get_full_disease_stats(request, f)}
             ws.append(
-                [f.farm_id, f.name, f.owner_name, f.trees.count()]
+                [_safe_cell(f.farm_id), _safe_cell(f.name), _safe_cell(f.owner_name), f.trees.count()]
                 + [f_stats.get(name, 0) for name in disease_names]
             )
 
@@ -2100,7 +2223,15 @@ def admin_dashboard(request):
     # /admin/ for all the fields), plus storage and AI-model status at a
     # glance. Restricted to staff accounts (create one via
     # `manage.py createsuperuser` or the /admin/ Users page).
+    #
+    # Being staff only opens the page. Adding a disease class changes the
+    # colours and treatment advice every farmer sees, so it also needs the same
+    # Django permission /admin/ asks for (superusers always have it); a staff
+    # account with no permissions can look but not change.
+    can_add_disease = request.user.has_perm("farmmap.add_diseaseclass")
     if request.method == "POST":
+        if not can_add_disease:
+            raise PermissionDenied
         name = request.POST.get("name", "").strip()
         color_hex = request.POST.get("color_hex", "#6c757d").strip()
         # Colours are written into inline styles and map-icon markup, so
@@ -2116,6 +2247,12 @@ def admin_dashboard(request):
         )
         if not name:
             messages.error(request, "Disease name is required.")
+        elif len(name) > DISEASE_NAME_MAX_LENGTH or _DISEASE_NAME_RE.fullmatch(name) is None:
+            messages.error(
+                request,
+                f"Disease name can use letters, numbers, spaces, dashes, dots and brackets "
+                f"(up to {DISEASE_NAME_MAX_LENGTH} characters).",
+            )
         elif not color_ok:
             messages.error(request, "Pick a colour in the form #rrggbb, for example #dc2626.")
         elif danger_rank is None:
@@ -2159,6 +2296,7 @@ def admin_dashboard(request):
     ctx = _base_context(request, _get_farm_or_none(request))
     ctx.update({
         "page": "admin_dashboard",
+        "can_add_disease": can_add_disease,
         "diseases": diseases,
         "storage_summary": storage_stats.get_storage_summary(),
         "ai_status": ai_status,

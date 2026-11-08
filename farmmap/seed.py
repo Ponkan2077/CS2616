@@ -10,9 +10,11 @@ Only deletes and recreates data belonging to the demo user (username
 Uses bulk_create for performance since this generates thousands of rows.
 """
 
+import os
 import random
 import math
 import datetime
+import secrets
 from django.contrib.auth.models import User
 from farmmap.models import Farm, RubberTree, ScanHistory, Intervention, DiseaseClass
 
@@ -197,9 +199,13 @@ def generate_grid_positions(center_lat, center_lng, count, row_spacing_m=6, col_
 # Create (or reuse) the demo user that owns all seeded data.
 demo_user, created = User.objects.get_or_create(username="demo")
 if created:
-    demo_user.set_password("demo12345")
+    # No fixed password: this file is public on GitHub, so a hard-coded one
+    # would be a known login on any site this is run against. Set DEMO_PASSWORD
+    # to choose one; otherwise a random one is generated and printed once.
+    demo_password = os.environ.get("DEMO_PASSWORD") or secrets.token_urlsafe(12)
+    demo_user.set_password(demo_password)
     demo_user.save()
-    print("Created demo user: username='demo', password='demo12345'")
+    print(f"Created demo user: username='demo', password='{demo_password}'")
 else:
     print("Using existing demo user: username='demo'")
 

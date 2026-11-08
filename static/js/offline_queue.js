@@ -33,6 +33,19 @@ const OFFLINE_DB_NAME = "rubberguard_offline";
 const OFFLINE_DB_VERSION = 1;
 const OFFLINE_STORE = "pending_scans";
 
+// The offline page cache sw.js keeps the Bulk Upload page in (must match
+// CACHE_NAME in sw.js). Emptied of that page on logout, see below.
+const OFFLINE_SHELL_CACHE = "rubberguard-offline-shell-v2";
+const OFFLINE_BULK_PATH = "/detection/bulk/";
+
+// Id of the signed-in user (set by base.html). Every queued tree is stamped
+// with it, and only that user's own trees are listed or synced, so two people
+// who sign in on the same phone never see or replay each other's queue.
+const RG_USER_ID = (() => {
+  const el = document.querySelector('meta[name="rg-user-id"]');
+  return el && el.content ? String(el.content) : "";
+})();
+
 // An automatic pass (page load, 'online' event, tab visible) won't
 // re-attempt an item it tried less than this long ago, so a model host
 // that's down doesn't get hit again on every single page navigation.
@@ -110,13 +123,30 @@ async function runStore(mode, fn) {
 }
 
 function queueScan(record) {
+  if (!RG_USER_ID) return Promise.reject(new Error("Sign in to queue photos."));
+  // userId goes last so a record can never be stamped with someone else's id.
   return runStore("readwrite", store => store.add({
-    ...record, status: "pending", errorMessage: null, queuedAt: Date.now(),
+    ...record, status: "pending", errorMessage: null, queuedAt: Date.now(), userId: RG_USER_ID,
   }));
 }
 
-function getAllQueuedScans() {
-  return runStore("readonly", store => store.getAll());
+// Only the signed-in user's queued trees. Trees queued by an older version of
+// the app carry no userId; they can't be traced to anyone, so the first person
+// to open the app afterwards takes them over (rather than their photos being
+// stranded for good). Everything queued from now on is stamped by queueScan.
+async function getAllQueuedScans() {
+  if (!RG_USER_ID) return [];
+  const all = await runStore("readonly", store => store.getAll());
+  const mine = [];
+  for (const item of all) {
+    if (item.userId === RG_USER_ID) {
+      mine.push(item);
+    } else if (item.userId == null) {
+      await updateQueuedScan(item.id, { userId: RG_USER_ID });
+      mine.push({ ...item, userId: RG_USER_ID });
+    }
+  }
+  return mine;
 }
 
 function deleteQueuedScan(id) {
@@ -440,9 +470,40 @@ async function enableOfflineShell(swUrl) {
   }
 }
 
+/* ---------- logout ---------- */
+
+// The cached Bulk Upload page holds the signed-in user's farm names and a CSRF
+// token. sw.js would serve it to whoever opens the app offline next, so it is
+// dropped when someone logs out (scripts and styles stay cached).
+async function clearCachedBulkPage() {
+  if (!("caches" in window)) return;
+  const cache = await caches.open(OFFLINE_SHELL_CACHE);
+  await cache.delete(OFFLINE_BULK_PATH);
+}
+
+// Log Out: warn if trees are still waiting to sync (they stay on this phone,
+// tied to this account, and sync the next time this user signs in), then drop
+// the cached page. A problem in here never stops the logout itself.
+function wireLogoutForms() {
+  document.querySelectorAll('form[action$="/logout/"]').forEach(form => {
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      let waiting = 0;
+      try { waiting = (await getAllQueuedScans()).length; } catch (_) { /* no queue to warn about */ }
+      if (waiting && !confirm(
+        `${waiting} queued tree${waiting === 1 ? " hasn't" : "s haven't"} synced yet. ` +
+        "They stay on this phone and sync the next time you sign in. Log out anyway?"
+      )) return;
+      try { await clearCachedBulkPage(); } catch (_) { /* offline page cache just isn't cleared */ }
+      form.submit(); // form.submit() does not fire this handler again
+    });
+  });
+}
+
 /* ---------- wiring ---------- */
 
 document.addEventListener("DOMContentLoaded", async () => {
+  wireLogoutForms();
   if (document.getElementById("offline-banner")) await updateConnectivityBanner();
   renderPendingScans();
   // Covers a queue built in an earlier, fully-offline session where the app
