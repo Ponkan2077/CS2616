@@ -86,6 +86,18 @@ DATABASES = {
     }
 }
 
+# Shared cache. Django's default (in-memory) cache is separate for every web
+# worker, so the login lockout, the daily upload/analyze limits and the
+# disease-class lookup would all be counted or cleared per worker. A file
+# cache is visible to every worker, so they behave the same with 1, 2 or 3.
+# Django creates the folder on first use.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': BASE_DIR / 'django_cache',
+    }
+}
+
 # Checked on sign-up and password change (not on existing passwords): at
 # least 8 characters, not a common password, not all digits, not too close
 # to the username. Without this list Django accepts any password, "1234"
