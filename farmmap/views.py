@@ -507,6 +507,85 @@ def _get_key_insights(total, counts, pcts, diseased, effectiveness, disease_brea
     return insights[:6]
 
 
+def _get_key_insight_cards(total, counts, pcts, diseased, effectiveness, disease_breakdown, confidence_summary=None):
+    # The same four takeaways as _get_key_insights(), split into label /
+    # headline value / one supporting line so the reports page can show them
+    # as tiles instead of a bullet list. Web only: the PDF export keeps using
+    # the plain sentences from _get_key_insights(). Returns [] when there is
+    # nothing scanned yet, so the template can show its empty message.
+    if total == 0:
+        return []
+
+    cards = [{
+        "icon": "bi-heart-pulse-fill",
+        "label": "Healthy trees",
+        "value": f"{pcts.get('Healthy', 0)}%",
+        "detail": f"{counts.get('Healthy', 0):,} of {total:,} trees",
+    }]
+
+    top = max(disease_breakdown, key=lambda d: d["count"]) if disease_breakdown else None
+    if diseased and top and top["count"] > 0:
+        cards.append({
+            "icon": "bi-exclamation-triangle-fill",
+            "label": "Most common issue",
+            "value": top["name"],
+            "color": top["color"],  # the disease's own colour, for the dot beside its name
+            "detail": f"{top['count']:,} case{'' if top['count'] == 1 else 's'} \u00b7 {top['pct']}% of all trees",
+        })
+    else:
+        cards.append({
+            "icon": "bi-exclamation-triangle-fill",
+            "label": "Most common issue",
+            "value": "None detected",
+            "detail": "No active disease cases in the monitored trees.",
+        })
+
+    if effectiveness:
+        best = max(effectiveness, key=lambda r: (r["recovery_pct"], r["treated"]))
+        if best["recovery_pct"] > 0:
+            cards.append({
+                "icon": "bi-bandaid-fill",
+                "label": "Top intervention",
+                "value": best["action"],
+                "detail": f"{best['recovery_pct']}% recovered \u00b7 {best['recovered']} of {best['treated']} treated trees now healthy",
+            })
+        else:
+            total_treated = sum(r["treated"] for r in effectiveness)
+            cards.append({
+                "icon": "bi-bandaid-fill",
+                "label": "Top intervention",
+                "value": "None yet",
+                "detail": f"{total_treated} logged, but none of the treated trees are healthy yet. Recovery may take longer than the scan history covers.",
+            })
+    else:
+        cards.append({
+            "icon": "bi-bandaid-fill",
+            "label": "Top intervention",
+            "value": "None logged",
+            "detail": "Recommendations below are based on detections only.",
+        })
+
+    if confidence_summary and confidence_summary["avg"] is not None:
+        c = confidence_summary
+        if c["low_count"] > 0:
+            cards.append({
+                "icon": "bi-bullseye",
+                "label": "Avg. confidence",
+                "value": f"{c['avg']}%",
+                "detail": f"{c['low_count']:,} scan{'' if c['low_count'] == 1 else 's'} below {c['low_threshold']}%, worth a manual second look",
+                "attention": True,
+            })
+        else:
+            cards.append({
+                "icon": "bi-bullseye",
+                "label": "Avg. confidence",
+                "value": f"{c['avg']}%",
+                "detail": "No low-confidence scans on record",
+            })
+
+    return cards
+
+
 def _get_recommendations(disease_breakdown, effectiveness):
     # Builds short, actionable recommendations per disease based on what
     # share of all trees currently show it, plus a general intervention
@@ -1848,7 +1927,7 @@ def reports(request):
     disease_breakdown = _get_disease_breakdown(request, farm)
     disease_stats = _get_full_disease_stats(request, farm)
     confidence_summary = _get_confidence_summary(request, farm)
-    key_insights = _get_key_insights(total, counts, pcts, diseased, effectiveness, disease_breakdown, confidence_summary)
+    insight_cards = _get_key_insight_cards(total, counts, pcts, diseased, effectiveness, disease_breakdown, confidence_summary)
     recommendations = _get_recommendations(disease_breakdown, effectiveness)
 
     farm_summaries = []
@@ -1870,7 +1949,7 @@ def reports(request):
         "farm_summaries": farm_summaries,
         "effectiveness": effectiveness,
         "recent_interventions": recent_interventions,
-        "key_insights": key_insights,
+        "insight_cards": insight_cards,
         "recommendations": recommendations,
         "ai_model_version": AI_MODEL_VERSION,
         "report_version": REPORT_VERSION,

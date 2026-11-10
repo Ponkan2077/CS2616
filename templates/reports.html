@@ -46,13 +46,24 @@
 <div class="report-chart-card mb-3">
   <div class="card-header-rg"><i class="bi bi-lightbulb-fill"></i> Key Insights</div>
   <div class="card-body-rg">
-    <ul class="insight-list">
-      {% for point in key_insights %}
-      <li>{{ point }}</li>
-      {% empty %}
-      <li class="text-muted">No scans to report on yet. Scan some trees to build this report.</li>
+    {% if insight_cards %}
+    <div class="insight-wrap"><div class="insight-grid">
+      {% for c in insight_cards %}
+      <div class="insight-tile">
+        <div class="insight-label"><i class="bi {{ c.icon }}" aria-hidden="true"></i>{{ c.label }}</div>
+        <div class="insight-value">
+          {% if c.color %}<span class="rg-dot" style="--c:{{ c.color }};" aria-hidden="true"></span>{% endif %}
+          <span>{{ c.value }}</span>
+        </div>
+        <div class="insight-detail{% if c.attention %} is-attention{% endif %}">
+          {% if c.attention %}<i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i>{% endif %}{{ c.detail }}
+        </div>
+      </div>
       {% endfor %}
-    </ul>
+    </div></div>
+    {% else %}
+    <p class="text-muted mb-0">No scans to report on yet. Scan some trees to build this report.</p>
+    {% endif %}
   </div>
 </div>
 
@@ -81,24 +92,20 @@
   <!-- Severity Distribution -->
   <div class="col-12 col-md-5">
     <div class="report-chart-card">
-      <div class="card-header-rg"><i class="bi bi-pie-chart-fill"></i> Disease Severity Distribution</div>
-      <div class="card-body-rg d-flex flex-column align-items-center">
-        <div class="chart-box-pie"><canvas id="severityPie"></canvas></div>
-        <div class="mt-3 d-flex flex-wrap gap-2 justify-content-center text-sm-rg">
-          <span><span class="legend-dot" style="--c:{{ healthy_color }};"></span>Healthy {{ severity_counts.Healthy }}</span>
-          <span><span class="legend-dot fill-mild"></span>Mild {{ severity_counts.Mild }}</span>
-          <span><span class="legend-dot fill-moderate"></span>Moderate {{ severity_counts.Moderate }}</span>
-          <span><span class="legend-dot fill-severe"></span>Severe {{ severity_counts.Severe }}</span>
-        </div>
+      <div class="card-header-rg"><i class="bi bi-shield-fill-exclamation"></i> Disease Severity Distribution</div>
+      <div class="card-body-rg">
+        <div id="severityMix"></div>
       </div>
     </div>
   </div>
 
-  <!-- Detection Results Summary -->
+  <!-- Disease Distribution: headline, bar, ranked disease rows -->
   <div class="col-12 col-md-7">
     <div class="report-chart-card">
-      <div class="card-header-rg"><i class="bi bi-bar-chart-fill"></i> Detection Results Summary</div>
-      <div class="card-body-rg"><canvas id="detectionSummary" height="180"></canvas></div>
+      <div class="card-header-rg"><i class="bi bi-bar-chart-steps"></i> Disease Distribution</div>
+      <div class="card-body-rg">
+        <div id="diseaseMix"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -108,9 +115,15 @@
   <div class="card-header-rg"><i class="bi bi-graph-up"></i> Disease Reports Over Time</div>
   <div class="card-body-rg">
     {% if monthly %}
-    <div class="chart-box-lg">
-      <canvas id="reportTrend"></canvas>
+    <div id="trendLegend" class="rg-legend" role="group" aria-label="Show or hide a disease"></div>
+    <div class="chart-box-trend">
+      <canvas id="reportTrend" role="img" aria-label="Monthly detections per disease"></canvas>
     </div>
+    <div class="rg-spark-head">
+      <span class="l">Healthy scans per month</span>
+      <span class="v" id="healthySparkLatest"></span>
+    </div>
+    <div id="healthySpark"></div>
     {% else %}
     <div class="text-center text-muted py-4">Not enough scan history yet to show a trend.</div>
     {% endif %}
@@ -119,13 +132,13 @@
 
 <div class="row g-3 mb-3">
   <!-- Most Affected Areas -->
-  <div class="col-12 col-md-6">
+  <div class="col-12">
     <div class="report-chart-card">
-      <div class="card-header-rg"><i class="bi bi-bar-chart-line-fill"></i> Most Affected Areas</div>
+      <div class="card-header-rg"><i class="bi bi-bar-chart-line-fill"></i> Most Affected Areas <span class="text-muted" style="font-weight:400;">— diseased trees per farm</span></div>
       <div class="card-body-rg">
         {% for a in most_affected %}
         <div class="affected-row">
-          <div class="affected-label">{{ a.label }}</div>
+          <div class="affected-label" title="{{ a.label }}">{{ a.label }}</div>
           <div class="affected-bar-track">
             <div class="affected-bar-fill" style="width:{{ a.bar_pct }}%;"></div>
           </div>
@@ -135,14 +148,6 @@
         <div class="text-center text-muted py-3">You haven't added a farm yet. <a href="{% url 'farm_list' %}">Add your first farm</a>.</div>
         {% endfor %}
       </div>
-    </div>
-  </div>
-
-  <!-- Disease Count by Type -->
-  <div class="col-12 col-md-6">
-    <div class="report-chart-card">
-      <div class="card-header-rg"><i class="bi bi-bar-chart-fill"></i> Disease Count by Type</div>
-      <div class="card-body-rg"><canvas id="reportBar" height="200"></canvas></div>
     </div>
   </div>
 </div>

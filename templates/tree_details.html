@@ -139,12 +139,11 @@
       <div class="card-header-rg"><i class="bi bi-graph-up"></i> Confidence Over Time</div>
       <div class="card-body-rg">
         {% if history %}
-        <canvas id="historyChart" height="130"></canvas>
-        <div class="mt-3 d-flex flex-wrap gap-3 justify-content-center text-sm-rg">
-          {% for d in legend_diseases %}
-          <span><span class="legend-dot" style="--c:{{ d.color_hex }};"></span>{{ d.name }}</span>
-          {% endfor %}
+        <div class="chart-box-hist">
+          <canvas id="historyChart" role="img" aria-label="Detection confidence for each scan of this tree"></canvas>
         </div>
+        {# Only the results this tree actually had, filled in by tree_details.js #}
+        <div id="historyLegend" class="rg-legend mt-3 mb-0"></div>
         {% else %}
         <div class="text-center text-muted py-4">No scan history available.</div>
         {% endif %}

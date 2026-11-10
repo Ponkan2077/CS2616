@@ -6,7 +6,7 @@
 
    Disease colours come from the data (tree.color, diseaseColors).
    Everything else (boundary, outlines, axis text, tooltip, the line
-   itself) is read from the CSS variables through window.RG
+   and its wash) is read from the CSS variables through window.RG
    (theme.js), and both the map and the chart are rebuilt or
    restyled on "themechange". The basemap is the same OpenStreetMap
    tile layer as before (this page never used a dark basemap).
@@ -105,13 +105,36 @@ function renderMiniMap(tree, farmBoundary) {
     .openPopup();
 }
 
-// Renders a smooth line chart of confidence scores across scan history.
-// Each point takes its scan's disease colour (so individual results stay
-// easy to identify at a glance), except healthy results, which are plain
-// neutral dots. The line and the soft fill under it use the primary teal
-// rather than any one disease's colour, since a single scan history can span
-// several diseases. Colours other than the disease colours are read from the
-// CSS variables each time the chart is built.
+// Detection confidence below this is flagged for a manual second look. It is
+// the same cut-off the dashboard uses for its low-confidence count.
+const LOW_CONFIDENCE = 70;
+
+// Fills the key under the chart with the results this tree actually had.
+function renderHistoryLegend(points, colorFor) {
+  const host = document.getElementById('historyLegend');
+  if (!host) return;
+  host.textContent = '';
+  const seen = new Set();
+  points.forEach((h, i) => {
+    if (seen.has(h.disease)) return;
+    seen.add(h.disease);
+    const item = document.createElement('span');
+    item.className = 'rg-legend-item';
+    const dot = document.createElement('span');
+    dot.className = 'rg-dot';
+    dot.setAttribute('aria-hidden', 'true');
+    dot.style.setProperty('--c', h.is_healthy ? 'var(--text-muted)' : colorFor(h));
+    item.appendChild(dot);
+    item.appendChild(document.createTextNode(h.disease));
+    host.appendChild(item);
+  });
+}
+
+// Confidence of each scan over time. One series, so no legend box: the line and
+// the soft wash under it are neutral, and each point takes its scan's disease
+// colour (healthy results are plain neutral dots). A hairline marks the review
+// threshold and the latest value is labelled. Everything except the disease
+// colours is read from the CSS variables each time the chart is built.
 function renderHistoryChart(tree, history, diseaseColors) {
   if (!history.length) return;
   const canvas = document.getElementById('historyChart');
@@ -124,61 +147,101 @@ function renderHistoryChart(tree, history, diseaseColors) {
   const dates = points.map(h => new Date(h.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
   const confidences = points.map(h => h.confidence);
   // diseaseColors comes from the DiseaseClass catalog on the server.
-  const pointColors = points.map(h => (h.is_healthy ? t.textMuted : (diseaseColors[h.disease] || tree.color)));
-
-  const ctx = canvas.getContext('2d');
-  const fillGradient = ctx.createLinearGradient(0, 0, 0, canvas.height || 220);
-  fillGradient.addColorStop(0, RG.alpha(t.primary, 0.28));
-  fillGradient.addColorStop(1, RG.alpha(t.primary, 0));
+  const colorFor = h => diseaseColors[h.disease] || tree.color;
+  const pointColors = points.map(h => (h.is_healthy ? t.textMuted : colorFor(h)));
+  renderHistoryLegend(points, colorFor);
 
   const tooltip = RG.chartTooltip();
-  tooltip.displayColors = false;
-  tooltip.callbacks = {
-    label: c => {
-      const h = points[c.dataIndex];
-      return `${h.disease}: ${h.confidence}%`;
+  Object.assign(tooltip, {
+    usePointStyle: true, boxWidth: 8, boxHeight: 8, boxPadding: 6,
+    callbacks: {
+      // The number leads, the result follows.
+      label: c => `${points[c.dataIndex].confidence}%   ${points[c.dataIndex].disease}`,
+      labelColor: c => ({ borderColor: pointColors[c.dataIndex], backgroundColor: pointColors[c.dataIndex], borderWidth: 0 }),
     },
-  };
+  });
 
   const scale = RG.chartScale();
+  const last = points.length - 1;
+
+  // A soft neutral wash that fades out towards the axis.
+  const wash = canvas.getContext('2d').createLinearGradient(0, 0, 0, canvas.clientHeight || 240);
+  wash.addColorStop(0, RG.alpha(t.textMuted, 0.16));
+  wash.addColorStop(1, RG.alpha(t.textMuted, 0));
+
+  // A solid hairline at the review threshold, and the latest value above its point.
+  const guides = {
+    id: 'rgHistoryGuides',
+    beforeDatasetsDraw(chart) {
+      const { ctx, chartArea: area, scales } = chart;
+      const tk = RG.tokens();
+      const y = scales.y.getPixelForValue(LOW_CONFIDENCE);
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(area.left, y);
+      ctx.lineTo(area.right, y);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = RG.alpha(tk.textMuted, 0.55);
+      ctx.stroke();
+      ctx.fillStyle = tk.textMuted;
+      ctx.font = `500 12px ${Chart.defaults.font.family}`;
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`Review below ${LOW_CONFIDENCE}%`, area.right, y + 5);
+      ctx.restore();
+    },
+    afterDatasetsDraw(chart) {
+      const el = chart.getDatasetMeta(0).data[last];
+      if (!el) return;
+      const { ctx, chartArea: area } = chart;
+      const tk = RG.tokens();
+      ctx.save();
+      ctx.fillStyle = tk.textMain;
+      ctx.font = `700 13px ${Chart.defaults.font.family}`;
+      ctx.textAlign = el.x > area.right - 28 ? 'right' : 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(`${confidences[last]}%`, ctx.textAlign === 'right' ? el.x + 4 : el.x, el.y - 12);
+      ctx.restore();
+    },
+  };
 
   new Chart(canvas, {
     type: 'line',
     data: {
       labels: dates,
-      datasets: [
-        {
-          label: 'Confidence %',
-          data: confidences,
-          borderColor: t.primary,
-          borderWidth: 2.5,
-          backgroundColor: fillGradient,
-          fill: true,
-          tension: 0.35,
-          pointBackgroundColor: pointColors,
-          pointBorderColor: t.cardBg,
-          pointBorderWidth: 2,
-          pointRadius: 6,
-          pointHoverRadius: 8,
-          pointHoverBorderWidth: 2,
-          // Extra room so a point at 100% isn't clipped by the top edge.
-          clip: { top: 12, left: 10, right: 10, bottom: 0 },
-        },
-      ],
+      datasets: [{
+        data: confidences,
+        borderColor: t.textMuted,
+        borderWidth: 2,
+        backgroundColor: wash,
+        fill: true,
+        tension: 0.25,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: t.cardBg,
+        pointBorderWidth: 2,
+        pointRadius: 6,
+        pointHoverRadius: 8,
+        pointHitRadius: 20,
+      }],
     },
+    plugins: [RG.crosshair, guides],
     options: {
       responsive: true,
-      layout: {
-        padding: { top: 14, bottom: 4, left: 4, right: 10 },
-      },
+      maintainAspectRatio: false,
+      animation: RG.lineAnimation(),
+      layout: { padding: { top: 24, right: 12, left: 4, bottom: 4 } },
       interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip,
-      },
+      plugins: { legend: { display: false }, tooltip },
       scales: {
-        y: { min: 0, max: 100, ...scale },
-        x: { ...scale, grid: { display: false } },
+        y: {
+          ...scale, min: 0, max: 100, border: { display: false },
+          grid: { color: t.border, drawTicks: false },
+          ticks: { ...scale.ticks, stepSize: 25, padding: 8, callback: v => `${v}%` },
+        },
+        x: {
+          ...scale, grid: { display: false }, border: { color: t.border },
+          ticks: { ...scale.ticks, maxRotation: 0, autoSkip: true, maxTicksLimit: 6 },
+        },
       },
     },
   });

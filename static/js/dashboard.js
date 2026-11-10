@@ -1,13 +1,14 @@
-/* Renders the disease distribution doughnut and (when the page has one) the
-   compact "Disease Cases by Location" map on the dashboard.
+/* Renders the disease mix (headline, bar and ranked disease rows), the
+   severity split and (when the page has one) the compact "Disease Cases by
+   Location" map on the dashboard.
    Uses the minimal marker payload for a fast initial load; full detail
    for a tree is fetched lazily only when its marker is clicked. Expects
    DASHBOARD_DISEASE_STATS (and, for the map, DASHBOARD_MARKERS) defined
    inline in dashboard.html before this loads.
 
-   Segment and marker colours are the disease colours from the data; the
-   rest is read from the CSS variables, and the doughnut is rebuilt on
-   "themechange". */
+   Disease colours come from the data. The mix and the severity split are HTML
+   (see rg_charts.js), so they follow the theme without a rebuild; only the
+   map marker outline is re-read on "themechange". */
 
 // Escapes text before it goes into popup HTML.
 function dashEscape(value) {
@@ -16,38 +17,25 @@ function dashEscape(value) {
   ));
 }
 
-function renderDashboardPie(diseaseStats) {
-  const canvas = document.getElementById("dashboardPie");
-  if (!canvas || typeof Chart === "undefined") return;
-  const existing = Chart.getChart(canvas);
-  if (existing) existing.destroy();
-  const t = RG.tokens();
-  new Chart(canvas, {
-    type: "doughnut",
-    data: {
-      labels: diseaseStats.map(d => d.name),
-      datasets: [{
-        data: diseaseStats.map(d => d.count),
-        backgroundColor: diseaseStats.map(d => d.color),
-        borderWidth: 2, borderColor: t.cardBg,
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      cutout: "62%",
-      plugins: {
-        legend: { position: "right", labels: { boxWidth: 10, color: t.textMain, font: { size: 12 } } },
-        tooltip: RG.chartTooltip(),
-      },
-    }
-  });
+function renderDashboardMix(diseaseStats) {
+  const host = document.getElementById("dashboardMix");
+  if (host) RG.diseaseMix(host, diseaseStats);
+}
+
+function renderDashboardSeverity(sev) {
+  const host = document.getElementById("dashboardSeverity");
+  if (!host) return;
+  RG.splitList(host, [
+    { name: "Healthy", count: sev.healthy, neutral: true },
+    { name: "Mild", count: sev.mild, color: "var(--sev-mild)" },
+    { name: "Moderate", count: sev.moderate, color: "var(--sev-moderate)" },
+    { name: "Severe", count: sev.severe, color: "var(--sev-severe)" },
+  ]);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  if (typeof DASHBOARD_DISEASE_STATS !== "undefined") {
-    renderDashboardPie(DASHBOARD_DISEASE_STATS);
-    RG.onThemeChange(() => renderDashboardPie(DASHBOARD_DISEASE_STATS));
-  }
+  if (typeof DASHBOARD_DISEASE_STATS !== "undefined") renderDashboardMix(DASHBOARD_DISEASE_STATS);
+  if (typeof DASHBOARD_SEVERITY !== "undefined") renderDashboardSeverity(DASHBOARD_SEVERITY);
 
   const container = document.getElementById("dashboard-mini-map");
   if (!container || typeof L === "undefined") return;

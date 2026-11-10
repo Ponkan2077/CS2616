@@ -1471,3 +1471,157 @@ body.map-expanded { overflow: hidden; }
 .cluster-donut.cluster-md { padding: 8px; font-size: 14px; }
 .cluster-donut.cluster-lg { padding: 10px; font-size: 16px; }
 .cluster-donut > span { font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   RG CHARTS — segmented bars, ranked bars, split lists, sparkline,
+   legend chips and the shared tooltip (static/js/rg_charts.js).
+
+   Built from HTML, so every colour is a token and follows the theme with no
+   rebuild. A disease colour arrives as --c and only ever marks a disease;
+   healthy parts use the neutral token. Marks are thin, bars are square at the
+   baseline and rounded at the tip, and touching parts are separated by a 2px
+   gap of the card colour, never by an outline.
+   ============================================================ */
+.rg-mix-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 12px; }
+.rg-mix-figure { font-size: 32px; font-weight: 700; line-height: 1.1; color: var(--text-main); }
+.rg-mix-sub { font-size: 13px; color: var(--text-muted); }
+.rg-subhead {
+  margin: 18px 0 4px; font-size: 12px; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted);
+}
+.rg-note { margin-top: 10px; font-size: 12px; color: var(--text-faint); }
+.rg-empty { padding: 14px 0; font-size: 14px; color: var(--text-muted); }
+
+/* Segmented bar: one whole split into parts */
+.rg-seg { display: flex; gap: 2px; height: 10px; border-radius: 5px; overflow: hidden; }
+.rg-seg.is-empty { background: var(--bar-track); }
+.rg-seg > i {
+  flex: var(--n, 1) 1 0%; min-width: 3px;
+  background: var(--c, var(--text-muted)); transition: opacity .12s, filter .12s;
+}
+.rg-seg > i.is-neutral { background: var(--text-muted); opacity: .55; }
+.rg-seg > i:hover { filter: brightness(1.18); }
+.rg-seg.has-hot > i:not(.is-hot) { opacity: .3; }
+.rg-seg.has-hot > i.is-hot { opacity: 1; }
+
+/* Rows: name, optional bar, figures */
+.rg-rows { list-style: none; margin: 0; padding: 0; container-type: inline-size; }
+.rg-row {
+  display: grid; grid-template-columns: minmax(0, 10.5rem) minmax(48px, 1fr) 7rem;
+  align-items: center; gap: 4px 14px;
+  margin: 0 -8px; padding: 8px; min-height: 40px; border-radius: 8px;
+  transition: background-color .12s; outline: none;
+}
+.rg-rows.is-plain .rg-row { grid-template-columns: minmax(0, 1fr) auto; }
+.rg-row:hover, .rg-row:focus-visible { background: var(--hover); }
+.rg-row:focus-visible { box-shadow: 0 0 0 2px var(--primary); }
+.rg-name { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14px; font-weight: 500; color: var(--text-main); }
+.rg-name .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rg-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--c, var(--text-muted)); }
+.rg-dot.is-neutral { background: var(--text-muted); }
+.rg-track { height: 8px; border-radius: 4px; background: var(--bar-track); overflow: hidden; }
+.rg-fill { width: var(--w, 0%); min-width: 3px; height: 100%; border-radius: 0 4px 4px 0; background: var(--c, var(--text-muted)); }
+.rg-val { display: flex; align-items: baseline; justify-content: flex-end; gap: 10px; font-variant-numeric: tabular-nums; }
+.rg-val b { font-size: 14px; font-weight: 700; color: var(--text-main); }
+.rg-val small { min-width: 3.6em; text-align: right; font-size: 12px; font-weight: 500; color: var(--text-muted); }
+@container (max-width: 400px) {
+  .rg-rows:not(.is-plain) .rg-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .rg-rows:not(.is-plain) .rg-track { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* Sparkline: neutral columns, latest at full strength */
+.rg-spark-wrap { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 6px; }
+.rg-spark-axis {
+  display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end;
+  font-size: 11px; line-height: 1; color: var(--text-muted); font-variant-numeric: tabular-nums;
+}
+.rg-spark, .rg-spark-x { max-width: calc(var(--n, 1) * 64px); }
+.rg-spark {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 2px; height: 64px;
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border-strong);
+}
+.rg-spark-x { grid-column: 2; display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); }
+.rg-spark > i {
+  flex: 1 1 0; max-width: 20px; height: var(--h, 0%); min-height: 1px;
+  border-radius: 2px 2px 0 0; background: var(--text-muted); opacity: .4; transition: opacity .12s;
+}
+.rg-spark > i.is-last { opacity: .9; }
+.rg-spark > i:hover { opacity: 1; }
+.rg-spark-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; column-gap: 12px; row-gap: 2px; margin: 18px 0 8px; }
+.rg-spark-head .l, .rg-spark-head .v { white-space: nowrap; }
+.rg-spark-head .l { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
+.rg-spark-head .v { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* Legend chips (also the series switches on the trend chart) */
+.rg-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.rg-chip {
+  position: relative; display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 12px; min-height: 30px; border-radius: 999px;
+  background: transparent; border: 1px solid var(--border-strong);
+  font: inherit; font-size: 12px; font-weight: 500; color: var(--text-main); cursor: pointer;
+  transition: opacity .12s, background-color .12s;
+}
+.rg-chip::after { content: ""; position: absolute; inset: -7px -2px; } /* 44px touch target */
+.rg-chip:hover { background: var(--hover); }
+.rg-chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.rg-chip small { font-size: 12px; font-weight: 600; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rg-chip[aria-pressed="false"] { opacity: .5; }
+.rg-chip[aria-pressed="false"] .t { text-decoration: line-through; }
+.rg-key { flex: none; width: 14px; height: 2px; border-radius: 1px; background: var(--c, var(--text-muted)); }
+
+/* One tooltip for every HTML mark: the value leads, the name follows */
+.rg-tip {
+  position: fixed; z-index: 2000; pointer-events: none; max-width: 260px;
+  padding: 8px 10px; border-radius: 8px;
+  background: var(--card-bg); border: 1px solid var(--border-strong); box-shadow: var(--shadow-pop);
+  opacity: 0; transition: opacity .08s;
+}
+.rg-tip.is-on { opacity: 1; }
+.rg-tip .v { font-size: 14px; font-weight: 700; color: var(--text-main); font-variant-numeric: tabular-nums; }
+.rg-tip .n { font-size: 12px; color: var(--text-muted); }
+
+/* Chart containers that include their axis labels */
+.chart-box-trend { position: relative; height: 300px; }
+.chart-box-hist { position: relative; height: 240px; }
+
+/* Ranked bar lists made on the server (Most Affected Areas, Top Interventions,
+   Severity) share the same bar: 8px, rounded at the tip, wide labels. */
+.affected-row { gap: 14px; padding: 9px 0; }
+.affected-label { flex: 0 0 150px; font-weight: 500; }
+.affected-bar-track { height: 8px; border-radius: 4px; }
+.affected-bar-fill { border-radius: 0 4px 4px 0; min-width: 3px; }
+.affected-count { flex: 0 0 44px; font-variant-numeric: tabular-nums; }
+.conf-bar-md { width: 96px; height: 6px; border-radius: 3px; }
+.conf-bar-md .conf-fill { border-radius: 0 3px 3px 0; min-width: 2px; }
+.bar-caption { font-variant-numeric: tabular-nums; }
+.rg-readable { max-width: 760px; }
+.rg-legend-item { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-main); }
+.rg-row.is-zero .rg-name { color: var(--text-muted); font-weight: 400; }
+.rg-row.is-zero .rg-dot { opacity: .45; }
+.rg-row.is-zero .rg-val b { color: var(--text-muted); font-weight: 500; }
+
+/* Key Insights tiles on the Reports page: label, headline value, one line of
+   support. Neutral surfaces; the only colour is a disease's own dot, and the
+   "attention" line, which also carries an icon so it never relies on colour. */
+.insight-wrap { container-type: inline-size; }
+.insight-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@container (min-width: 460px) { .insight-grid { grid-template-columns: repeat(2, 1fr); } }
+@container (min-width: 780px) { .insight-grid { grid-template-columns: repeat(4, 1fr); } }
+.insight-tile {
+  display: flex; flex-direction: column; gap: 6px; padding: 14px 16px;
+  background: var(--card-bg-alt); border: 1px solid var(--border); border-radius: 12px;
+}
+.insight-label {
+  display: flex; align-items: center; gap: 8px; min-height: 18px;
+  font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted);
+}
+.insight-label i { font-size: 14px; }
+.insight-value {
+  display: flex; align-items: center; gap: 10px; font-size: 24px; font-weight: 700; line-height: 1.2;
+  color: var(--text-main); overflow-wrap: anywhere; font-variant-numeric: tabular-nums;
+}
+.insight-value .rg-dot { width: 12px; height: 12px; }
+.insight-detail { font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+.insight-detail.is-attention { color: var(--danger-text); font-weight: 500; }
+.insight-detail.is-attention i { margin-right: 6px; }
+.rg-rows.is-plain .rg-row { min-height: 48px; }

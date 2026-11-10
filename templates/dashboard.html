@@ -68,15 +68,15 @@
   <div class="col-12 col-md-5 col-lg-4">
     <div class="card-rg h-100">
       <div class="card-header-rg"><i class="bi bi-pie-chart-fill"></i> Disease Distribution</div>
-      <div class="card-body-rg" style="height:220px;">
-        <canvas id="dashboardPie"></canvas>
+      <div class="card-body-rg">
+        <div id="dashboardMix"></div>
       </div>
     </div>
   </div>
-  <div class="col-12 col-md-7 col-lg-8">
-    <div class="card-rg h-100">
-      <div class="card-header-rg d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-shield-fill-exclamation"></i> Severity Breakdown</span>
+  <div class="col-12 col-md-7 col-lg-8 d-flex flex-column gap-3">
+    <div class="card-rg">
+      <div class="card-header-rg d-flex flex-wrap justify-content-between align-items-center column-gap-3 row-gap-1">
+        <span class="text-nowrap"><i class="bi bi-shield-fill-exclamation"></i> Severity Breakdown</span>
         {% if confidence_summary.avg != None %}
         <span class="text-muted" style="font-weight:400;font-size:12px;">
           Avg. detection confidence {{ confidence_summary.avg }}%{% if confidence_summary.low_count %} · {{ confidence_summary.low_count }} scan(s) below {{ confidence_summary.low_threshold }}%{% endif %}
@@ -85,59 +85,40 @@
       </div>
       <div class="card-body-rg">
         {# Healthy here is every is_healthy class combined (see _get_severity_counts). #}
-        <div class="affected-row">
-          <div class="affected-label">Healthy</div>
-          <div class="affected-bar-track"><div class="affected-bar-fill fill-neutral" style="width:{{ severity_bar_pcts.Healthy }}%;"></div></div>
-          <div class="affected-count">{{ severity_counts.Healthy }}</div>
-        </div>
-        <div class="affected-row">
-          <div class="affected-label">Mild</div>
-          <div class="affected-bar-track"><div class="affected-bar-fill fill-mild" style="width:{{ severity_bar_pcts.Mild }}%;"></div></div>
-          <div class="affected-count">{{ severity_counts.Mild }}</div>
-        </div>
-        <div class="affected-row">
-          <div class="affected-label">Moderate</div>
-          <div class="affected-bar-track"><div class="affected-bar-fill fill-moderate" style="width:{{ severity_bar_pcts.Moderate }}%;"></div></div>
-          <div class="affected-count">{{ severity_counts.Moderate }}</div>
-        </div>
-        <div class="affected-row">
-          <div class="affected-label">Severe</div>
-          <div class="affected-bar-track"><div class="affected-bar-fill fill-severe" style="width:{{ severity_bar_pcts.Severe }}%;"></div></div>
-          <div class="affected-count">{{ severity_counts.Severe }}</div>
-        </div>
+        <div id="dashboardSeverity"></div>
       </div>
     </div>
-  </div>
-</div>
-{% endif %}
 
-<!-- Recent Scan Activity -->
-{% if scan_activity %}
-<div class="card-rg mb-3">
-  <div class="card-header-rg"><i class="bi bi-activity"></i> Recent Scan Activity <span class="text-muted" style="font-weight:400;">— last {{ scan_activity.days }} days vs the {{ scan_activity.days }} days before that</span></div>
-  <div class="card-body-rg">
-    <div class="row g-3 text-center">
-      <div class="col-6 col-md-3">
-        <div class="scan-stat-value">{{ scan_activity.scans_count }}</div>
-        <div class="scan-stat-label">Scans Logged</div>
-        <div class="trend-delta justify-content-center {% if scan_activity.scans_delta > 0 %}trend-up{% elif scan_activity.scans_delta < 0 %}trend-down{% else %}trend-flat{% endif %}">
-          <i class="bi {% if scan_activity.scans_delta > 0 %}bi-arrow-up-short{% elif scan_activity.scans_delta < 0 %}bi-arrow-down-short{% else %}bi-dash{% endif %}"></i>
-          {{ scan_activity.scans_delta }} vs prior period
+    <!-- Recent Scan Activity -->
+    {% if scan_activity %}
+      <div class="card-rg flex-grow-1 d-flex flex-column">
+        <div class="card-header-rg"><i class="bi bi-activity"></i> Recent Scan Activity <span class="text-muted" style="font-weight:400;">— last {{ scan_activity.days }} days vs the {{ scan_activity.days }} days before that</span></div>
+        <div class="card-body-rg d-flex align-items-center flex-grow-1">
+          <div class="row g-3 text-center w-100">
+            <div class="col-6 col-md-3">
+              <div class="scan-stat-value">{{ scan_activity.scans_count }}</div>
+              <div class="scan-stat-label">Scans Logged</div>
+              <div class="trend-delta justify-content-center {% if scan_activity.scans_delta > 0 %}trend-up{% elif scan_activity.scans_delta < 0 %}trend-down{% else %}trend-flat{% endif %}">
+                <i class="bi {% if scan_activity.scans_delta > 0 %}bi-arrow-up-short{% elif scan_activity.scans_delta < 0 %}bi-arrow-down-short{% else %}bi-dash{% endif %}"></i>
+                {{ scan_activity.scans_delta }} vs prior period
+              </div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="scan-stat-value">{{ scan_activity.trees_scanned }}</div>
+              <div class="scan-stat-label">Trees Scanned</div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="scan-stat-value">{{ scan_activity.healthy_scans }}</div>
+              <div class="scan-stat-label">Came Back Healthy</div>
+            </div>
+            <div class="col-6 col-md-3">
+              <div class="scan-stat-value text-danger">{{ scan_activity.diseased_scans }}</div>
+              <div class="scan-stat-label">Came Back Diseased</div>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="col-6 col-md-3">
-        <div class="scan-stat-value">{{ scan_activity.trees_scanned }}</div>
-        <div class="scan-stat-label">Trees Scanned</div>
-      </div>
-      <div class="col-6 col-md-3">
-        <div class="scan-stat-value">{{ scan_activity.healthy_scans }}</div>
-        <div class="scan-stat-label">Came Back Healthy</div>
-      </div>
-      <div class="col-6 col-md-3">
-        <div class="scan-stat-value text-danger">{{ scan_activity.diseased_scans }}</div>
-        <div class="scan-stat-label">Came Back Diseased</div>
-      </div>
-    </div>
+    {% endif %}
   </div>
 </div>
 {% endif %}
@@ -252,9 +233,13 @@
 <script>
   const DASHBOARD_DISEASE_STATS = [
     {% for d in disease_stats %}
-    { name: '{{ d.name|escapejs }}', count: {{ d.count }}, color: '{{ d.color|escapejs }}' },
+    { name: '{{ d.name|escapejs }}', count: {{ d.count }}, color: '{{ d.color|escapejs }}', isHealthy: {{ d.is_healthy|yesno:"true,false" }} },
     {% endfor %}
   ];
+  const DASHBOARD_SEVERITY = {
+    healthy: {{ severity_counts.Healthy }}, mild: {{ severity_counts.Mild }},
+    moderate: {{ severity_counts.Moderate }}, severe: {{ severity_counts.Severe }}
+  };
 </script>
 <script src="{% static 'js/dashboard.js' %}?v={{ STATIC_VERSION }}"></script>
 {% endblock %}
