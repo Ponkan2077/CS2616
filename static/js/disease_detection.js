@@ -29,6 +29,9 @@ let locationPermission = "unknown";
 // anyway on failure/unavailability, leaving the original file-input
 // attachment from showResult() as the fallback).
 let directUploadPromise = null;
+// Bumped whenever a result is shown or thrown away, so an upload that was
+// still in flight for older photos can't write its keys into the save form.
+let uploadGeneration = 0;
 
 // Reads the device's position and resolves with the best fix it can get in a
 // short window -- not just the first one the browser hands back.
@@ -221,6 +224,7 @@ function showLocationBanner(reason, kind, buttonLabel) {
   const banner = document.getElementById("location-banner");
   const bannerText = document.getElementById("location-banner-text");
   const enableBtn = document.getElementById("location-enable-btn");
+  const recheckBtn = document.getElementById("location-recheck-btn");
   if (!banner || !bannerText) return;
   const isPrompt = kind === "prompt";
   bannerText.textContent = isPrompt
@@ -232,6 +236,10 @@ function showLocationBanner(reason, kind, buttonLabel) {
     enableBtn.textContent = buttonLabel || "Enable location";
     enableBtn.style.display = isPrompt ? "" : "none";
   }
+  // Blocked state: the settings change happens outside the page, so offer a
+  // real button to re-read the permission afterwards (the banner itself is
+  // not a control).
+  if (recheckBtn) recheckBtn.style.display = isPrompt ? "none" : "";
   setFlexShown(banner, true);
 }
 
@@ -476,10 +484,12 @@ async function uploadDirectly(file, kind) {
 // leaves the file inputs exactly as showResult() set them, so the
 // original multipart upload path still works with no user-visible change.
 function startDirectUploads() {
+  const generation = ++uploadGeneration;
   directUploadPromise = Promise.all([
     uploadDirectly(rootImageFile, "roots"),
     uploadDirectly(trunkImageFile, "trunks"),
   ]).then(([rootKey, trunkKey]) => {
+    if (generation !== uploadGeneration) return;   // the photos changed since; these keys are stale
     document.getElementById("save-root-image-key").value = rootKey;
     document.getElementById("save-trunk-image-key").value = trunkKey;
     document.getElementById("save-root-image").value = "";
@@ -529,6 +539,9 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
       hideLocationBanner();
     }
 
+    // A replaced photo invalidates any result already on screen.
+    resetResult();
+
     if (kind === "root") {
       rootImageFile = resizedFile;
       rootGPS = gps;
@@ -559,7 +572,14 @@ function handleCapture(file, { previewImgId, dropZoneId, kind, source }) {
     if (kind === "root") {
       // Root image captured first -- unlock the trunk capture step.
       setStepLocked(document.getElementById("trunk-zone-wrapper"), false);
-      setWorkflowStep(1);
+      if (trunkImageFile) {
+        // Retaking the root with a trunk photo already there: the pair just
+        // changed, so analysing again is the next step.
+        document.getElementById("analyze-btn").disabled = !window.AI_ENABLED;
+        setWorkflowStep(2);
+      } else {
+        setWorkflowStep(1);
+      }
     } else {
       // Stays disabled if no model is configured -- see the banner
       // rendered in disease_detection.html instead of enabling a button
@@ -593,6 +613,7 @@ async function runAnalysis() {
   const formData = new FormData();
   formData.append("root_image", rootImageFile);
   formData.append("trunk_image", trunkImageFile);
+  const rootSent = rootImageFile, trunkSent = trunkImageFile;
 
   try {
     let res;
@@ -617,6 +638,11 @@ async function runAnalysis() {
     }
     const data = await res.json().catch(() => { throw new Error("Analysis didn't work this time. Please try again."); });
     if (!res.ok) throw new Error(data.error || "Analysis didn't work this time. Please try again.");
+    // A photo was replaced while this was running: the answer is for the old
+    // pair, so don't show it next to the new one.
+    if (rootImageFile !== rootSent || trunkImageFile !== trunkSent) {
+      throw new Error("Your photos changed while analyzing. Press Analyze Images again.");
+    }
     showResult(data.disease, data.confidence, data.root_condition, data.action, data.token);
     setWorkflowStep(3);
   } catch (err) {
@@ -681,10 +707,36 @@ function showResult(disease, confidence, rootCondition, action, analysisToken) {
   trunkTransfer.items.add(trunkImageFile);
   trunkInput.files = trunkTransfer.files;
 
-  document.getElementById("result-box").style.display = "";
+  const resultBox = document.getElementById("result-box");
+  resultBox.style.display = "";
   document.getElementById("class-reference").style.display = "none";
 
+  // On a phone the result sits below both capture cards, off screen. Bring it
+  // into view and move focus to it so screen readers announce it too.
+  const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  resultBox.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+  resultBox.focus({ preventScroll: true });
+
   startDirectUploads();
+}
+
+// Throws the shown result away. Called when a photo is replaced after an
+// analysis: the result, its signed token and the files/keys queued for saving
+// all belong to the OLD photos, so saving them next to the new preview would
+// store a different photo than the one on screen. Returns true if there was
+// a result to discard.
+function resetResult() {
+  const resultBox = document.getElementById("result-box");
+  if (!resultBox || resultBox.style.display === "none") return false;
+  uploadGeneration++;
+  directUploadPromise = null;
+  resultBox.style.display = "none";
+  document.getElementById("class-reference").style.display = "";
+  document.getElementById("result-fill").style.width = "0%";
+  ["save-disease", "save-confidence", "save-root-condition", "save-analysis-token",
+   "save-root-image-key", "save-trunk-image-key", "save-root-image", "save-trunk-image"]
+    .forEach(id => { document.getElementById(id).value = ""; });
+  return true;
 }
 
 function wireCaptureZone({ dropZoneId, fileInputId, cameraInputId, previewImgId, kind }) {
@@ -763,8 +815,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("analyze-btn").addEventListener("click", runAnalysis);
   wireSaveSubmit();
   checkLocationAvailability();
-  const locBanner = document.getElementById("location-banner");
-  if (locBanner) locBanner.addEventListener("click", checkLocationAvailability);
+  const locRecheckBtn = document.getElementById("location-recheck-btn");
+  if (locRecheckBtn) locRecheckBtn.addEventListener("click", checkLocationAvailability);
   // The banner's own button asks for permission (a tap, so the browser
   // is allowed to show its prompt) rather than just re-reading the state.
   const locEnableBtn = document.getElementById("location-enable-btn");

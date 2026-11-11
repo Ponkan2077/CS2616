@@ -43,8 +43,8 @@
     </div>
 
     {% if form.errors %}
-    <div class="auth-error">
-      <i class="bi bi-exclamation-circle-fill"></i> Invalid username or password. Please try again.
+    <div class="auth-error" role="alert">
+      <i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i> Invalid username or password. Please try again.
     </div>
     {% endif %}
 
@@ -60,11 +60,11 @@
       {% csrf_token %}
       <div class="auth-field">
         <label for="id_username">Username</label>
-        <input type="text" name="username" id="id_username" class="form-control-rg" required autofocus>
+        <input type="text" name="username" id="id_username" class="form-control-rg" value="{{ form.username.value|default:'' }}" autocomplete="username" autocapitalize="none" spellcheck="false" required{% if not form.username.value %} autofocus{% endif %}>
       </div>
       <div class="auth-field">
         <label for="id_password">Password</label>
-        <input type="password" name="password" id="id_password" class="form-control-rg" required>
+        <input type="password" name="password" id="id_password" class="form-control-rg" autocomplete="current-password" required{% if form.username.value %} autofocus{% endif %}>
       </div>
       <button type="submit" class="btn btn-primary w-100 mt-2">
         <i class="bi bi-box-arrow-in-right"></i> Log In

@@ -96,17 +96,17 @@
   </div>
 
   {% if interventions.paginator.num_pages > 1 %}
-  <div class="pagination-rg border-top">
-    {% with base_qs="q="|add:search_q|add:"&action="|add:action_filter|add:"&farm="|add:farm_filter|add:"&range="|add:range_filter %}
+  <div class="pagination-rg border-top" role="navigation" aria-label="Pagination">
+    {% with q_enc=search_q|urlencode a_enc=action_filter|urlencode f_enc=farm_filter|urlencode r_enc=range_filter|urlencode %}{% with base_qs="q="|add:q_enc|add:"&action="|add:a_enc|add:"&farm="|add:f_enc|add:"&range="|add:r_enc %}
     {% if interventions.has_previous %}
-      <a href="?{{ base_qs }}&page={{ interventions.previous_page_number }}"><i class="bi bi-chevron-left"></i></a>
+      <a href="?{{ base_qs }}&page={{ interventions.previous_page_number }}" aria-label="Previous page"><i class="bi bi-chevron-left" aria-hidden="true"></i></a>
     {% else %}
-      <span class="disabled"><i class="bi bi-chevron-left"></i></span>
+      <span class="disabled" aria-hidden="true"><i class="bi bi-chevron-left"></i></span>
     {% endif %}
 
     {% for num in interventions.paginator.page_range %}
       {% if num == interventions.number %}
-        <span class="active">{{ num }}</span>
+        <span class="active" aria-current="page">{{ num }}</span>
       {% elif num == 1 or num == interventions.paginator.num_pages or num|add:"-3" < interventions.number and num|add:"3" > interventions.number %}
         <a href="?{{ base_qs }}&page={{ num }}">{{ num }}</a>
       {% elif num == 2 or num == interventions.paginator.num_pages|add:"-1" %}
@@ -115,11 +115,11 @@
     {% endfor %}
 
     {% if interventions.has_next %}
-      <a href="?{{ base_qs }}&page={{ interventions.next_page_number }}"><i class="bi bi-chevron-right"></i></a>
+      <a href="?{{ base_qs }}&page={{ interventions.next_page_number }}" aria-label="Next page"><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
     {% else %}
-      <span class="disabled"><i class="bi bi-chevron-right"></i></span>
+      <span class="disabled" aria-hidden="true"><i class="bi bi-chevron-right"></i></span>
     {% endif %}
-    {% endwith %}
+    {% endwith %}{% endwith %}
   </div>
   {% endif %}
 

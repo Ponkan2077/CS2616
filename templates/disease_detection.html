@@ -60,9 +60,10 @@
      when it's blocked. Shown/hidden by toggling d-flex from JS, so d-flex
      is NOT in this class list (Bootstrap's !important display utilities
      would otherwise keep it permanently visible, even when empty). -->
-<div id="location-banner" class="alert alert-danger py-2 align-items-center gap-2 is-clickable" style="display:none;" title="Tap to re-check">
-  <i class="bi bi-geo-alt-fill"></i> <span id="location-banner-text" class="flex-grow-1"></span>
+<div id="location-banner" class="alert alert-danger py-2 align-items-center gap-2" style="display:none;">
+  <i class="bi bi-geo-alt-fill" aria-hidden="true"></i> <span id="location-banner-text" class="flex-grow-1" role="status" aria-live="polite"></span>
   <button type="button" id="location-enable-btn" class="btn btn-sm btn-outline-secondary flex-shrink-0" style="display:none;">Enable location</button>
+  <button type="button" id="location-recheck-btn" class="btn btn-sm btn-outline-secondary flex-shrink-0" style="display:none;">Check again</button>
 </div>
 
 <!-- Workflow strip -->
@@ -161,8 +162,8 @@
 
   <!-- Right: Result -->
   <div class="col-12 col-lg-7">
-    <div class="card-rg" id="result-box" style="display:none;">
-      <div class="card-header-rg"><i class="bi bi-clipboard2-pulse-fill"></i> Detection Result</div>
+    <div class="card-rg" id="result-box" style="display:none;" role="region" aria-labelledby="result-heading" tabindex="-1">
+      <div class="card-header-rg" id="result-heading"><i class="bi bi-clipboard2-pulse-fill" aria-hidden="true"></i> Detection Result</div>
       <div class="card-body-rg">
         <div class="row g-2 mb-3">
           <div class="col-12">

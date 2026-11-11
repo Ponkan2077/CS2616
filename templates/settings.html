@@ -49,9 +49,9 @@
       <div class="card-header-rg"><i class="bi bi-key-fill"></i> Change Password</div>
       <div class="card-body-rg">
         {% if password_form.errors %}
-        <div class="alert alert-danger py-2">
-          {% for field in password_form %}{% for error in field.errors %}{{ error }} {% endfor %}{% endfor %}
-          {% for error in password_form.non_field_errors %}{{ error }} {% endfor %}
+        <div class="alert alert-danger py-2" role="alert">
+          {% for field in password_form %}{% for error in field.errors %}<div>{{ error }}</div>{% endfor %}{% endfor %}
+          {% for error in password_form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
         </div>
         {% endif %}
         <form method="POST">
@@ -59,15 +59,15 @@
           <input type="hidden" name="form_name" value="password">
           <div class="mb-2">
             <label class="form-label small text-muted mb-1" for="id_old_password">Current Password</label>
-            <input type="password" id="id_old_password" name="old_password" class="form-control-rg" required>
+            <input type="password" id="id_old_password" name="old_password" class="form-control-rg" autocomplete="current-password" required>
           </div>
           <div class="mb-2">
             <label class="form-label small text-muted mb-1" for="id_new_password1">New Password</label>
-            <input type="password" id="id_new_password1" name="new_password1" class="form-control-rg" required>
+            <input type="password" id="id_new_password1" name="new_password1" class="form-control-rg" autocomplete="new-password" required>
           </div>
           <div class="mb-2">
             <label class="form-label small text-muted mb-1" for="id_new_password2">Confirm New Password</label>
-            <input type="password" id="id_new_password2" name="new_password2" class="form-control-rg" required>
+            <input type="password" id="id_new_password2" name="new_password2" class="form-control-rg" autocomplete="new-password" required>
           </div>
           <button type="submit" class="btn btn-outline-secondary btn-sm mt-1">Change Password</button>
         </form>
