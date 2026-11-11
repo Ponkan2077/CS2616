@@ -72,7 +72,7 @@
           {% endif %}
 
           <span class="detail-label">Notes</span>
-          <span class="text-sm-rg">{{ tree.notes }}</span>
+          <span class="text-sm-rg">{{ tree.notes|default:"—" }}</span>
         </div>
       </div>
     </div>

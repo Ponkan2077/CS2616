@@ -1177,8 +1177,9 @@ body {
 }
 .modal-header, .modal-footer { border-color: var(--border); }
 .modal-backdrop.show { opacity: .65; }
-.btn-close { opacity: .8; }   /* Bootstrap flips the glyph itself via data-bs-theme */
+.btn-close { opacity: .8; position: relative; }   /* Bootstrap flips the glyph itself via data-bs-theme */
 .btn-close:hover { opacity: 1; }
+.btn-close::after { content: ""; position: absolute; inset: -7px; }   /* 44px touch target, same trick as .rg-chip */
 .form-label { color: var(--text-muted); font-size: 12px; font-weight: 600; }
 
 

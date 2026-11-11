@@ -301,7 +301,11 @@ class DiseaseClass(models.Model):
     danger_rank = models.PositiveSmallIntegerField(
         default=1, help_text="0=healthy. Used only for heatmap/marker intensity, not severity tiering."
     )
-    is_healthy = models.BooleanField(default=False, help_text="Exactly one disease class should be marked Healthy.")
+    is_healthy = models.BooleanField(
+        default=False,
+        help_text="Tick every class that means 'no disease'. The trunk and root models each have their own "
+                  "healthy class, so more than one can be ticked.",
+    )
     recommendation_mild = models.TextField(blank=True)
     recommendation_moderate = models.TextField(blank=True)
     recommendation_severe = models.TextField(blank=True)
