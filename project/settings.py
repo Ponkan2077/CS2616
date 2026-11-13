@@ -29,6 +29,14 @@ CSRF_TRUSTED_ORIGINS = [
 # redirect to a fresh login form instead of showing Django's raw 403 page.
 CSRF_FAILURE_VIEW = 'farmmap.views.csrf_failure'
 
+# Django's SecurityMiddleware sends "Referrer-Policy: same-origin" by default,
+# so the browser strips the Referer from every cross-origin request. The
+# OpenStreetMap tile servers reject tile requests that have no Referer (their
+# tile usage policy) with "403 Access blocked", which left the maps blank.
+# This policy still hides the full URL path/query and sends only this site's
+# origin, and only to other sites over HTTPS.
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
