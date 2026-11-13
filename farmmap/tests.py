@@ -446,3 +446,88 @@ class SyncAndNotificationTests(TestCase):
         self.assertIn("pending-scans-section", html)
         self.assertIn("sync-now-btn", html)
         self.assertIn("enableOfflineShell", html)
+
+
+class InterventionTreeOptionsTests(MapGateTestCase):
+    """The Log Intervention checklist asks this endpoint for one farm's trees."""
+
+    def setUp(self):
+        super().setUp()
+        from .models import DiseaseClass, Intervention
+        DiseaseClass.objects.get_or_create(name="Healthy", defaults={"is_healthy": True})
+        DiseaseClass.objects.get_or_create(name="Pink Disease", defaults={"is_healthy": False})
+        DiseaseClass.objects.get_or_create(name="Canker Disease", defaults={"is_healthy": False})
+        self.add_trees(_grid(1, 2), disease="Healthy")           # RT-0001, RT-0002
+        self.add_trees(_grid(1, 2), disease="Pink Disease")      # RT-0003, RT-0004
+        self.add_trees(_grid(1, 1), disease="Canker Disease")    # RT-0005
+        # RT-0003 already has an action logged
+        Intervention.objects.create(
+            tree=self.farm.trees.get(tree_id="F1-RT-0003"), action="Fungicide Application",
+            date_performed=datetime.date.today(), performed_by=self.user,
+        )
+        self.client.login(username="owner", password="pw")
+        self.url = reverse("intervention_tree_options")
+
+    def ids(self, **params):
+        res = self.client.get(self.url, {"farm_pk": self.farm.pk, **params})
+        self.assertEqual(res.status_code, 200)
+        return [t["tree_id"] for t in res.json()["trees"]]
+
+    def test_a_farm_is_mandatory(self):
+        res = self.client.get(self.url)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("farm", res.json()["error"].lower())
+        self.assertEqual(self.client.get(self.url, {"farm_pk": "abc"}).status_code, 400)
+
+    def test_another_users_farm_is_not_found(self):
+        other = User.objects.create_user("other", password="pw")
+        theirs = Farm.objects.create(owner=other, farm_id="F2", name="Theirs", owner_name="Other")
+        self.assertEqual(self.client.get(self.url, {"farm_pk": theirs.pk}).status_code, 404)
+
+    def test_login_is_required(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url, {"farm_pk": self.farm.pk}).status_code, 302)
+
+    def test_lists_the_farms_trees_in_id_order_with_totals(self):
+        res = self.client.get(self.url, {"farm_pk": self.farm.pk}).json()
+        self.assertEqual([t["tree_id"] for t in res["trees"]], [f"F1-RT-{n:04d}" for n in range(1, 6)])
+        self.assertEqual(res["total"], 5)
+
+    def test_search_filters_by_tree_id(self):
+        self.assertEqual(self.ids(q="0004"), ["F1-RT-0004"])
+
+    def test_disease_filter(self):
+        self.assertEqual(self.ids(disease="Pink Disease"), ["F1-RT-0003", "F1-RT-0004"])
+
+    def test_needs_action_skips_healthy_and_already_treated_trees(self):
+        self.assertEqual(self.ids(status="needs_action"), ["F1-RT-0004", "F1-RT-0005"])
+
+    def test_treated_filter_and_flag(self):
+        res = self.client.get(self.url, {"farm_pk": self.farm.pk, "status": "treated"}).json()
+        self.assertEqual([t["tree_id"] for t in res["trees"]], ["F1-RT-0003"])
+        self.assertTrue(res["trees"][0]["has_intervention"])
+
+    def test_response_is_capped_but_reports_the_full_total(self):
+        from unittest import mock
+        with mock.patch("farmmap.views.CHECKLIST_PAGE_SIZE", 2):
+            res = self.client.get(self.url, {"farm_pk": self.farm.pk}).json()
+        self.assertEqual(len(res["trees"]), 2)
+        self.assertEqual(res["total"], 5)
+
+
+class FarmGateMarkupTests(MapGateTestCase):
+    """Pages that save to a farm tell the user a farm is required."""
+
+    def test_log_intervention_modal_gates_the_checklist_on_a_farm(self):
+        self.client.login(username="owner", password="pw")
+        html = self.client.get(reverse("interventions_log")).content.decode()
+        self.assertIn('id="iv-farm-gate"', html)
+        self.assertIn("Select a farm first", html)
+        self.assertIn('id="iv-disease-filter"', html)
+        self.assertIn('id="iv-status-filter"', html)
+        self.assertNotIn("FARM_TREES_BY_ID", html)
+
+    def test_bulk_upload_locks_the_photo_picker_until_a_farm_is_chosen(self):
+        self.client.login(username="owner", password="pw")
+        html = self.client.get(reverse("bulk_upload")).content.decode()
+        self.assertIn('id="bulk-farm-gate"', html)

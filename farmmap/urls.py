@@ -27,6 +27,7 @@ urlpatterns = [
     path('interventions/', views.interventions_log, name='interventions_log'),
     path('interventions/map/', views.interventions_map, name='interventions_map'),
     path('interventions/create/', views.intervention_create, name='intervention_create'),
+    path('interventions/trees/', views.intervention_tree_options, name='intervention_tree_options'),
 
     # Farm management
     path('farms/', views.farm_list, name='farm_list'),

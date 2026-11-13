@@ -67,7 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <dl class="tp-grid"><dt>Disease</dt><dd>${esc(tree.disease)}</dd></dl>
       <div class="tp-note ok"><i class="bi bi-check-circle-fill"></i> ${esc(tree.latest_intervention)} (${esc(tree.latest_intervention_date)})</div>
       ${more}
-      <a class="tp-link" href="/inventory/${encodeURIComponent(tree.tree_id)}/">View details</a>
+      <a class="tp-link" href="/inventory/${encodeURIComponent(tree.tree_id)}/"><i class="bi bi-eye" aria-hidden="true"></i> View full information</a>
     `, { maxWidth: 260, className: "rg-popup" });
     if (group) group.addLayer(marker); else marker.addTo(map);
     markerList.push({ el: marker, tree: treatedTree });

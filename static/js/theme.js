@@ -100,7 +100,7 @@
     primary: '--primary', primaryText: '--primary-text', secondary: '--secondary',
     danger: '--danger-bar', dangerText: '--danger-text', dangerTint: '--danger-tint',
     barTrack: '--bar-track', hover: '--hover',
-    sevMild: '--sev-mild', sevModerate: '--sev-moderate', sevSevere: '--sev-severe', sevPeak: '--sev-peak',
+    sevNone: '--sev-none', sevMild: '--sev-mild', sevModerate: '--sev-moderate', sevSevere: '--sev-severe', sevPeak: '--sev-peak',
     mapRing: '--map-ring', mapRingInv: '--map-ring-inv',
     mapBoundary: '--map-boundary', mapBoundaryOnDark: '--map-boundary-on-dark'
   };

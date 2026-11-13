@@ -132,7 +132,7 @@
 <div class="modal fade" id="logInterventionModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content">
-      <form method="POST" action="{% url 'intervention_create' %}" id="intervention-form">
+      <form method="POST" action="{% url 'intervention_create' %}" id="intervention-form" data-options-url="{% url 'intervention_tree_options' %}">
         {% csrf_token %}
         <div class="modal-header">
           <h6 class="modal-title fw-bold"><i class="bi bi-clipboard2-pulse-fill me-1"></i> Log Intervention</h6>
@@ -140,8 +140,8 @@
         </div>
         <div class="modal-body">
           <div class="auth-field">
-            <label for="iv-farm">Farm</label>
-            <select name="farm_pk" id="iv-farm" class="form-control-rg" required>
+            <label for="iv-farm">Farm <span class="field-required">(required)</span></label>
+            <select name="farm_pk" id="iv-farm" class="form-control-rg" required aria-describedby="iv-farm-gate">
               <option value="">Select Farm</option>
               {% for farm in all_farms %}
               <option value="{{ farm.pk }}" data-farm-id="{{ farm.farm_id }}">{{ farm.farm_id }} — {{ farm.name }}</option>
@@ -151,20 +151,27 @@
 
           <!-- Selection mode toggle -->
           <div class="auth-field">
-            <label>Select Trees By</label>
-            <div class="view-toggle">
-              <button type="button" class="view-toggle-btn active" data-mode="range">
+            <label id="iv-mode-label">Select Trees By</label>
+            <div class="view-toggle" role="group" aria-labelledby="iv-mode-label">
+              <button type="button" class="view-toggle-btn active" data-mode="range" aria-pressed="true">
                 <i class="bi bi-sliders"></i> ID Range
               </button>
-              <button type="button" class="view-toggle-btn" data-mode="single">
+              <button type="button" class="view-toggle-btn" data-mode="single" aria-pressed="false">
                 <i class="bi bi-check2-square"></i> Checklist
               </button>
             </div>
           </div>
           <input type="hidden" name="selection_mode" id="selection-mode-input" value="range">
 
+          <!-- Shown instead of the ID range / checklist until a farm is chosen:
+               both only make sense for one farm's trees. -->
+          <div id="iv-farm-gate" class="farm-gate" role="status">
+            <i class="bi bi-lock-fill" aria-hidden="true"></i>
+            <span><b>Select a farm first.</b> The tree checklist and the ID range only show up once you've chosen the farm the trees belong to.</span>
+          </div>
+
           <!-- Range mode -->
-          <div id="range-mode-fields" class="row g-2 mb-2">
+          <div id="range-mode-fields" class="row g-2 mb-2" hidden>
             <div class="col-12 col-sm-6">
               <div class="auth-field">
                 <label for="range_start">From Tree ID</label>
@@ -179,10 +186,36 @@
             </div>
           </div>
 
-          <!-- Checklist mode -->
-          <div id="checklist-mode-fields" class="mb-2" style="display:none;">
-            <div class="text-muted mb-2 text-sm-rg">Select a farm first, then check the trees to include. For farms with many trees, only the first 300 (by ID) are listed here — use ID Range mode for anything beyond that.</div>
-            <div id="tree-checklist" class="tree-checklist"></div>
+          <!-- Checklist mode: the trees come from the server, filtered, so a
+               farm with thousands of trees is searchable, not cut off. -->
+          <div id="checklist-mode-fields" class="mb-2" hidden>
+            <div class="checklist-filters">
+              <div class="search-wrap">
+                <i class="bi bi-search" aria-hidden="true"></i>
+                <input type="search" id="iv-tree-search" class="form-control-rg" placeholder="Search tree ID" aria-label="Search tree ID" autocomplete="off">
+              </div>
+              <select id="iv-disease-filter" class="select-filter-rg" aria-label="Filter by disease">
+                <option value="">All diseases</option>
+                {% for d in disease_classes %}
+                <option value="{{ d.name }}">{{ d.name }}</option>
+                {% endfor %}
+              </select>
+              <select id="iv-status-filter" class="select-filter-rg" aria-label="Filter by action status">
+                <option value="">Any status</option>
+                <option value="needs_action">Needs action</option>
+                <option value="treated">Action already logged</option>
+              </select>
+            </div>
+            <div class="checklist-bar">
+              <span id="iv-checklist-count" class="text-muted text-sm-rg" role="status" aria-live="polite"></span>
+              <span class="checklist-bar-actions">
+                <button type="button" id="iv-select-shown" class="btn btn-sm btn-outline-secondary">Select all shown</button>
+                <button type="button" id="iv-clear-selected" class="btn btn-sm btn-outline-secondary">Clear</button>
+              </span>
+            </div>
+            <div id="tree-checklist" class="tree-checklist" aria-live="polite"></div>
+            <div id="iv-selection-error" class="notice notice-danger mt-2" role="alert" hidden>Check at least one tree, or switch to ID Range.</div>
+            <div id="iv-selected-inputs"></div>
           </div>
 
           <div class="row g-2">
@@ -226,9 +259,6 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script>
-  const FARM_TREES_BY_ID = {{ farm_trees_json|default:"{}"|safe }};
-</script>
 {% load static %}
 <script src="{% static 'js/interventions.js' %}?v={{ STATIC_VERSION }}"></script>
 {% endblock %}

@@ -444,7 +444,24 @@ async function processBulkGroups() {
   }
 }
 
+// A farm is mandatory before photos can be chosen: they are saved to it, and
+// the manual-location map starts on its centre. Until one is picked, the
+// picker is locked and a message says why.
+function applyBulkFarmGate() {
+  const hasFarm = !!document.getElementById("bulk-farm-select").value;
+  const input = document.getElementById("bulk-file-input");
+  const label = input.closest("label");
+  input.disabled = !hasFarm;
+  if (label) {
+    label.classList.toggle("is-disabled", !hasFarm);
+    label.setAttribute("aria-disabled", hasFarm ? "false" : "true");
+  }
+  document.getElementById("bulk-farm-gate").hidden = hasFarm;
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("bulk-farm-select").addEventListener("change", applyBulkFarmGate);
+  applyBulkFarmGate();
   document.getElementById("bulk-file-input").addEventListener("change", e => handleBulkFiles(e.target.files));
   document.getElementById("bulk-groups-container").addEventListener("click", handleBulkContainerClick);
   document.getElementById("bulk-process-btn").addEventListener("click", processBulkGroups);

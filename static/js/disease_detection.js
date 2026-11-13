@@ -798,7 +798,11 @@ function wireFarmGate() {
   const farmSelect = document.getElementById("save-farm-pk");
   const rootWrapper = document.getElementById("root-zone-wrapper");
   if (!farmSelect || !rootWrapper) return;
-  const update = () => setStepLocked(rootWrapper, !farmSelect.value);
+  const gate = document.getElementById("farm-gate");
+  const update = () => {
+    setStepLocked(rootWrapper, !farmSelect.value);
+    if (gate) gate.hidden = !!farmSelect.value;
+  };
   farmSelect.addEventListener("change", update);
   update();
   // The trunk step starts locked in the markup; mirror that for keyboards.

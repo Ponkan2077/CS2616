@@ -55,9 +55,15 @@
       <div class="col-12 col-sm-6">
         <label class="file-pick position-relative btn btn-outline-primary btn-sm w-100">
           <i class="bi bi-folder2-open"></i> Choose Photos
-          <input type="file" id="bulk-file-input" accept="image/*" multiple class="visually-hidden">
+          <input type="file" id="bulk-file-input" accept="image/*" multiple class="visually-hidden"{% if not selected_farm %} disabled{% endif %}>
         </label>
       </div>
+    </div>
+    <!-- Photos are saved to a farm, so the picker stays locked until one is
+         chosen (bulk_detection.js keeps this in sync with the dropdown). -->
+    <div id="bulk-farm-gate" class="farm-gate" role="status"{% if selected_farm %} hidden{% endif %}>
+      <i class="bi bi-lock-fill" aria-hidden="true"></i>
+      <span><b>Select a farm first.</b> Choose Photos unlocks once you've picked the farm these trees are on.</span>
     </div>
     <div id="bulk-status" class="text-muted text-sm-rg" role="status" aria-live="polite"></div>
     {% if not ai_enabled %}

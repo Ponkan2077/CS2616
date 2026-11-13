@@ -5,11 +5,6 @@
 {# "N of M trees need attention": N is the view's diseased count (total minus every is_healthy class). Top bar on tablet/desktop; the copy in the page body is the phone version. #}
 {% block topbar_note %}{% if not no_farms %}<span class="attention-note">{% if diseased %}<b>{{ diseased }}</b>{% else %}0{% endif %} of {{ total }} tree{{ total|pluralize }} {% if total == 1 %}needs{% else %}need{% endif %} attention</span>{% endif %}{% endblock %}
 
-{% block extra_head %}
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
-{% endblock %}
-
 {% block content %}
 {% if no_farms %}
 <div class="card-rg card-body-rg text-center text-muted">
@@ -137,6 +132,10 @@
         <option value="{{ d.name }}"{% if d.is_healthy %} data-healthy="1"{% endif %}>{{ d.name }}</option>
         {% endfor %}
       </select>
+      <!-- Filled in by farm_map.js once it has split the farm into regions (hidden on a farm too small for regions). -->
+      <select id="map-region-select" class="select-filter-rg" aria-label="Zoom to a region" hidden>
+        <option value="">All regions</option>
+      </select>
       <button type="button" id="map-reset" class="btn btn-outline-secondary btn-icon" aria-label="Reset filters and fit the farm" title="Reset filters and fit the farm">
         <i class="bi bi-arrow-counterclockwise"></i>
       </button>
@@ -146,6 +145,18 @@
   <!-- Map + floating panels (panels sit below the map on small screens) -->
   <div class="map-stage">
     <div id="map-container" class="map-container-rg"></div>
+
+    <!-- Shown while zoomed into a region: its size, where it sits on the farm, and the way back out. -->
+    <div id="region-bar" class="region-bar" hidden>
+      <div id="region-locator" class="region-locator" role="img" aria-label="Where this region is on the farm"></div>
+      <div class="region-bar-info">
+        <b id="region-bar-name"></b>
+        <span id="region-bar-meta"></span>
+      </div>
+      <button type="button" id="region-back" class="btn btn-sm btn-outline-secondary region-back">
+        <i class="bi bi-arrow-left" aria-hidden="true"></i> All regions
+      </button>
+    </div>
 
     <div id="map-empty" class="map-empty" hidden>
       <div class="map-empty-title" id="map-empty-title"></div>
@@ -173,7 +184,7 @@
           {% endfor %}
         </ul>
         <div class="legend-boundary"><span class="legend-dot-farm"></span>Farm boundary</div>
-        <p class="map-panel-hint">Tap a disease to show only those trees. Healthy trees are drawn small so sick ones stand out. A numbered ring groups nearby trees: each coloured part is one disease, so zoom in to split it.</p>
+        <p class="map-panel-hint">Each circle is a region: the number is its trees, the ring is its disease mix. Click one to zoom in, then click a tree for a quick look.</p>
       </div>
     </aside>
 
@@ -185,6 +196,11 @@
       <div class="map-panel-body">
         <div id="heat-chips" class="heat-chips" role="group" aria-label="Disease to map"></div>
 
+        <div class="view-toggle heat-basemap" role="group" aria-label="Map background">
+          <button type="button" class="view-toggle-btn active" data-base="streets" aria-pressed="true">Streets</button>
+          <button type="button" class="view-toggle-btn" data-base="satellite" aria-pressed="false">Satellite</button>
+        </div>
+
         <div class="heat-scale">
           <div id="heat-ramp" class="heat-ramp" role="img" aria-label="Severity scale from 0 to 100"></div>
           <div class="heat-tier-labels">
@@ -193,7 +209,8 @@
             <span><b>Severe</b><small>67–100</small></span>
           </div>
         </div>
-        <p class="map-panel-hint">Color shows the most severe tree nearby, not how many trees are affected. Dots are individual trees.</p>
+        <p class="heat-none"><i aria-hidden="true"></i>Green: no cases of this disease nearby</p>
+        <p class="map-panel-hint">Color shows the most severe tree nearby, not how many trees are affected. Every dot is a tree: click one for a quick look, then open its full information.</p>
 
         <dl class="heat-stats">
           <div><dt>Trees</dt><dd id="heat-stat-count">0</dd></div>
@@ -276,7 +293,6 @@
     diseaseColors: {{ disease_colors_json|safe }}
   };
 </script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 {% load static %}
 <script src="{% static 'js/farm_map.js' %}?v={{ STATIC_VERSION }}"></script>
 {% endif %}

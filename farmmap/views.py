@@ -2014,28 +2014,61 @@ def interventions_log(request):
     page_number = request.GET.get("page", 1)
     interventions_page = paginator.get_page(page_number)
 
-    # Pre-built {farm_pk: [{tree_id, disease}, ...]} lookup for the
-    # checklist-mode tree selector in the log-intervention form. Capped
-    # since farms can have thousands of trees; range mode (the primary
-    # selection method) has no such limit.
-    CHECKLIST_TREE_LIMIT = 300
-    farm_trees = {}
-    for f in Farm.objects.filter(owner=request.user):
-        farm_trees[str(f.pk)] = [
-            {"tree_id": t.tree_id, "disease": t.disease}
-            for t in f.trees.order_by("tree_id")[:CHECKLIST_TREE_LIMIT]
-        ]
-
+    # The checklist in the log-intervention form no longer ships every
+    # farm's trees inside this page: it asks intervention_tree_options()
+    # for the trees of the chosen farm, filtered, as the person types.
     ctx = _base_context(request, farm)
     ctx.update({
         "page": "interventions",
         "interventions": interventions_page,
-        "farm_trees_json": _json_for_script(farm_trees),
         "search_q": search_q, "action_filter": action_filter,
         "farm_filter": farm_filter, "range_filter": range_filter,
         "action_choices": Intervention.ACTION_CHOICES,
+        "disease_classes": DiseaseClass.objects.all().order_by("display_order", "name"),
     })
     return render(request, "interventions_log.html", ctx)
+
+
+# Most trees the Log Intervention checklist loads at once. A farm can have
+# thousands, so the list is narrowed with the filters (or ID Range mode) and
+# the response says how many matched in total.
+CHECKLIST_PAGE_SIZE = 100
+
+
+@login_required
+def intervention_tree_options(request):
+    # JSON feed for the Log Intervention checklist: the trees of ONE of the
+    # user's farms, filtered by tree ID text, disease and whether an action
+    # is already logged. A farm is mandatory -- the checklist only exists for
+    # a chosen farm -- and it must belong to the signed-in user.
+    farm_pk = request.GET.get("farm_pk", "").strip()
+    if not farm_pk.isdigit():
+        return JsonResponse({"error": "Select a farm first."}, status=400)
+    farm = get_object_or_404(Farm, pk=int(farm_pk), owner=request.user)
+
+    qs = farm.trees.annotate(
+        has_intervention=Exists(Intervention.objects.filter(tree=OuterRef("pk")))
+    ).order_by("tree_id")
+
+    search_q = request.GET.get("q", "").strip()
+    disease = request.GET.get("disease", "").strip()
+    status = request.GET.get("status", "").strip()
+    if search_q:
+        qs = qs.filter(tree_id__icontains=search_q)
+    if disease:
+        qs = qs.filter(disease=disease)
+    if status == "needs_action":
+        # Diseased and nothing logged yet (every healthy class is skipped).
+        qs = qs.exclude(disease__in=get_healthy_names()).filter(has_intervention=False)
+    elif status == "treated":
+        qs = qs.filter(has_intervention=True)
+
+    total = qs.count()
+    trees = [
+        {"tree_id": t.tree_id, "disease": t.disease, "has_intervention": t.has_intervention}
+        for t in qs[:CHECKLIST_PAGE_SIZE]
+    ]
+    return JsonResponse({"trees": trees, "total": total, "limit": CHECKLIST_PAGE_SIZE})
 
 
 @login_required

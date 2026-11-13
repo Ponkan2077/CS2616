@@ -33,6 +33,10 @@
       <option value="{{ farm.pk }}" data-farm-id="{{ farm.farm_id }}" {% if rescan_farm_pk %}{% if rescan_farm_pk == farm.pk %}selected{% endif %}{% elif selected_farm.pk == farm.pk %}selected{% endif %}>{{ farm.farm_id }} — {{ farm.name }}</option>
       {% endfor %}
     </select>
+    <div id="farm-gate" class="farm-gate mt-2 mb-0" role="status"{% if rescan_farm_pk or selected_farm %} hidden{% endif %}>
+      <i class="bi bi-lock-fill" aria-hidden="true"></i>
+      <span><b>Select a farm first.</b> Step 1 and Step 2 unlock once you've chosen the farm this tree is on.</span>
+    </div>
   </div>
 </div>
 
